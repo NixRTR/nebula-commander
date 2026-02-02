@@ -45,12 +45,12 @@ jobs:
             arch: x64
           
           # macOS builds
-          - os: macos-13  # Intel Mac
+          - os: macos-15-intel  # Intel Mac (macos-13 retired)
             artifact_name: ncclient
             asset_name: ncclient-macos-amd64
             platform: macOS (Intel)
             arch: x64
-          - os: macos-latest  # Apple Silicon (macos-14+)
+          - os: macos-latest  # Apple Silicon (macos-15 arm64)
             artifact_name: ncclient
             asset_name: ncclient-macos-arm64
             platform: macOS (ARM64)
