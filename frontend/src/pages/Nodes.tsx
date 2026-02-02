@@ -1285,7 +1285,7 @@ export function Nodes() {
                 </Button>
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Then run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient run --server &lt;URL&gt;</code> to poll for config and certs every minute.
+                Then run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient --server &lt;URL&gt; run</code> to poll for config and certs every minute.
               </p>
               <div className="flex items-center gap-2 pt-2">
                 {enrollmentCodeModal.enrollmentSuccess ? (

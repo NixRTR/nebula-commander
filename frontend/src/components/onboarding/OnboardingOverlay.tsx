@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Button, Card } from "flowbite-react";
 import { useOnboarding } from "../../contexts/OnboardingContext";
 import type { OnboardingStep } from "../../contexts/OnboardingContext";
@@ -15,6 +16,7 @@ const STEP_TARGETS: Record<OnboardingStep, string | null> = {
 export function OnboardingOverlay() {
   const { onboardingActive, step, completeStep, skip } = useOnboarding();
   const [holeRect, setHoleRect] = useState<DOMRect | null>(null);
+  const navigate = useNavigate();
 
   const targetId = STEP_TARGETS[step];
 
@@ -86,6 +88,11 @@ export function OnboardingOverlay() {
   }
 
   if (step === 6) {
+    const handleDone = () => {
+      completeStep();
+      navigate("/client-download");
+    };
+
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4">
         <Card className="max-w-md w-full">
@@ -94,8 +101,8 @@ export function OnboardingOverlay() {
             Install ncclient on your device using the instructions for your OS (Linux, Windows, or Mac) on the Client Download page. Then run enroll with your code, then run the daemon.
           </p>
           <div className="flex gap-2 justify-end">
-            <Button color="blue" onClick={completeStep}>
-              Done
+            <Button color="blue" onClick={handleDone}>
+              Go to Client Download
             </Button>
           </div>
         </Card>

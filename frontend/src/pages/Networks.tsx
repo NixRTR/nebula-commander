@@ -45,6 +45,7 @@ export function Networks() {
         <Button
           onClick={() => setShowForm(!showForm)}
           color={showForm ? "gray" : "blue"}
+          data-onboarding-target="networks-create-button"
         >
           <HiPlus className="mr-2 h-5 w-5" />
           {showForm ? "Cancel" : "Add Network"}

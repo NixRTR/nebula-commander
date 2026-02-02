@@ -20,14 +20,14 @@ export function ClientDownload() {
             <h2 className="text-xl font-bold mb-4">Enroll (one-time)</h2>
             <p className="text-gray-700 dark:text-gray-300 mb-2">Get the enrollment code from Nebula Commander: Nodes → Enroll. Then run on the device:</p>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              ncclient enroll --server https://YOUR_NEBULA_COMMANDER_URL --code XXXXXXXX
+              ncclient --server https://&lt;YOUR_SERVER&gt;:&lt;PORT&gt; enroll --code XXXXXXXX
             </pre>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Token is saved to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">~/.config/nebula-commander/token</code> (or <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/etc/nebula-commander/token</code> when run as root).</p>
 
             <h2 className="text-xl font-bold mb-4">Run (daemon)</h2>
             <p className="text-gray-700 dark:text-gray-300 mb-2">Creating the Nebula TUN device requires root on Linux. Run:</p>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              sudo ncclient run --server https://YOUR_NEBULA_COMMANDER_URL
+              sudo ncclient --server https://&lt;YOUR_SERVER&gt;:&lt;PORT&gt; run
             </pre>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Config and certs are written to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/etc/nebula</code> by default. Use <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">--output-dir</code> to override.</p>
 
@@ -50,13 +50,13 @@ export function ClientDownload() {
             <h2 className="text-xl font-bold mb-4">Enroll (one-time)</h2>
             <p className="text-gray-700 dark:text-gray-300 mb-2">Get the enrollment code from Nebula Commander: Nodes → Enroll. Then run in PowerShell or Command Prompt:</p>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              ncclient enroll --server https://YOUR_NEBULA_COMMANDER_URL --code XXXXXXXX
+              ncclient --server https://&lt;YOUR_SERVER&gt;:&lt;PORT&gt; enroll --code XXXXXXXX
             </pre>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Token is saved under <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">%USERPROFILE%\.config\nebula-commander\token</code>.</p>
 
             <h2 className="text-xl font-bold mb-4">Run (daemon)</h2>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              ncclient run --server https://YOUR_NEBULA_COMMANDER_URL
+              ncclient --server https://&lt;YOUR_SERVER&gt;:&lt;PORT&gt; run
             </pre>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Default output dir for config and certs is <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">%USERPROFILE%\.nebula</code>. Override with <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">--output-dir</code> (e.g. <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">C:\ProgramData\Nebula</code> if running as Administrator).</p>
             <p className="text-sm text-gray-600 dark:text-gray-400">Run ncclient in a terminal or install as a Windows service (e.g. Task Scheduler or NSSM) so it keeps running.</p>
@@ -74,13 +74,13 @@ export function ClientDownload() {
             <h2 className="text-xl font-bold mb-4">Enroll (one-time)</h2>
             <p className="text-gray-700 dark:text-gray-300 mb-2">Get the enrollment code from Nebula Commander: Nodes → Enroll. Then run:</p>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              ncclient enroll --server https://YOUR_NEBULA_COMMANDER_URL --code XXXXXXXX
+              ncclient --server https://&lt;YOUR_SERVER&gt;:&lt;PORT&gt; enroll --code XXXXXXXX
             </pre>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Token is stored at <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">~/.config/nebula-commander/token</code> (or <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/etc/nebula-commander/token</code> when run as root).</p>
 
             <h2 className="text-xl font-bold mb-4">Run (daemon)</h2>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              ncclient run --server https://YOUR_NEBULA_COMMANDER_URL
+              ncclient --server https://&lt;YOUR_SERVER&gt;:&lt;PORT&gt; run
             </pre>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Default output dir is <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/etc/nebula</code>. If you run as a normal user, use <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">--output-dir ~/.nebula</code>. After <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">brew install nebula</code>, nebula is usually on PATH; use <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">--nebula /opt/homebrew/bin/nebula</code> (Apple Silicon) or <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">--nebula /usr/local/bin/nebula</code> (Intel) only if needed.</p>
             <p className="text-sm text-gray-600 dark:text-gray-400">To run in the background, use launchd (LaunchAgent in <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">~/Library/LaunchAgents</code> or LaunchDaemon in <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/Library/LaunchDaemons</code>).</p>
