@@ -4,8 +4,6 @@ on:
   push:
     tags:
       - 'v*'  # Trigger on version tags (e.g., v0.1.5)
-    branches:
-      - main  # Also build on main branch pushes (for testing)
   pull_request:
     paths:
       - 'client/binaries/**'
