@@ -209,6 +209,8 @@ export interface CreateCertificateRequest {
 }
 
 export interface CreateCertificateResponse {
+  node_id: number;
+  hostname: string;
   ip_address: string;
   certificate: string;
   private_key: string;

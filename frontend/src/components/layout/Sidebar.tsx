@@ -140,16 +140,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 Nodes
               </FlowbiteSidebar.Item>
 
-              <FlowbiteSidebar.Item
-                as={Link}
-                to="/certificates"
-                icon={HiShieldCheck}
-                active={location.pathname === '/certificates'}
-                onClick={handleItemClick}
-              >
-                Certificates
-              </FlowbiteSidebar.Item>
-
               {/* Settings - collapsible */}
               <li>
                 <button

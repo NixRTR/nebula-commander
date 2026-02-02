@@ -2,6 +2,7 @@
 Database setup and session management for Nebula Commander
 """
 import logging
+import sqlite3
 from pathlib import Path
 
 from sqlalchemy import event
@@ -50,11 +51,55 @@ class Base(DeclarativeBase):
     pass
 
 
+def _run_sqlite_migrations() -> None:
+    """Add missing columns and tables to existing SQLite DB (safe to run every startup)."""
+    if not _db_url.startswith("sqlite"):
+        return
+    path_part = _db_url.split("///", 1)[-1].split("?")[0]
+    if not path_part or path_part.startswith(":"):
+        return
+    path = Path(path_part)
+    if not path.exists():
+        return
+    conn = sqlite3.connect(str(path))
+    cur = conn.cursor()
+    try:
+        cur.execute("PRAGMA table_info(nodes)")
+        columns = {row[1] for row in cur.fetchall()}
+        for col, sql in [
+            ("public_endpoint", "ALTER TABLE nodes ADD COLUMN public_endpoint VARCHAR(512)"),
+            ("lighthouse_options", "ALTER TABLE nodes ADD COLUMN lighthouse_options TEXT"),
+            ("first_polled_at", "ALTER TABLE nodes ADD COLUMN first_polled_at DATETIME"),
+        ]:
+            if col not in columns:
+                cur.execute(sql)
+                logger.info("Migration: added column nodes.%s", col)
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='enrollment_codes'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE enrollment_codes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    node_id INTEGER NOT NULL REFERENCES nodes(id),
+                    code VARCHAR(64) NOT NULL UNIQUE,
+                    expires_at DATETIME NOT NULL,
+                    used_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            logger.info("Migration: created table enrollment_codes")
+        conn.commit()
+    finally:
+        conn.close()
+
+
 async def init_db() -> None:
-    """Create all tables. Import models so they register with Base.metadata."""
+    """Create all tables and run any pending migrations."""
     from . import models  # noqa: F401
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    _run_sqlite_migrations()
     logger.info("Database initialized")
 
 

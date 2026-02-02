@@ -17,6 +17,7 @@ import type { Network } from "../types/networks";
 import {
   listNodes,
   listNetworks,
+  getNode,
   updateNode,
   getNodeConfigBlob,
   getNodeCertsBlob,
@@ -25,17 +26,7 @@ import {
   checkIpAvailable,
   deleteNode,
 } from "../api/client";
-import type { CreateEnrollmentCodeResponse, CreateCertificateResponse } from "../api/client";
-
-function downloadFile(filename: string, content: string) {
-  const blob = new Blob([content], { type: "text/plain" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
+import type { CreateEnrollmentCodeResponse } from "../api/client";
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -76,8 +67,10 @@ export function Nodes() {
   const [enrollmentCodeModal, setEnrollmentCodeModal] = useState<{
     open: boolean;
     data: CreateEnrollmentCodeResponse | null;
+    nodeId: number | null;
     loading: boolean;
-  }>({ open: false, data: null, loading: false });
+    enrollmentSuccess: boolean;
+  }>({ open: false, data: null, nodeId: null, loading: false, enrollmentSuccess: false });
 
   const [showCreateNodeForm, setShowCreateNodeForm] = useState(false);
   const [createNodeForm, setCreateNodeForm] = useState({
@@ -95,7 +88,6 @@ export function Nodes() {
   });
   const [nodeNameError, setNodeNameError] = useState<string | null>(null);
   const [suggestedIpError, setSuggestedIpError] = useState<string | null>(null);
-  const [createNodeResult, setCreateNodeResult] = useState<CreateCertificateResponse | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
 
   const [deleteModal, setDeleteModal] = useState<{
@@ -165,7 +157,6 @@ export function Nodes() {
   const handleCreateNodeSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    setCreateNodeResult(null);
     if (nodeNameError || suggestedIpError) return;
     setCreateSubmitting(true);
     const body = {
@@ -189,11 +180,21 @@ export function Nodes() {
     };
     createCertificate(body)
       .then((res) => {
-        setCreateNodeResult(res);
         setCreateNodeForm((f) => ({ ...f, name: "", groups: "", suggested_ip: "" }));
         setNodeNameError(null);
         setSuggestedIpError(null);
         loadNodes();
+        setShowCreateNodeForm(false);
+        return createEnrollmentCode(res.node_id, 24);
+      })
+      .then((enrollData) => {
+        setEnrollmentCodeModal({
+          open: true,
+          data: enrollData,
+          nodeId: enrollData.node_id,
+          loading: false,
+          enrollmentSuccess: false,
+        });
       })
       .catch((e) => setError(e.message))
       .finally(() => setCreateSubmitting(false));
@@ -290,18 +291,64 @@ export function Nodes() {
   };
 
   const openEnrollmentCodeModal = (node: Node) => {
-    setEnrollmentCodeModal({ open: true, data: null, loading: true });
+    setEnrollmentCodeModal({
+      open: true,
+      data: null,
+      nodeId: node.id,
+      loading: true,
+      enrollmentSuccess: false,
+    });
     createEnrollmentCode(node.id, 24)
-      .then((data) => setEnrollmentCodeModal((s) => ({ ...s, data, loading: false })))
+      .then((data) =>
+        setEnrollmentCodeModal((s) => ({ ...s, data, loading: false }))
+      )
       .catch((e) => {
         setError(e.message);
-        setEnrollmentCodeModal((s) => ({ ...s, loading: false }));
+        setEnrollmentCodeModal((s) => ({ ...s, loading: false, nodeId: null }));
       });
   };
 
   const closeEnrollmentCodeModal = () => {
-    setEnrollmentCodeModal({ open: false, data: null, loading: false });
+    setEnrollmentCodeModal({
+      open: false,
+      data: null,
+      nodeId: null,
+      loading: false,
+      enrollmentSuccess: false,
+    });
   };
+
+  const handleEnrollmentContinue = () => {
+    closeEnrollmentCodeModal();
+    loadNodes();
+  };
+
+  // Poll for enrollment success (first_polled_at) while modal is open
+  useEffect(() => {
+    if (
+      !enrollmentCodeModal.open ||
+      !enrollmentCodeModal.nodeId ||
+      enrollmentCodeModal.enrollmentSuccess ||
+      enrollmentCodeModal.loading
+    ) {
+      return;
+    }
+    const interval = setInterval(() => {
+      getNode(enrollmentCodeModal.nodeId!)
+        .then((node) => {
+          if (node.first_polled_at) {
+            setEnrollmentCodeModal((s) => ({ ...s, enrollmentSuccess: true }));
+          }
+        })
+        .catch(() => {});
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [
+    enrollmentCodeModal.open,
+    enrollmentCodeModal.nodeId,
+    enrollmentCodeModal.enrollmentSuccess,
+    enrollmentCodeModal.loading,
+  ]);
 
   const getStatusBadge = (status: string) => {
     switch (status) {
@@ -370,7 +417,6 @@ export function Nodes() {
                 color={showCreateNodeForm ? "gray" : "blue"}
                 onClick={() => {
                   setShowCreateNodeForm((v) => !v);
-                  setCreateNodeResult(null);
                   setNodeNameError(null);
                   setSuggestedIpError(null);
                 }}
@@ -552,69 +598,6 @@ export function Nodes() {
             </div>
           )}
 
-          {createNodeResult && (
-            <div className="mb-6 p-4 border-2 border-green-200 dark:border-green-800 rounded-lg bg-green-50/50 dark:bg-gray-800/50">
-              <h2 className="text-xl font-semibold mb-2 text-green-800 dark:text-green-200">Node created</h2>
-              <Alert color="success" className="mb-4">
-                The private key is stored on the server and is included when you download certs from the node. Copy or download below to place on your node (host.key, host.crt, ca.crt).
-              </Alert>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
-                Assigned IP: <strong>{createNodeResult.ip_address}</strong>
-              </p>
-              <div className="space-y-4">
-                <div>
-                  <div className="flex flex-wrap gap-2 justify-between items-center mb-1">
-                    <Label value="Private key (host.key)" />
-                    <div className="flex gap-2">
-                      <Button size="xs" color="gray" onClick={() => navigator.clipboard.writeText(createNodeResult.private_key)}>
-                        <HiClipboard className="w-4 h-4 mr-1" /> Copy
-                      </Button>
-                      <Button size="xs" color="gray" onClick={() => downloadFile("host.key", createNodeResult.private_key)}>
-                        <HiClipboard className="w-4 h-4 mr-1" /> Download
-                      </Button>
-                    </div>
-                  </div>
-                  <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
-                    {createNodeResult.private_key}
-                  </pre>
-                </div>
-                <div>
-                  <div className="flex flex-wrap gap-2 justify-between items-center mb-1">
-                    <Label value="Certificate (host.crt)" />
-                    <div className="flex gap-2">
-                      <Button size="xs" color="gray" onClick={() => navigator.clipboard.writeText(createNodeResult.certificate)}>
-                        <HiClipboard className="w-4 h-4 mr-1" /> Copy
-                      </Button>
-                      <Button size="xs" color="gray" onClick={() => downloadFile("host.crt", createNodeResult.certificate)}>
-                        Download
-                      </Button>
-                    </div>
-                  </div>
-                  <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
-                    {createNodeResult.certificate}
-                  </pre>
-                </div>
-                {createNodeResult.ca_certificate && (
-                  <div>
-                    <div className="flex flex-wrap gap-2 justify-between items-center mb-1">
-                      <Label value="CA certificate (ca.crt)" />
-                      <div className="flex gap-2">
-                        <Button size="xs" color="gray" onClick={() => navigator.clipboard.writeText(createNodeResult.ca_certificate!)}>
-                          <HiClipboard className="w-4 h-4 mr-1" /> Copy
-                        </Button>
-                        <Button size="xs" color="gray" onClick={() => downloadFile("ca.crt", createNodeResult.ca_certificate!)}>
-                          Download
-                        </Button>
-                      </div>
-                    </div>
-                    <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
-                      {createNodeResult.ca_certificate}
-                    </pre>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
           <div className="overflow-x-auto">
             <Table>
               <Table.Head>
@@ -698,7 +681,7 @@ export function Nodes() {
             </Table>
             {nodes.length === 0 && (
               <div className="p-4 text-center text-gray-500 dark:text-gray-400">
-                No nodes yet. Create certificates to add nodes.
+                No nodes yet. Create a node to get started.
               </div>
             )}
           </div>
@@ -866,8 +849,8 @@ export function Nodes() {
         </Modal.Footer>
       </Modal>
 
-      <Modal show={enrollmentCodeModal.open} onClose={closeEnrollmentCodeModal} size="md">
-        <Modal.Header>Enrollment code (dnclient-style)</Modal.Header>
+      <Modal show={enrollmentCodeModal.open} onClose={closeEnrollmentCodeModal} size="xl">
+        <Modal.Header>Enroll Your New Node!</Modal.Header>
         <Modal.Body>
           {enrollmentCodeModal.loading && (
             <p className="text-gray-600 dark:text-gray-400">Generating code...</p>
@@ -879,28 +862,84 @@ export function Nodes() {
                 {new Date(enrollmentCodeModal.data.expires_at).toLocaleString()}.
               </p>
               <div>
-                <Label value="Code" />
+                <div className="flex flex-wrap gap-2 justify-between items-center mb-1">
+                  <Label value="Code" />
+                  <Button
+                    size="xs"
+                    color="gray"
+                    onClick={() =>
+                      enrollmentCodeModal.data &&
+                      navigator.clipboard.writeText(enrollmentCodeModal.data.code)
+                    }
+                  >
+                    <HiClipboard className="w-4 h-4 mr-1" /> Copy
+                  </Button>
+                </div>
                 <p className="mt-1 p-3 bg-gray-100 dark:bg-gray-800 rounded font-mono text-lg">
                   {enrollmentCodeModal.data.code}
                 </p>
               </div>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                On the device, run (replace SERVER with your Nebula Commander URL):
+                On the device, run (replace with your Nebula Commander URL if needed):
               </p>
-              <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto">
-                {"ncclient enroll --server https://YOUR_SERVER --code "}
-                {enrollmentCodeModal.data.code}
-              </pre>
+              <div className="flex flex-wrap gap-2 justify-between items-start">
+                <pre className="flex-1 min-w-0 p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre">
+                  {`ncclient --server ${typeof window !== "undefined" && window.location?.origin ? window.location.origin : "http://your-server"} enroll --code ${enrollmentCodeModal.data.code}`}
+                </pre>
+                <Button
+                  size="xs"
+                  color="gray"
+                  className="shrink-0"
+                  onClick={() => {
+                    const server =
+                      typeof window !== "undefined" && window.location?.origin
+                        ? window.location.origin
+                        : "http://your-server";
+                    const cmd = `ncclient --server ${server} enroll --code ${enrollmentCodeModal.data!.code}`;
+                    navigator.clipboard.writeText(cmd);
+                  }}
+                >
+                  <HiClipboard className="w-4 h-4 mr-1" /> Copy
+                </Button>
+              </div>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Then run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient run --server https://YOUR_SERVER</code> to poll for config and certs every minute.
+                Then run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient run --server &lt;URL&gt;</code> to poll for config and certs every minute.
               </p>
+              <div className="flex items-center gap-2 pt-2">
+                {enrollmentCodeModal.enrollmentSuccess ? (
+                  <>
+                    <span
+                      className="flex h-3 w-3 rounded-full bg-green-500"
+                      title="Enrollment successful"
+                    />
+                    <span className="text-green-600 dark:text-green-400 font-medium">
+                      Enrollment Successful!
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <span
+                      className="flex h-3 w-3 rounded-full bg-red-500 animate-pulse"
+                      title="Waiting for enrollment"
+                    />
+                    <span className="text-red-600 dark:text-red-400">Waiting for enrollment</span>
+                  </>
+                )}
+              </div>
             </div>
           )}
         </Modal.Body>
         <Modal.Footer>
-          <Button color="gray" onClick={closeEnrollmentCodeModal}>
-            Close
-          </Button>
+          <div className="flex w-full justify-between">
+            <Button color="gray" onClick={closeEnrollmentCodeModal}>
+              Cancel
+            </Button>
+            {enrollmentCodeModal.enrollmentSuccess && (
+              <Button color="success" onClick={handleEnrollmentContinue}>
+                Continue
+              </Button>
+            )}
+          </div>
         </Modal.Footer>
       </Modal>
     </div>

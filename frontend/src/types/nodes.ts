@@ -17,5 +17,6 @@ export interface Node {
   lighthouse_options: LighthouseOptions | null;
   status: string;
   last_seen: string | null;
+  first_polled_at: string | null;
   created_at: string;
 }

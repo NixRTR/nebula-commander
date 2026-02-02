@@ -141,6 +141,9 @@ async def device_config(
         raise HTTPException(status_code=404, detail="Node not found")
     result = await session.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
+    if node and node.first_polled_at is None:
+        node.first_polled_at = datetime.utcnow()
+        await session.flush()
     filename = f"{node.hostname}.yaml" if node else "config.yaml"
     return Response(
         content=yaml_config,
@@ -159,6 +162,9 @@ async def device_certs(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    if node.first_polled_at is None:
+        node.first_polled_at = datetime.utcnow()
+        await session.flush()
     if not node.ip_address:
         raise HTTPException(
             status_code=404,
@@ -212,6 +218,9 @@ async def device_bundle(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    if node.first_polled_at is None:
+        node.first_polled_at = datetime.utcnow()
+        await session.flush()
     if not node.ip_address:
         raise HTTPException(
             status_code=404,

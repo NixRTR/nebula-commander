@@ -51,6 +51,8 @@ class CreateRequest(BaseModel):
 
 
 class CreateResponse(BaseModel):
+    node_id: int
+    hostname: str
     ip_address: str
     certificate: str
     private_key: str
@@ -221,6 +223,8 @@ async def create_certificate(
     await session.flush()
 
     return CreateResponse(
+        node_id=node.id,
+        hostname=node.hostname,
         ip_address=ip,
         certificate=cert_pem,
         private_key=private_key_pem,

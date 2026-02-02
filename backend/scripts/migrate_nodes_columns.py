@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """
-One-off migration: add public_endpoint and lighthouse_options to nodes table.
+Optional standalone migration: add public_endpoint, lighthouse_options, first_polled_at to nodes;
+ensure enrollment_codes table exists. The backend runs the same migrations automatically at
+startup (database._run_sqlite_migrations). Use this script only when you need to migrate
+without starting the API (e.g. one-off from CLI).
 Run from repo root: python -m backend.scripts.migrate_nodes_columns
 Or with database_url: NEBULA_COMMANDER_DATABASE_URL=... python -m backend.scripts.migrate_nodes_columns
 """
@@ -43,6 +46,11 @@ def main() -> int:
         print("Added column: lighthouse_options")
     else:
         print("Column lighthouse_options already exists")
+    if "first_polled_at" not in columns:
+        cur.execute("ALTER TABLE nodes ADD COLUMN first_polled_at DATETIME")
+        print("Added column: first_polled_at")
+    else:
+        print("Column first_polled_at already exists")
 
     # enrollment_codes table (for dnclient-style enrollment)
     cur.execute(

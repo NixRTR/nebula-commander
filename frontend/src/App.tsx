@@ -7,8 +7,6 @@ import { Navbar } from "./components/layout/Navbar";
 const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
 const Networks = lazy(() => import("./pages/Networks").then(m => ({ default: m.Networks })));
 const Nodes = lazy(() => import("./pages/Nodes").then(m => ({ default: m.Nodes })));
-const Certificates = lazy(() => import("./pages/Certificates").then(m => ({ default: m.Certificates })));
-
 // Loading fallback component
 const PageLoader = () => (
   <div className="flex items-center justify-center h-screen">
@@ -48,7 +46,6 @@ export default function App() {
                 <Route path="/" element={<Dashboard />} />
                 <Route path="/networks" element={<Networks />} />
                 <Route path="/nodes" element={<Nodes />} />
-                <Route path="/certificates" element={<Certificates />} />
                 <Route path="/settings/oidc" element={<Dashboard />} />
                 <Route path="/settings/system" element={<Dashboard />} />
               </Routes>

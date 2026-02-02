@@ -53,6 +53,7 @@ class Node(Base):
     lighthouse_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # serve_dns, dns_host, dns_port, interval_seconds
     status: Mapped[str] = mapped_column(String(32), default="pending")  # pending, active, revoked, offline
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    first_polled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # set when device first fetches config/bundle
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     network: Mapped["Network"] = relationship("Network", back_populates="nodes")

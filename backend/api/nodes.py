@@ -43,6 +43,7 @@ class NodeResponse(BaseModel):
     lighthouse_options: Optional[dict[str, Any]] = None
     status: str = "pending"
     last_seen: Optional[str] = None
+    first_polled_at: Optional[str] = None
     created_at: str
 
     class Config:
@@ -74,6 +75,7 @@ async def list_nodes(
             lighthouse_options=n.lighthouse_options,
             status=n.status,
             last_seen=n.last_seen.isoformat() if n.last_seen else None,
+            first_polled_at=n.first_polled_at.isoformat() if n.first_polled_at else None,
             created_at=n.created_at.isoformat() if n.created_at else "",
         )
         for n in nodes
@@ -174,6 +176,7 @@ async def get_node(
         lighthouse_options=node.lighthouse_options,
         status=node.status,
         last_seen=node.last_seen.isoformat() if node.last_seen else None,
+        first_polled_at=node.first_polled_at.isoformat() if node.first_polled_at else None,
         created_at=node.created_at.isoformat() if node.created_at else "",
     )
 
