@@ -122,6 +122,11 @@ Data is stored in a Docker volume `nebula-commander-data`:
 - SQLite database: `/var/lib/nebula-commander/db.sqlite`
 - Certificates: `/var/lib/nebula-commander/certs/`
 
+If data does not persist after restarts:
+
+- **Docker**: Ensure you use the compose file as-is so the named volume `nebula-commander-data` is mounted at `/var/lib/nebula-commander`. Do not override `NEBULA_COMMANDER_DATABASE_URL` or `NEBULA_COMMANDER_CERT_STORE_PATH` to paths outside this volume.
+- **Local dev**: Set `NEBULA_COMMANDER_DATABASE_URL` to a path that persists (e.g. `sqlite+aiosqlite:///./backend/db.sqlite`). The default `/var/lib/nebula-commander/db.sqlite` may not be where you expect on some systems.
+
 To back up data:
 
 ```bash

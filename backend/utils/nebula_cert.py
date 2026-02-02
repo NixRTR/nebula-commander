@@ -1,6 +1,7 @@
 """
 Wrapper for nebula-cert CLI. Runs nebula-cert subprocess for CA and cert operations.
 """
+import ipaddress
 import logging
 import shutil
 import subprocess
@@ -75,15 +76,22 @@ def cert_sign(
     groups: Optional[list[str]] = None,
     duration_hours: int = 8760,  # 1 year
     in_pub: Optional[Path] = None,
+    subnet_cidr: Optional[str] = None,
 ) -> None:
     """
     Sign a host certificate. If in_pub is set, sign the given public key (betterkeys).
     Otherwise nebula-cert will generate a keypair and we only get the cert (not recommended).
-    Uses -ca-crt/-ca-key/-networks (nebula-cert v2); -networks expects CIDR e.g. 10.100.0.1/32.
+    -ip is passed as CIDR. Use subnet_cidr (e.g. 10.100.0.0/24) so the cert uses the network's
+    prefix length; that gives hosts "vpnNetworks in common" and allows layer-3 traffic between them.
     """
     out_crt.parent.mkdir(parents=True, exist_ok=True)
-    # nebula-cert sign: -ca-crt/-ca-key; -ip requires CIDR (e.g. 10.100.0.1/32)
-    ip_cidr = ip if "/" in ip else f"{ip}/32"
+    # Strip any existing /suffix from ip so we control the prefix
+    ip_base = ip.split("/")[0].strip()
+    if subnet_cidr:
+        net = ipaddress.ip_network(subnet_cidr.strip(), strict=False)
+        ip_cidr = f"{ip_base}/{net.prefixlen}"
+    else:
+        ip_cidr = ip if "/" in ip else f"{ip_base}/32"
     args = [
         "sign",
         "-ca-crt", str(ca_crt),

@@ -84,6 +84,7 @@ class CertManager:
                 groups=groups or [],
                 duration_hours=duration_hours,
                 in_pub=pub_path,
+                subnet_cidr=network.subnet_cidr,
             )
         finally:
             pub_path.unlink(missing_ok=True)
@@ -131,6 +132,7 @@ class CertManager:
                 groups=groups or [],
                 duration_hours=duration_hours,
                 in_pub=pub_path,
+                subnet_cidr=network.subnet_cidr,
             )
             cert_pem = out_crt_tmp.read_text()
             private_key_pem = key_path.read_text()
