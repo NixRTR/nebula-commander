@@ -1,0 +1,1 @@
+# Backend scripts (migrations, etc.)

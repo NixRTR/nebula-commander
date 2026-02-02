@@ -1,0 +1,26 @@
+# FastAPI backend for Nebula Commander
+
+# Core web framework
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+websockets>=14.0
+
+# Database
+sqlalchemy[asyncio]>=2.0.36
+aiosqlite>=0.20.0
+alembic>=1.13.0
+
+# Data validation
+pydantic>=2.10.0
+pydantic-settings>=2.6.0
+
+# YAML (config generation)
+pyyaml>=6.0
+
+# OIDC / JWT
+python-jose[cryptography]>=3.3.0
+httpx>=0.28.0
+
+# Testing
+pytest>=8.3.0
+pytest-asyncio>=0.24.0
