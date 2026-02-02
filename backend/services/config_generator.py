@@ -29,9 +29,18 @@ def _default_pki() -> dict[str, str]:
     }
 
 
+def _normalize_endpoint(endpoint: str) -> str:
+    """Strip http(s):// so Nebula gets host:port only (e.g. 192.168.3.125:4242)."""
+    s = endpoint.strip()
+    for prefix in ("https://", "http://"):
+        if s.lower().startswith(prefix):
+            return s[len(prefix) :].strip()
+    return s
+
+
 def _default_static_host_map(lighthouses: list[tuple[str, str]]) -> dict[str, list[str]]:
     """lighthouses: list of (nebula_ip, public_endpoint)."""
-    return {ip: [endpoint] for ip, endpoint in lighthouses}
+    return {ip: [_normalize_endpoint(endpoint)] for ip, endpoint in lighthouses}
 
 
 def _lighthouse_section(
