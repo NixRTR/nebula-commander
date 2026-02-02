@@ -1,0 +1,41 @@
+# systemd unit for ncclient run (Linux)
+# Run at startup: poll Nebula Commander for config/certs and run Nebula.
+#
+# Install:
+#   1. pip install nebula-commander   (or install from source)
+#   2. ncclient enroll --server https://YOUR_SERVER --code XXXXXXXX   (one-time, as root if using /etc/nebula)
+#   3. Copy this file: sudo cp examples/ncclient.service /etc/systemd/system/
+#   4. Create env file: sudo nano /etc/default/ncclient
+#      NEBULA_COMMANDER_SERVER=https://your-nebula-commander.example.com
+#      # Optional: NEBULA_COMMANDER_OUTPUT_DIR=/etc/nebula
+#      # Optional: NEBULA_COMMANDER_RESTART_SERVICE=nebula   (use systemd to run Nebula; ncclient only restarts it)
+#   5. If using a non-standard ncclient path, set ExecStart path. Default assumes ncclient is on PATH.
+#   6. sudo systemctl daemon-reload && sudo systemctl enable --now ncclient
+#
+# Options via env (in /etc/default/ncclient):
+#   NEBULA_COMMANDER_SERVER   (required) Nebula Commander URL
+#   NEBULA_COMMANDER_OUTPUT_DIR   (optional) default /etc/nebula
+#   NEBULA_COMMANDER_INTERVAL   (optional) poll interval seconds, default 60
+#   NEBULA_COMMANDER_NEBULA   (optional) path to nebula binary if not in PATH
+#   NEBULA_COMMANDER_RESTART_SERVICE   (optional) systemd service name to restart instead of running nebula (e.g. nebula)
+
+[Unit]
+Description=Nebula Commander device client (ncclient)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/ncclient
+ExecStart=/usr/bin/ncclient run
+ExecStartPre=/bin/sh -c 'if [ -z "$$NEBULA_COMMANDER_SERVER" ]; then echo "Set NEBULA_COMMANDER_SERVER in /etc/default/ncclient"; exit 1; fi'
+# If you use --output-dir, --interval, --nebula, or --restart-service, use a wrapper script or override:
+# ExecStart=/usr/bin/ncclient run --output-dir /etc/nebula --interval 60 --restart-service nebula
+Restart=on-failure
+RestartSec=30
+
+# Run as root so Nebula can create TUN device (Linux). For user-level, use a user unit and --output-dir ~/.nebula.
+# User=root is default when installed under /etc/systemd/system/.
+
+[Install]
+WantedBy=multi-user.target

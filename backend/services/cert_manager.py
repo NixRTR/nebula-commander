@@ -102,7 +102,8 @@ class CertManager:
         """
         Create a host certificate by generating a keypair on the server, signing it,
         and returning (ip_address, cert_pem, private_key_pem, ca_pem, public_key_pem).
-        The private key is returned only once; it is not stored.
+        The private key is also stored on the server and served in the device bundle
+        and node certs zip; it is still returned once in the API response.
         """
         await self.ensure_ca(network)
         duration_days = duration_days or settings.default_cert_expiry_days
@@ -137,6 +138,10 @@ class CertManager:
 
         # Persist cert to store (overwrite if exists; nebula-cert refuses to overwrite, so we write ourselves)
         (base / f"{name}.crt").write_text(cert_pem)
+        # Persist private key so device bundle and node certs zip can serve it
+        key_file = base / f"{name}.key"
+        key_file.write_text(private_key_pem)
+        key_file.chmod(0o600)
 
         ca_pem = ""
         if network.ca_cert_path:

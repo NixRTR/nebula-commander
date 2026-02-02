@@ -317,10 +317,8 @@ export function Certificates() {
           <h2 className="text-xl font-semibold mb-2 text-green-800 dark:text-green-200">
             Certificate created
           </h2>
-          <Alert color="warning" className="mb-4">
-            Copy or download the private key now. It is shown only once and is not stored on the
-            server. Save these files on your node as <code>host.key</code>, <code>host.crt</code>, and{" "}
-            <code>ca.crt</code>.
+          <Alert color="success" className="mb-4">
+            The private key is stored on the server and is included in the node&apos;s cert bundle when you download it from the Nodes page. You can still copy or download the key below to place on your node manually (e.g. <code>host.key</code>, <code>host.crt</code>, <code>ca.crt</code>).
           </Alert>
           <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
             Assigned IP: <strong>{createResult.ip_address}</strong>

@@ -8,6 +8,7 @@ to poll for config and certs and optionally orchestrate the Nebula process
 
   ncclient enroll --server https://nebula-commander.example.com --code XXXXXXXX
   ncclient run --server https://nebula-commander.example.com [--output-dir /etc/nebula] [--interval 60]
+  ncclient install   (Linux: install systemd service, prompts for server URL and options)
   ncclient run --server ... --nebula /usr/bin/nebula
   ncclient run --server ... --restart-service nebula
 
@@ -22,12 +23,31 @@ LICENSE file in this directory for the full text.
 import argparse
 import atexit
 import os
+import shutil
 import signal
 import subprocess
 import sys
 import time
 import zipfile
 import io
+
+# systemd unit template for ncclient install (ExecStart path is substituted)
+_SYSTEMD_UNIT_TEMPLATE = """[Unit]
+Description=Nebula Commander device client (ncclient)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/ncclient
+ExecStart={ncclient_path} run
+ExecStartPre=/bin/sh -c 'if [ -z "$$NEBULA_COMMANDER_SERVER" ]; then echo "Set NEBULA_COMMANDER_SERVER in /etc/default/ncclient"; exit 1; fi'
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
+"""
 
 try:
     import requests
@@ -94,7 +114,7 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
         proc = subprocess.Popen(
             [nebula_bin, "-config", config],
             stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
+            stderr=None,  # inherit so user sees nebula errors (e.g. permission denied, missing host.key)
             start_new_session=True,
         )
         print(f"Started Nebula (PID {proc.pid})")
@@ -137,6 +157,135 @@ def _restart_systemd_service(service_name: str) -> bool:
     except subprocess.CalledProcessError as e:
         print(f"systemctl restart failed: {e.stderr.decode() if e.stderr else e}", file=sys.stderr)
         return False
+
+
+def _prompt(prompt: str, default: str = "") -> str:
+    """Prompt for input; return default if user presses Enter."""
+    if default:
+        s = input(f"{prompt} [{default}]: ").strip()
+        return s if s else default
+    return input(f"{prompt}: ").strip()
+
+
+def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
+    """Install systemd service (Linux only). Checks enrollment, prompts for env, writes unit and env file."""
+    if sys.platform != "linux":
+        print("install is only supported on Linux (systemd).", file=sys.stderr)
+        sys.exit(1)
+    try:
+        if os.geteuid() != 0:
+            print("This command must be run as root (or with sudo).", file=sys.stderr)
+            sys.exit(1)
+    except AttributeError:
+        print("This command must be run as root (or with sudo).", file=sys.stderr)
+        sys.exit(1)
+
+    ncclient_path = shutil.which("ncclient")
+    if not ncclient_path:
+        print(
+            "ncclient not found in PATH. Install with: pip install nebula-commander",
+            file=sys.stderr,
+        )
+        print(
+            "If ncclient is in PATH when not using sudo, run: sudo $(which ncclient) install",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if non_interactive:
+        server = (os.environ.get("NEBULA_COMMANDER_SERVER") or "").strip()
+        if not server:
+            print(
+                "Set NEBULA_COMMANDER_SERVER or run without --non-interactive.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        output_dir = os.environ.get("NEBULA_COMMANDER_OUTPUT_DIR", "/etc/nebula").strip() or "/etc/nebula"
+        interval = os.environ.get("NEBULA_COMMANDER_INTERVAL", "60").strip() or "60"
+        nebula_path = (os.environ.get("NEBULA_COMMANDER_NEBULA") or "").strip()
+        restart_service = (os.environ.get("NEBULA_COMMANDER_RESTART_SERVICE") or "").strip()
+    else:
+        server = _prompt("Nebula Commander server URL (e.g. https://nc.example.com)", "").strip()
+        if not server:
+            print("Server URL is required.", file=sys.stderr)
+            sys.exit(1)
+        server = _server_url(server)
+        output_dir = _prompt("Output directory for config/certs", "/etc/nebula").strip() or "/etc/nebula"
+        interval = _prompt("Poll interval (seconds)", "60").strip() or "60"
+        nebula_path = _prompt("Path to nebula binary (optional, empty to use PATH)", "").strip()
+        restart_service = _prompt(
+            "Systemd service to restart instead of running nebula (optional, empty for none)",
+            "",
+        ).strip()
+
+    token_path = "/etc/nebula-commander/token"
+    if not os.path.isfile(token_path):
+        print("You have not enrolled yet. The system service reads the token from:", file=sys.stderr)
+        print(f"  {token_path}", file=sys.stderr)
+        print("Run the following command (as root), then run ncclient install again:", file=sys.stderr)
+        print(f"  ncclient enroll --server {server} --code XXXXXXXX", file=sys.stderr)
+        print("Get the code from the Nebula Commander UI: Nodes → Enroll", file=sys.stderr)
+        sys.exit(1)
+
+    env_lines = [
+        f"NEBULA_COMMANDER_SERVER={server}",
+        f"NEBULA_COMMANDER_OUTPUT_DIR={output_dir}",
+        f"NEBULA_COMMANDER_INTERVAL={interval}",
+    ]
+    if nebula_path:
+        env_lines.append(f"NEBULA_COMMANDER_NEBULA={nebula_path}")
+    if restart_service:
+        env_lines.append(f"NEBULA_COMMANDER_RESTART_SERVICE={restart_service}")
+
+    env_content = "\n".join(env_lines) + "\n"
+    unit_path = "/etc/systemd/system/ncclient.service"
+    default_path = "/etc/default/ncclient"
+
+    try:
+        with open(default_path, "w") as f:
+            f.write(env_content)
+        print(f"Wrote {default_path}")
+    except PermissionError:
+        print("Could not write to /etc/default/ncclient. Run with sudo: sudo ncclient install", file=sys.stderr)
+        sys.exit(1)
+
+    unit_content = _SYSTEMD_UNIT_TEMPLATE.format(ncclient_path=ncclient_path)
+    try:
+        with open(unit_path, "w") as f:
+            f.write(unit_content)
+        print(f"Wrote {unit_path}")
+    except PermissionError:
+        print("Could not write to /etc/systemd/system/ncclient.service. Run with sudo: sudo ncclient install", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        subprocess.run(["systemctl", "daemon-reload"], check=True, capture_output=True, timeout=30)
+        subprocess.run(["systemctl", "enable", "ncclient"], check=True, capture_output=True, timeout=30)
+        print("Enabled ncclient service.")
+    except subprocess.CalledProcessError as e:
+        print(f"systemctl failed: {e.stderr.decode() if e.stderr else e}", file=sys.stderr)
+        sys.exit(1)
+    except FileNotFoundError:
+        print("systemctl not found.", file=sys.stderr)
+        sys.exit(1)
+
+    if not no_start:
+        if non_interactive:
+            pass
+        else:
+            ans = _prompt("Start ncclient service now?", "Y").strip().upper()
+            if ans in ("", "Y", "YES"):
+                try:
+                    subprocess.run(["systemctl", "start", "ncclient"], check=True, capture_output=True, timeout=30)
+                    print("Started ncclient service.")
+                except subprocess.CalledProcessError as e:
+                    print(f"systemctl start failed: {e.stderr.decode() if e.stderr else e}", file=sys.stderr)
+                except FileNotFoundError:
+                    print("systemctl not found.", file=sys.stderr)
+            else:
+                print("Run 'systemctl start ncclient' to start the service.")
+
+    print("Done. Edit /etc/default/ncclient to change settings.")
 
 
 def cmd_run(
@@ -224,8 +373,12 @@ def main() -> None:
     ap = argparse.ArgumentParser(
         description="Nebula Commander device client (dnclient/dnclientd-style). Enroll once, then run to poll config and certs and optionally start/restart Nebula."
     )
-    ap.add_argument("--server", "-s", required=True, help="Nebula Commander base URL (e.g. https://nc.example.com)")
+    ap.add_argument("--server", "-s", default=os.environ.get("NEBULA_COMMANDER_SERVER"), help="Nebula Commander base URL (default: NEBULA_COMMANDER_SERVER env)")
     sub = ap.add_subparsers(dest="cmd", required=True)
+
+    p_install = sub.add_parser("install", help="Install systemd service (Linux only)")
+    p_install.add_argument("--no-start", action="store_true", help="Do not start the service after enable")
+    p_install.add_argument("--non-interactive", action="store_true", help="Use env vars only, no prompts")
 
     p_enroll = sub.add_parser("enroll", help="Enroll with a one-time code from the UI")
     p_enroll.add_argument("--code", "-c", required=True, help="Enrollment code")
@@ -239,9 +392,20 @@ def main() -> None:
     p_run.add_argument("--restart-service", "-r", metavar="NAME", help="Restart this systemd service after config change instead of running nebula (e.g. nebula)")
 
     args = ap.parse_args()
-    server = args.server
+    server = (args.server or "").strip() or None
+    if args.cmd == "run" and not server:
+        print("Set --server or NEBULA_COMMANDER_SERVER to your Nebula Commander URL.", file=sys.stderr)
+        sys.exit(1)
+    if args.cmd == "enroll" and not server:
+        print("Set --server to your Nebula Commander URL.", file=sys.stderr)
+        sys.exit(1)
 
-    if args.cmd == "enroll":
+    if args.cmd == "install":
+        cmd_install(
+            no_start=getattr(args, "no_start", False),
+            non_interactive=getattr(args, "non_interactive", False),
+        )
+    elif args.cmd == "enroll":
         cmd_enroll(server, args.code, getattr(args, "token_file", None))
     elif args.cmd == "run":
         if getattr(args, "nebula", None) and getattr(args, "restart_service", None):

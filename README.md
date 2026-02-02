@@ -199,12 +199,11 @@ Base path: `/api`. All authenticated endpoints require a `Bearer` token (OIDC ac
 - **GET /api** — API name and version.
 - **GET /api/health** — Health check.
 
-## Certificate flow (betterkeys)
+## Certificate flow
 
-1. Client generates a keypair locally (`nebula-cert keygen`).
-2. Client sends only the **public key** to Nebula Commander (e.g. via the sign API).
-3. Commander allocates an IP, signs the cert with the network CA, and returns the signed certificate and CA cert.
-4. Private key never leaves the client.
+**Sign (betterkeys):** Client generates a keypair locally (`nebula-cert keygen`), sends only the **public key** to Nebula Commander (e.g. via the sign API). Commander allocates an IP, signs the cert, and returns the signed certificate and CA cert. Private key never leaves the client.
+
+**Create (server-generated):** Commander generates the keypair on the server, signs the cert, and stores the private key. The key is returned once in the API response and is also served in the device bundle and node certs zip so enrolled devices get `host.key` without manual copy. Protect `cert_store_path`; it holds private keys for server-created certs.
 
 ## Publishing the nebula-commander package to PyPI
 

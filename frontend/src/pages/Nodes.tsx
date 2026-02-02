@@ -445,11 +445,11 @@ export function Nodes() {
                 On the device, run (replace SERVER with your Nebula Commander URL):
               </p>
               <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto">
-                {"python -m client --server https://YOUR_SERVER enroll --code "}
+                {"ncclient enroll --server https://YOUR_SERVER --code "}
                 {enrollmentCodeModal.data.code}
               </pre>
               <p className="text-sm text-gray-600 dark:text-gray-400">
-                Then run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">python -m client --server https://YOUR_SERVER run</code> to poll for config and certs every minute (from the nebula-commander repo client/ directory).
+                Then run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient run --server https://YOUR_SERVER</code> to poll for config and certs every minute.
               </p>
             </div>
           )}

@@ -1,0 +1,29 @@
+# Exclude from Docker build context (faster builds, smaller context)
+# Build context is repo root when using docker-compose (context: ..)
+
+# Frontend - avoid copying local node_modules and build output
+frontend/node_modules/
+frontend/dist/
+
+# Backend - avoid copying caches and venvs
+backend/__pycache__/
+backend/**/__pycache__/
+backend/.venv/
+backend/venv/
+*.pyc
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Git and IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Docs and dev files (not needed in image)
+*.md
+!backend/README.md
+.env
+.env.*
+docker/.env

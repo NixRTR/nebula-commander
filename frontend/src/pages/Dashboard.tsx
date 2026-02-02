@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Card, Badge, Button } from "flowbite-react";
-import { HiShieldCheck } from "react-icons/hi";
-import { apiFetch, listNetworks } from "../api/client";
+import { HiShieldCheck, HiKey, HiUserGroup } from "react-icons/hi";
+import { apiFetch, listNetworks, listNodes, listCertificates } from "../api/client";
 
 interface Health {
   status: string;
@@ -12,6 +12,8 @@ export function Dashboard() {
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [networkCount, setNetworkCount] = useState<number | null>(null);
+  const [nodeCount, setNodeCount] = useState<number | null>(null);
+  const [certCount, setCertCount] = useState<number | null>(null);
 
   useEffect(() => {
     apiFetch<Health>("/health")
@@ -24,6 +26,22 @@ export function Dashboard() {
       .then((list) => setNetworkCount(list.length))
       .catch(() => setNetworkCount(0));
   }, []);
+
+  useEffect(() => {
+    listNodes()
+      .then((list) => setNodeCount(list.length))
+      .catch(() => setNodeCount(0));
+  }, []);
+
+  useEffect(() => {
+    listCertificates()
+      .then((list) => setCertCount(list.length))
+      .catch(() => setCertCount(0));
+  }, []);
+
+  const hasNetworks = (networkCount ?? 0) > 0;
+  const hasCerts = (certCount ?? 0) > 0;
+  const hasNodes = (nodeCount ?? 0) > 0;
 
   return (
     <div>
@@ -52,31 +70,79 @@ export function Dashboard() {
 
         <Card>
           <h3 className="text-lg font-semibold mb-2">Nodes</h3>
-          <div className="text-3xl font-bold">0</div>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Active nodes</p>
+          <div className="text-3xl font-bold">{nodeCount ?? "—"}</div>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Enrolled nodes</p>
         </Card>
 
         <Card>
           <h3 className="text-lg font-semibold mb-2">Certificates</h3>
-          <div className="text-3xl font-bold">0</div>
+          <div className="text-3xl font-bold">{certCount ?? "—"}</div>
           <p className="text-sm text-gray-600 dark:text-gray-400">Issued certificates</p>
         </Card>
       </div>
 
-      {/* Next step: Generate certificates (shown when user has at least one network) */}
-      {networkCount != null && networkCount > 0 && (
-        <Card className="mb-6 border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-gray-800/50">
-          <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
-            <HiShieldCheck className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-            Next: Generate certificates for your node
-          </h2>
-          <p className="text-gray-700 dark:text-gray-300 mb-4">
-            You have a network. To join a node, generate a keypair on the node, then sign the certificate here.
-          </p>
-          <Button as={Link} to="/certificates" color="blue" size="lg">
-            Generate certificates
-          </Button>
-        </Card>
+      {/* Onboarding: next step cards */}
+      {networkCount != null && (
+        <div className="space-y-4 mb-6">
+          {!hasNetworks && (
+            <Card className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-gray-800/50">
+              <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold">1</span>
+                Create your first network
+              </h2>
+              <p className="text-gray-700 dark:text-gray-300 mb-4">
+                A network defines the overlay (e.g. subnet). Create one to get started.
+              </p>
+              <Button as={Link} to="/networks" color="blue" size="lg">
+                Go to Networks
+              </Button>
+            </Card>
+          )}
+
+          {hasNetworks && !hasCerts && (
+            <Card className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-gray-800/50">
+              <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
+                <HiKey className="w-6 h-6 text-blue-600 dark:text-blue-400" />
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold">2</span>
+                Generate a certificate for a node
+              </h2>
+              <p className="text-gray-700 dark:text-gray-300 mb-4">
+                Create a certificate from the Web UI (server generates the keypair) or sign an existing public key. Then enroll the node so it can pull config and certs.
+              </p>
+              <Button as={Link} to="/certificates" color="blue" size="lg">
+                Generate certificates
+              </Button>
+            </Card>
+          )}
+
+          {hasNetworks && hasCerts && !hasNodes && (
+            <Card className="border-2 border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-gray-800/50">
+              <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
+                <HiUserGroup className="w-6 h-6 text-amber-600 dark:text-amber-400" />
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-600 text-white text-sm font-bold">3</span>
+                Enroll a device
+              </h2>
+              <p className="text-gray-700 dark:text-gray-300 mb-4">
+                You have certificates but no enrolled nodes yet. On the Nodes page, open a node and use &quot;Enroll&quot; to get a one-time code, then run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> on the device to join.
+              </p>
+              <Button as={Link} to="/nodes" color="warning" size="lg">
+                Go to Nodes
+              </Button>
+            </Card>
+          )}
+
+          {hasNetworks && hasNodes && (
+            <Card className="border-2 border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-gray-800/50">
+              <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
+                <HiShieldCheck className="w-6 h-6 text-green-600 dark:text-green-400" />
+                You&apos;re all set
+              </h2>
+              <p className="text-gray-700 dark:text-gray-300">
+                You have networks, certificates, and enrolled nodes. Use <Link to="/nodes" className="text-blue-600 dark:text-blue-400 hover:underline">Nodes</Link> to manage devices and download configs.
+              </p>
+            </Card>
+          )}
+        </div>
       )}
 
       {/* Welcome Card */}
@@ -87,12 +153,12 @@ export function Dashboard() {
         </p>
         <div className="space-y-2">
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            <strong>Getting Started:</strong>
+            <strong>Getting started:</strong>
           </p>
           <ul className="list-disc list-inside space-y-1 text-sm text-gray-600 dark:text-gray-400">
-            <li><Link to="/networks" className="text-blue-600 dark:text-blue-400 hover:underline">Create a network</Link> to get started</li>
+            <li><Link to="/networks" className="text-blue-600 dark:text-blue-400 hover:underline">Create a network</Link> to define your overlay</li>
             <li><Link to="/certificates" className="text-blue-600 dark:text-blue-400 hover:underline">Generate certificates</Link> for your nodes</li>
-            <li>Monitor node status and connectivity</li>
+            <li><Link to="/nodes" className="text-blue-600 dark:text-blue-400 hover:underline">Enroll nodes</Link> with <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> and monitor status</li>
           </ul>
         </div>
       </Card>

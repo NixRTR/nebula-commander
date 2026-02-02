@@ -122,16 +122,24 @@ async def get_node_certs(
     host_cert_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.crt"
     if not host_cert_path.exists():
         raise HTTPException(status_code=404, detail="Host certificate file not found")
+    host_key_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.key"
     ca_path = Path(network.ca_cert_path)
     if not ca_path.exists():
         raise HTTPException(status_code=404, detail="CA certificate file not found")
     ca_content = ca_path.read_text()
     host_cert_content = host_cert_path.read_text()
-    readme = "Use the host.key you saved when creating this certificate.\n"
+    if host_key_path.exists():
+        host_key_content = host_key_path.read_text()
+        readme = "host.key is included in this zip.\n"
+    else:
+        host_key_content = None
+        readme = "Use the host.key you saved when creating this certificate.\n"
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("ca.crt", ca_content)
         zf.writestr("host.crt", host_cert_content)
+        if host_key_content is not None:
+            zf.writestr("host.key", host_key_content)
         zf.writestr("README.txt", readme)
     buf.seek(0)
     filename = f"node-{node.hostname}-certs.zip"

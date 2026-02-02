@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.nixrtr.ncclient</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/bin/ncclient</string>
+		<string>run</string>
+	</array>
+	<key>EnvironmentVariables</key>
+	<dict>
+		<key>NEBULA_COMMANDER_SERVER</key>
+		<string>https://your-nebula-commander.example.com</string>
+	</dict>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<dict>
+		<key>SuccessfulExit</key>
+		<false/>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/tmp/ncclient.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/ncclient.err</string>
+</dict>
+</plist>

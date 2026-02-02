@@ -118,8 +118,15 @@ export function Networks() {
               </Table.Body>
             </Table>
             {networks.length === 0 && (
-              <div className="p-4 text-center text-gray-500 dark:text-gray-400">
-                No networks yet. Create one to get started.
+              <div className="p-8 text-center">
+                <p className="text-gray-500 dark:text-gray-400 mb-2">No networks yet.</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                  Create a network to define your overlay subnet, then generate certificates and enroll nodes.
+                </p>
+                <Button color="blue" onClick={() => setShowForm(true)}>
+                  <HiPlus className="mr-2 h-5 w-5" />
+                  Add your first network
+                </Button>
               </div>
             )}
           </div>

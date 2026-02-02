@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nebula-commander"
-version = "0.1.0"
+version = "0.1.4"
 description = "Nebula Commander device client (ncclient): enroll with a one-time code, then run as a daemon to pull config and certs and optionally orchestrate Nebula."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
