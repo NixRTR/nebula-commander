@@ -17,10 +17,9 @@ DEFAULT_DB = os.environ.get(
     ),
 )
 
-# If database_url is set (e.g. sqlite+aiosqlite:///path), extract path
+# If database_url is set (e.g. sqlite+aiosqlite:////var/lib/... for absolute path), extract path
 DATABASE_URL = os.environ.get("NEBULA_COMMANDER_DATABASE_URL", "")
 if DATABASE_URL and DATABASE_URL.startswith("sqlite"):
-    # sqlite+aiosqlite:///var/lib/nebula-commander/db.sqlite
     db_path = DATABASE_URL.split("///")[-1].split("?")[0]
 else:
     db_path = DEFAULT_DB

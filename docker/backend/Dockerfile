@@ -30,7 +30,7 @@ RUN mkdir -p /var/lib/nebula-commander/certs
 
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
-ENV NEBULA_COMMANDER_DATABASE_URL=sqlite+aiosqlite:///var/lib/nebula-commander/db.sqlite
+ENV NEBULA_COMMANDER_DATABASE_URL=sqlite+aiosqlite:////var/lib/nebula-commander/db.sqlite
 ENV NEBULA_COMMANDER_CERT_STORE_PATH=/var/lib/nebula-commander/certs
 ENV NEBULA_COMMANDER_SERVER_HOST=0.0.0.0
 ENV NEBULA_COMMANDER_SERVER_PORT=8081

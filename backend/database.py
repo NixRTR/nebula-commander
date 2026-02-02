@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 # Ensure SQLite directory exists when using file-based URL (so data persists to disk)
 _db_url = settings.database_url
 if _db_url.startswith("sqlite"):
-    # Extract path from sqlite+aiosqlite:///path (reject :memory: so we never use in-memory by accident)
+    # Extract path: ///path (relative) or ////absolute/path. Reject :memory: so we never use in-memory by accident.
     path_part = _db_url.split("///", 1)[-1].split("?")[0]
     if path_part and not path_part.startswith(":"):
         Path(path_part).parent.mkdir(parents=True, exist_ok=True)

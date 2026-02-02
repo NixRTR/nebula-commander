@@ -164,7 +164,7 @@ Environment variables (prefix `NEBULA_COMMANDER_` or set in `/etc/nebula-command
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `DATABASE_URL` | SQLite (or future PostgreSQL) URL | `sqlite+aiosqlite:///var/lib/nebula-commander/db.sqlite` |
+| `DATABASE_URL` | SQLite (or future PostgreSQL) URL; use four slashes for absolute path | `sqlite+aiosqlite:////var/lib/nebula-commander/db.sqlite` |
 | `CERT_STORE_PATH` | Directory for CA and host certs | `/var/lib/nebula-commander/certs` |
 | `PORT` | Backend listen port | `8081` |
 | `JWT_SECRET_FILE` | Path to JWT secret (for session/API tokens) | — |

@@ -18,7 +18,7 @@ services:
     environment:
       # Database and certs must use paths inside the mounted volume so data persists.
       # Do not use DATABASE_URL/CERT_STORE_PATH from host env (they point outside the volume).
-      - NEBULA_COMMANDER_DATABASE_URL=${NEBULA_COMMANDER_DATABASE_URL:-sqlite+aiosqlite:///var/lib/nebula-commander/db.sqlite}
+      - NEBULA_COMMANDER_DATABASE_URL=${NEBULA_COMMANDER_DATABASE_URL:-sqlite+aiosqlite:////var/lib/nebula-commander/db.sqlite}
       - NEBULA_COMMANDER_CERT_STORE_PATH=${NEBULA_COMMANDER_CERT_STORE_PATH:-/var/lib/nebula-commander/certs}
       # Server configuration
       - NEBULA_COMMANDER_SERVER_HOST=0.0.0.0

@@ -29,8 +29,8 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8081
 
-    # Database (SQLite by default)
-    database_url: str = "sqlite+aiosqlite:///var/lib/nebula-commander/db.sqlite"
+    # Database (SQLite by default). Use four slashes for absolute path so DB is at /var/lib/... not CWD/var/lib/...
+    database_url: str = "sqlite+aiosqlite:////var/lib/nebula-commander/db.sqlite"
     database_path: Optional[str] = None  # Override for SQLite path
 
     # Certificate store
