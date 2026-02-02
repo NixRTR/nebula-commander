@@ -165,11 +165,16 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          # Each artifact is in its own subdirectory, flatten them
-          find . -type f -name "ncclient*" -exec mv {} . \;
-          # Remove empty directories
-          find . -type d -empty -delete
-          # Generate SHA256 checksums
+          # Each artifact is in its own subdirectory (same name as file); move files out
+          for d in */; do
+            [ ! -d "$d" ] && continue
+            d="${d%/}"
+            f=$(find "$d" -maxdepth 1 -type f -print -quit)
+            [ -z "$f" ] && continue
+            mv "$f" "./.tmp_$d"
+            rmdir "$d" 2>/dev/null || true
+            mv "./.tmp_$d" "./$d"
+          done
           sha256sum ncclient* > SHA256SUMS.txt
           echo "=== Checksums ==="
           cat SHA256SUMS.txt
