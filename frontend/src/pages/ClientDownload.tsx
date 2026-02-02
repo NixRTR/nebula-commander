@@ -5,7 +5,6 @@ const DOWNLOADS = [
   { name: "Linux (x86_64)", file: "ncclient-linux-amd64", platform: "linux" },
   { name: "Linux (ARM64)", file: "ncclient-linux-arm64", platform: "linux" },
   { name: "Windows (x86_64)", file: "ncclient-windows-amd64.exe", platform: "windows" },
-  { name: "Windows (ARM64)", file: "ncclient-windows-arm64.exe", platform: "windows" },
   { name: "macOS (Intel)", file: "ncclient-macos-amd64", platform: "macos" },
   { name: "macOS (Apple Silicon)", file: "ncclient-macos-arm64", platform: "macos" },
 ] as const;
