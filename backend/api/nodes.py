@@ -9,14 +9,15 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import require_user, UserInfo
 from ..config import settings
 from ..database import get_session
-from ..models import Network, Node
+from ..models import Certificate, EnrollmentCode, Network, NetworkConfig, Node
 from ..services.config_generator import generate_config_for_node
+from ..services.ip_allocator import IPAllocator
 
 logger = logging.getLogger(__name__)
 
@@ -199,3 +200,40 @@ async def update_node(
         node.lighthouse_options = body.lighthouse_options
     await session.flush()
     return {"ok": True}
+
+
+@router.delete("/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_node(
+    node_id: int,
+    _user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a node: release IP, remove host cert/key files, delete related records and node."""
+    result = await session.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    # 1. Release the allocated IP
+    if node.ip_address:
+        ip_allocator = IPAllocator(session)
+        await ip_allocator.release(node.network_id, node.ip_address)
+
+    # 2. Remove host cert/key files from disk
+    hosts_dir = Path(settings.cert_store_path) / str(node.network_id) / "hosts"
+    for ext in (".crt", ".key"):
+        p = hosts_dir / f"{node.hostname}{ext}"
+        try:
+            p.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+    # 3. Delete related records (certificates, network_configs, enrollment_codes)
+    await session.execute(delete(Certificate).where(Certificate.node_id == node_id))
+    await session.execute(delete(NetworkConfig).where(NetworkConfig.node_id == node_id))
+    await session.execute(delete(EnrollmentCode).where(EnrollmentCode.node_id == node_id))
+
+    # 4. Delete the node
+    await session.delete(node)
+    await session.flush()
+    return None

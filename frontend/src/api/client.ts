@@ -65,6 +65,20 @@ export async function getNetwork(id: number) {
   return apiFetch<import("../types/networks").Network>(`/networks/${id}`);
 }
 
+export interface CheckIpAvailableResponse {
+  available: boolean;
+}
+
+export async function checkIpAvailable(
+  networkId: number,
+  ip: string
+): Promise<CheckIpAvailableResponse> {
+  const encoded = encodeURIComponent(ip);
+  return apiFetch<CheckIpAvailableResponse>(
+    `/networks/${networkId}/check-ip?ip=${encoded}`
+  );
+}
+
 export async function listNodes(networkId?: number) {
   const q = networkId != null ? `?network_id=${networkId}` : "";
   return apiFetch<import("../types/nodes").Node[]>(`/nodes${q}`);
@@ -86,6 +100,31 @@ export async function updateNode(id: number, data: NodeUpdateData) {
     method: "PATCH",
     body: JSON.stringify(data),
   });
+}
+
+export async function deleteNode(nodeId: number): Promise<void> {
+  const res = await fetch(`${API_BASE}/nodes/${nodeId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (res.status === 401 && !localStorage.getItem(TOKEN_KEY)) {
+    const got = await tryDevToken();
+    if (got) {
+      const retry = await fetch(`${API_BASE}/nodes/${nodeId}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!retry.ok) {
+        const err = await retry.json().catch(() => ({ detail: retry.statusText }));
+        throw new Error((err as { detail?: string }).detail || retry.statusText);
+      }
+      return;
+    }
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error((err as { detail?: string }).detail || res.statusText);
+  }
 }
 
 /** Fetch a binary endpoint with auth; returns blob. Throws on error. */
@@ -159,6 +198,14 @@ export interface CreateCertificateRequest {
   groups?: string[];
   suggested_ip?: string;
   duration_days?: number;
+  is_lighthouse?: boolean;
+  public_endpoint?: string;
+  lighthouse_options?: {
+    serve_dns?: boolean;
+    dns_host?: string;
+    dns_port?: number;
+    interval_seconds?: number;
+  };
 }
 
 export interface CreateCertificateResponse {

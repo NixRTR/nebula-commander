@@ -11,7 +11,7 @@ import {
   Select,
   Alert,
 } from "flowbite-react";
-import { HiCheckCircle, HiXCircle, HiClock, HiDownload, HiPencil } from "react-icons/hi";
+import { HiCheckCircle, HiXCircle, HiClock, HiDownload, HiPencil, HiPlus, HiTrash, HiClipboard } from "react-icons/hi";
 import type { Node, LighthouseOptions } from "../types/nodes";
 import type { Network } from "../types/networks";
 import {
@@ -21,8 +21,21 @@ import {
   getNodeConfigBlob,
   getNodeCertsBlob,
   createEnrollmentCode,
+  createCertificate,
+  checkIpAvailable,
+  deleteNode,
 } from "../api/client";
-import type { CreateEnrollmentCodeResponse } from "../api/client";
+import type { CreateEnrollmentCodeResponse, CreateCertificateResponse } from "../api/client";
+
+function downloadFile(filename: string, content: string) {
+  const blob = new Blob([content], { type: "text/plain" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -66,9 +79,41 @@ export function Nodes() {
     loading: boolean;
   }>({ open: false, data: null, loading: false });
 
+  const [showCreateNodeForm, setShowCreateNodeForm] = useState(false);
+  const [createNodeForm, setCreateNodeForm] = useState({
+    network_id: 0,
+    name: "",
+    groups: "",
+    suggested_ip: "",
+    duration_days: "365",
+    is_lighthouse: false,
+    public_endpoint: "",
+    serve_dns: false,
+    dns_host: "0.0.0.0",
+    dns_port: "53",
+    interval_seconds: "60",
+  });
+  const [nodeNameError, setNodeNameError] = useState<string | null>(null);
+  const [suggestedIpError, setSuggestedIpError] = useState<string | null>(null);
+  const [createNodeResult, setCreateNodeResult] = useState<CreateCertificateResponse | null>(null);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+
+  const [deleteModal, setDeleteModal] = useState<{
+    open: boolean;
+    node: Node | null;
+    step: 1 | 2;
+    typedHostname: string;
+  }>({ open: false, node: null, step: 1, typedHostname: "" });
+  const [deleting, setDeleting] = useState(false);
+
   const loadNetworks = useCallback(() => {
     listNetworks()
-      .then(setNetworks)
+      .then((data) => {
+        setNetworks(data);
+        setCreateNodeForm((f) =>
+          f.network_id === 0 && data.length > 0 ? { ...f, network_id: data[0].id } : f
+        );
+      })
       .catch(() => setNetworks([]));
   }, []);
 
@@ -89,6 +134,91 @@ export function Nodes() {
     const id = setTimeout(loadNodes, 0);
     return () => clearTimeout(id);
   }, [loadNodes]);
+
+  const handleCreateNodeNameBlur = useCallback(() => {
+    const name = createNodeForm.name.trim();
+    const nid = createNodeForm.network_id;
+    if (!nid || !name) {
+      setNodeNameError(null);
+      return;
+    }
+    listNodes(nid)
+      .then((list) => {
+        const exists = list.some((n) => n.hostname === name);
+        setNodeNameError(exists ? "A node with this name already exists in this network." : null);
+      })
+      .catch(() => setNodeNameError(null));
+  }, [createNodeForm.name, createNodeForm.network_id]);
+
+  const handleSuggestedIpBlur = useCallback(() => {
+    const ip = createNodeForm.suggested_ip.trim();
+    const nid = createNodeForm.network_id;
+    if (!nid || !ip) {
+      setSuggestedIpError(null);
+      return;
+    }
+    checkIpAvailable(nid, ip)
+      .then((res) => setSuggestedIpError(res.available ? null : "This IP is already reserved in this network."))
+      .catch(() => setSuggestedIpError(null));
+  }, [createNodeForm.suggested_ip, createNodeForm.network_id]);
+
+  const handleCreateNodeSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    setCreateNodeResult(null);
+    if (nodeNameError || suggestedIpError) return;
+    setCreateSubmitting(true);
+    const body = {
+      network_id: createNodeForm.network_id,
+      name: createNodeForm.name.trim(),
+      groups: createNodeForm.groups.trim()
+        ? createNodeForm.groups.split(",").map((s) => s.trim()).filter(Boolean)
+        : undefined,
+      suggested_ip: createNodeForm.suggested_ip.trim() || undefined,
+      duration_days: createNodeForm.duration_days ? parseInt(createNodeForm.duration_days, 10) : undefined,
+      is_lighthouse: createNodeForm.is_lighthouse,
+      public_endpoint: createNodeForm.public_endpoint.trim() || undefined,
+      lighthouse_options: createNodeForm.is_lighthouse
+        ? {
+            serve_dns: createNodeForm.serve_dns,
+            dns_host: createNodeForm.dns_host || "0.0.0.0",
+            dns_port: parseInt(createNodeForm.dns_port, 10) || 53,
+            interval_seconds: parseInt(createNodeForm.interval_seconds, 10) || 60,
+          }
+        : undefined,
+    };
+    createCertificate(body)
+      .then((res) => {
+        setCreateNodeResult(res);
+        setCreateNodeForm((f) => ({ ...f, name: "", groups: "", suggested_ip: "" }));
+        setNodeNameError(null);
+        setSuggestedIpError(null);
+        loadNodes();
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setCreateSubmitting(false));
+  };
+
+  const openDeleteModal = (node: Node) => {
+    setDeleteModal({ open: true, node, step: 1, typedHostname: "" });
+  };
+
+  const closeDeleteModal = () => {
+    setDeleteModal({ open: false, node: null, step: 1, typedHostname: "" });
+  };
+
+  const handleDeleteConfirm = () => {
+    const node = deleteModal.node;
+    if (!node) return;
+    setDeleting(true);
+    deleteNode(node.id)
+      .then(() => {
+        closeDeleteModal();
+        loadNodes();
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setDeleting(false));
+  };
 
   const openEditModal = (node: Node) => {
     setEditingNode(node);
@@ -236,8 +366,255 @@ export function Nodes() {
                   </option>
                 ))}
               </Select>
+              <Button
+                color={showCreateNodeForm ? "gray" : "blue"}
+                onClick={() => {
+                  setShowCreateNodeForm((v) => !v);
+                  setCreateNodeResult(null);
+                  setNodeNameError(null);
+                  setSuggestedIpError(null);
+                }}
+              >
+                <HiPlus className="mr-2 h-5 w-5" />
+                {showCreateNodeForm ? "Cancel" : "Create Node"}
+              </Button>
             </div>
           </div>
+
+          {showCreateNodeForm && (
+            <div className="mb-6 p-4 border border-gray-200 dark:border-gray-700 rounded-lg">
+              <h2 className="text-xl font-semibold mb-4">Create Node</h2>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                This will generate the config and certificate for the node.
+              </p>
+              {networks.length === 0 ? (
+                <p className="text-gray-600 dark:text-gray-400">Create a network first on the Networks page.</p>
+              ) : (
+                <form onSubmit={handleCreateNodeSubmit} className="space-y-4">
+                  <div>
+                    <Label htmlFor="create_node_network" value="Network" />
+                    <Select
+                      id="create_node_network"
+                      value={String(createNodeForm.network_id)}
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        setCreateNodeForm((f) => ({ ...f, network_id: v }));
+                        setNodeNameError(null);
+                        setSuggestedIpError(null);
+                      }}
+                      required
+                    >
+                      <option value="0">Select a network</option>
+                      {networks.map((n) => (
+                        <option key={n.id} value={n.id}>
+                          {n.name} ({n.subnet_cidr})
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div>
+                    <Label htmlFor="create_node_name" value="Node name (hostname)" />
+                    <TextInput
+                      id="create_node_name"
+                      type="text"
+                      value={createNodeForm.name}
+                      onChange={(e) => {
+                        setCreateNodeForm((f) => ({ ...f, name: e.target.value }));
+                        setNodeNameError(null);
+                      }}
+                      onBlur={handleCreateNodeNameBlur}
+                      placeholder="my-laptop"
+                      required
+                      color={nodeNameError ? "failure" : undefined}
+                      helperText={nodeNameError}
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <Label htmlFor="create_node_groups" value="Groups (comma-separated, optional)" />
+                      <TextInput
+                        id="create_node_groups"
+                        type="text"
+                        value={createNodeForm.groups}
+                        onChange={(e) => setCreateNodeForm((f) => ({ ...f, groups: e.target.value }))}
+                        placeholder="laptops, admin"
+                      />
+                    </div>
+                    <div>
+                      <Label htmlFor="create_node_suggested_ip" value="Suggested IP (optional)" />
+                      <TextInput
+                        id="create_node_suggested_ip"
+                        type="text"
+                        value={createNodeForm.suggested_ip}
+                        onChange={(e) => {
+                          setCreateNodeForm((f) => ({ ...f, suggested_ip: e.target.value }));
+                          setSuggestedIpError(null);
+                        }}
+                        onBlur={handleSuggestedIpBlur}
+                        placeholder="10.100.0.10"
+                        color={suggestedIpError ? "failure" : undefined}
+                        helperText={suggestedIpError}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <Label htmlFor="create_node_duration" value="Certificate validity (days)" />
+                    <TextInput
+                      id="create_node_duration"
+                      type="number"
+                      value={createNodeForm.duration_days}
+                      onChange={(e) => setCreateNodeForm((f) => ({ ...f, duration_days: e.target.value }))}
+                      min={1}
+                      max={3650}
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="create_node_lighthouse"
+                      checked={createNodeForm.is_lighthouse}
+                      onChange={(e) =>
+                        setCreateNodeForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
+                      }
+                    />
+                    <Label htmlFor="create_node_lighthouse">Lighthouse</Label>
+                  </div>
+                  {createNodeForm.is_lighthouse && (
+                    <>
+                      <div>
+                        <Label htmlFor="create_node_public_endpoint" value="Public endpoint (hostname or IP:port)" />
+                        <TextInput
+                          id="create_node_public_endpoint"
+                          value={createNodeForm.public_endpoint}
+                          onChange={(e) =>
+                            setCreateNodeForm((f) => ({ ...f, public_endpoint: e.target.value }))
+                          }
+                          placeholder="lighthouse.example.com:4242"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Checkbox
+                          id="create_node_serve_dns"
+                          checked={createNodeForm.serve_dns}
+                          onChange={(e) =>
+                            setCreateNodeForm((f) => ({ ...f, serve_dns: e.target.checked }))
+                          }
+                        />
+                        <Label htmlFor="create_node_serve_dns">Serve DNS</Label>
+                      </div>
+                      {createNodeForm.serve_dns && (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                          <div>
+                            <Label htmlFor="create_node_dns_host" value="DNS host" />
+                            <TextInput
+                              id="create_node_dns_host"
+                              value={createNodeForm.dns_host}
+                              onChange={(e) =>
+                                setCreateNodeForm((f) => ({ ...f, dns_host: e.target.value }))
+                              }
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="create_node_dns_port" value="DNS port" />
+                            <TextInput
+                              id="create_node_dns_port"
+                              type="number"
+                              value={createNodeForm.dns_port}
+                              onChange={(e) =>
+                                setCreateNodeForm((f) => ({ ...f, dns_port: e.target.value }))
+                              }
+                            />
+                          </div>
+                          <div>
+                            <Label htmlFor="create_node_interval" value="Report interval (seconds)" />
+                            <TextInput
+                              id="create_node_interval"
+                              type="number"
+                              value={createNodeForm.interval_seconds}
+                              onChange={(e) =>
+                                setCreateNodeForm((f) => ({ ...f, interval_seconds: e.target.value }))
+                              }
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  )}
+                  <Button
+                    type="submit"
+                    color="blue"
+                    isProcessing={createSubmitting}
+                    disabled={createSubmitting || !!nodeNameError || !!suggestedIpError}
+                  >
+                    Create Node
+                  </Button>
+                </form>
+              )}
+            </div>
+          )}
+
+          {createNodeResult && (
+            <div className="mb-6 p-4 border-2 border-green-200 dark:border-green-800 rounded-lg bg-green-50/50 dark:bg-gray-800/50">
+              <h2 className="text-xl font-semibold mb-2 text-green-800 dark:text-green-200">Node created</h2>
+              <Alert color="success" className="mb-4">
+                The private key is stored on the server and is included when you download certs from the node. Copy or download below to place on your node (host.key, host.crt, ca.crt).
+              </Alert>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">
+                Assigned IP: <strong>{createNodeResult.ip_address}</strong>
+              </p>
+              <div className="space-y-4">
+                <div>
+                  <div className="flex flex-wrap gap-2 justify-between items-center mb-1">
+                    <Label value="Private key (host.key)" />
+                    <div className="flex gap-2">
+                      <Button size="xs" color="gray" onClick={() => navigator.clipboard.writeText(createNodeResult.private_key)}>
+                        <HiClipboard className="w-4 h-4 mr-1" /> Copy
+                      </Button>
+                      <Button size="xs" color="gray" onClick={() => downloadFile("host.key", createNodeResult.private_key)}>
+                        <HiClipboard className="w-4 h-4 mr-1" /> Download
+                      </Button>
+                    </div>
+                  </div>
+                  <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
+                    {createNodeResult.private_key}
+                  </pre>
+                </div>
+                <div>
+                  <div className="flex flex-wrap gap-2 justify-between items-center mb-1">
+                    <Label value="Certificate (host.crt)" />
+                    <div className="flex gap-2">
+                      <Button size="xs" color="gray" onClick={() => navigator.clipboard.writeText(createNodeResult.certificate)}>
+                        <HiClipboard className="w-4 h-4 mr-1" /> Copy
+                      </Button>
+                      <Button size="xs" color="gray" onClick={() => downloadFile("host.crt", createNodeResult.certificate)}>
+                        Download
+                      </Button>
+                    </div>
+                  </div>
+                  <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
+                    {createNodeResult.certificate}
+                  </pre>
+                </div>
+                {createNodeResult.ca_certificate && (
+                  <div>
+                    <div className="flex flex-wrap gap-2 justify-between items-center mb-1">
+                      <Label value="CA certificate (ca.crt)" />
+                      <div className="flex gap-2">
+                        <Button size="xs" color="gray" onClick={() => navigator.clipboard.writeText(createNodeResult.ca_certificate!)}>
+                          <HiClipboard className="w-4 h-4 mr-1" /> Copy
+                        </Button>
+                        <Button size="xs" color="gray" onClick={() => downloadFile("ca.crt", createNodeResult.ca_certificate!)}>
+                          Download
+                        </Button>
+                      </div>
+                    </div>
+                    <pre className="p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre-wrap break-all">
+                      {createNodeResult.ca_certificate}
+                    </pre>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <Table>
               <Table.Head>
@@ -309,6 +686,10 @@ export function Nodes() {
                             Enroll
                           </Button>
                         )}
+                        <Button size="xs" color="failure" onClick={() => openDeleteModal(n)}>
+                          <HiTrash className="w-4 h-4 mr-1" />
+                          Delete
+                        </Button>
                       </div>
                     </Table.Cell>
                   </Table.Row>
@@ -421,6 +802,68 @@ export function Nodes() {
             </Button>
           </Modal.Footer>
         </form>
+      </Modal>
+
+      <Modal show={deleteModal.open} onClose={closeDeleteModal} size="md">
+        <Modal.Header>Delete node</Modal.Header>
+        <Modal.Body>
+          {deleteModal.step === 1 && deleteModal.node && (
+            <div className="space-y-4">
+              <p className="text-gray-700 dark:text-gray-300">
+                Are you sure you want to delete the node <strong>{deleteModal.node.hostname}</strong>? This will remove the node, its certificate, enrollment codes, and release its IP. This cannot be undone.
+              </p>
+            </div>
+          )}
+          {deleteModal.step === 2 && deleteModal.node && (
+            <div className="space-y-4">
+              <p className="text-gray-700 dark:text-gray-300">
+                To confirm, type the node hostname: <strong>{deleteModal.node.hostname}</strong>
+              </p>
+              <TextInput
+                type="text"
+                value={deleteModal.typedHostname}
+                onChange={(e) =>
+                  setDeleteModal((s) => ({ ...s, typedHostname: e.target.value }))
+                }
+                placeholder={deleteModal.node.hostname}
+              />
+            </div>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          {deleteModal.step === 1 ? (
+            <>
+              <Button color="gray" onClick={closeDeleteModal}>
+                Cancel
+              </Button>
+              <Button
+                color="failure"
+                onClick={() => setDeleteModal((s) => ({ ...s, step: 2 }))}
+              >
+                Continue
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                color="gray"
+                onClick={() => setDeleteModal((s) => ({ ...s, step: 1, typedHostname: "" }))}
+              >
+                Back
+              </Button>
+              <Button
+                color="failure"
+                onClick={handleDeleteConfirm}
+                disabled={
+                  deleteModal.node?.hostname.trim() !== deleteModal.typedHostname.trim() || deleting
+                }
+                isProcessing={deleting}
+              >
+                Delete
+              </Button>
+            </>
+          )}
+        </Modal.Footer>
       </Modal>
 
       <Modal show={enrollmentCodeModal.open} onClose={closeEnrollmentCodeModal} size="md">

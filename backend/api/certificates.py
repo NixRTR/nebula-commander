@@ -1,7 +1,7 @@
 """Certificates API: create (server-generated keypair), sign (betterkeys), list."""
 import logging
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ from ..database import get_session
 from pathlib import Path
 from ..models import Network, Node, Certificate
 from ..services.cert_manager import CertManager
+from ..services.ip_allocator import IPAllocator
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ class CreateRequest(BaseModel):
     groups: Optional[list[str]] = None
     suggested_ip: Optional[str] = None
     duration_days: Optional[int] = None
+    is_lighthouse: Optional[bool] = None
+    public_endpoint: Optional[str] = None
+    lighthouse_options: Optional[dict[str, Any]] = None  # serve_dns, dns_host, dns_port, interval_seconds
 
 
 class CreateResponse(BaseModel):
@@ -151,7 +155,7 @@ async def create_certificate(
     """
     Create a host certificate. Server generates the keypair, signs it, and returns
     the private key, signed cert, and CA cert. The private key is returned only once;
-    copy it to your node securely.
+    copy it to your node securely. Rejects duplicate (network_id, hostname) and reserved suggested_ip.
     """
     result = await session.execute(
         select(Network).where(Network.id == body.network_id)
@@ -160,41 +164,52 @@ async def create_certificate(
     if not network:
         raise HTTPException(status_code=404, detail="Network not found")
 
+    # Reject duplicate node (create-only for network_id + hostname)
+    node_result = await session.execute(
+        select(Node).where(
+            Node.network_id == body.network_id,
+            Node.hostname == body.name.strip(),
+        )
+    )
+    if node_result.scalar_one_or_none() is not None:
+        raise HTTPException(
+            status_code=409,
+            detail="A node with this name already exists in this network.",
+        )
+
+    # Reject reserved suggested IP
+    if body.suggested_ip and body.suggested_ip.strip():
+        ip_allocator = IPAllocator(session)
+        if await ip_allocator.is_allocated(body.network_id, body.suggested_ip.strip()):
+            raise HTTPException(
+                status_code=409,
+                detail="This IP is already reserved in this network.",
+            )
+
     cert_manager = CertManager(session)
     duration = body.duration_days or settings.default_cert_expiry_days
     ip, cert_pem, private_key_pem, ca_pem, public_key_pem = await cert_manager.create_host_certificate(
         network=network,
-        name=body.name,
+        name=body.name.strip(),
         groups=body.groups,
-        suggested_ip=body.suggested_ip,
+        suggested_ip=body.suggested_ip.strip() if body.suggested_ip else None,
         duration_days=duration,
     )
 
-    # Create or update node and certificate record (do not store private key)
-    node_result = await session.execute(
-        select(Node).where(
-            Node.network_id == body.network_id,
-            Node.hostname == body.name,
-        )
+    # Create new node (no duplicate; set lighthouse fields from request)
+    node = Node(
+        network_id=body.network_id,
+        hostname=body.name.strip(),
+        public_key=public_key_pem,
+        ip_address=ip,
+        status="active",
+        groups=body.groups or [],
+        is_lighthouse=body.is_lighthouse if body.is_lighthouse is not None else False,
+        public_endpoint=body.public_endpoint.strip() if body.public_endpoint else None,
+        lighthouse_options=body.lighthouse_options,
     )
-    node = node_result.scalar_one_or_none()
-    if not node:
-        node = Node(
-            network_id=body.network_id,
-            hostname=body.name,
-            public_key=public_key_pem,
-            ip_address=ip,
-            status="active",
-            groups=body.groups or [],
-        )
-        session.add(node)
-        await session.flush()
-    else:
-        node.ip_address = ip
-        node.public_key = public_key_pem
-        node.groups = body.groups or node.groups
-        node.status = "active"
-        await session.flush()
+    session.add(node)
+    await session.flush()
 
     expires_at = datetime.utcnow() + timedelta(days=duration)
     cert_record = Certificate(
