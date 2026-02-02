@@ -2,11 +2,14 @@ import { lazy, Suspense, useState } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Navbar } from "./components/layout/Navbar";
+import { OnboardingProvider } from "./contexts/OnboardingContext";
+import { OnboardingOverlay } from "./components/onboarding/OnboardingOverlay";
 
 // Lazy load pages for code splitting - reduces initial bundle size
-const Dashboard = lazy(() => import("./pages/Dashboard").then(m => ({ default: m.Dashboard })));
+const Home = lazy(() => import("./pages/Home").then(m => ({ default: m.Home })));
 const Networks = lazy(() => import("./pages/Networks").then(m => ({ default: m.Networks })));
 const Nodes = lazy(() => import("./pages/Nodes").then(m => ({ default: m.Nodes })));
+const ClientDownload = lazy(() => import("./pages/ClientDownload").then(m => ({ default: m.ClientDownload })));
 // Loading fallback component
 const PageLoader = () => (
   <div className="flex items-center justify-center h-screen">
@@ -26,33 +29,37 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="flex h-screen">
-        <Sidebar
-          onLogout={handleLogout}
-          isOpen={sidebarOpen}
-          onClose={() => setSidebarOpen(false)}
-        />
-
-        <div className="flex-1 flex flex-col overflow-hidden">
-          <Navbar
-            username={username}
-            connectionStatus={connectionStatus}
-            onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+      <OnboardingProvider>
+        <div className="flex h-screen">
+          <Sidebar
+            onLogout={handleLogout}
+            isOpen={sidebarOpen}
+            onClose={() => setSidebarOpen(false)}
           />
 
-          <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-900">
-            <Suspense fallback={<PageLoader />}>
-              <Routes>
-                <Route path="/" element={<Dashboard />} />
-                <Route path="/networks" element={<Networks />} />
-                <Route path="/nodes" element={<Nodes />} />
-                <Route path="/settings/oidc" element={<Dashboard />} />
-                <Route path="/settings/system" element={<Dashboard />} />
-              </Routes>
-            </Suspense>
-          </main>
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <Navbar
+              username={username}
+              connectionStatus={connectionStatus}
+              onMenuClick={() => setSidebarOpen(!sidebarOpen)}
+            />
+
+            <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-900">
+              <Suspense fallback={<PageLoader />}>
+                <Routes>
+                  <Route path="/" element={<Home />} />
+                  <Route path="/networks" element={<Networks />} />
+                  <Route path="/nodes" element={<Nodes />} />
+                  <Route path="/client-download" element={<ClientDownload />} />
+                  <Route path="/settings/oidc" element={<Home />} />
+                  <Route path="/settings/system" element={<Home />} />
+                </Routes>
+              </Suspense>
+            </main>
+          </div>
         </div>
-      </div>
+        <OnboardingOverlay />
+      </OnboardingProvider>
     </BrowserRouter>
   );
 }

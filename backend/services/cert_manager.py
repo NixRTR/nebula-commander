@@ -4,6 +4,7 @@ and full certificate creation (server-generated keypair).
 """
 import tempfile
 import logging
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -144,6 +145,80 @@ class CertManager:
         key_file = base / f"{name}.key"
         key_file.write_text(private_key_pem)
         key_file.chmod(0o600)
+
+        ca_pem = ""
+        if network.ca_cert_path:
+            try:
+                ca_pem = Path(network.ca_cert_path).read_text()
+            except Exception:
+                pass
+
+        return ip, cert_pem, private_key_pem, ca_pem, public_key_pem
+
+    async def create_host_certificate_for_existing_node(
+        self,
+        node: Node,
+        network: Network,
+        suggested_ip: Optional[str] = None,
+        duration_days: Optional[int] = None,
+    ) -> tuple[str, str, str, str, str]:
+        """
+        Create a new host certificate for an existing node (e.g. after revoke or re-enroll).
+        Allocates IP, generates new keypair, signs, writes files, updates node, adds Certificate record.
+        Returns (ip_address, cert_pem, private_key_pem, ca_pem, public_key_pem).
+        """
+        await self.ensure_ca(network)
+        duration_days = duration_days or settings.default_cert_expiry_days
+        duration_hours = duration_days * 24
+
+        ip = await self.ip_allocator.allocate(
+            network.id, network.subnet_cidr, suggested_ip
+        )
+
+        base = Path(settings.cert_store_path) / str(network.id) / "hosts"
+        base.mkdir(parents=True, exist_ok=True)
+        name = node.hostname
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmp = Path(tmpdir)
+            pub_path = tmp / "host.pub"
+            key_path = tmp / "host.key"
+            out_crt_tmp = tmp / "host.crt"
+            keygen(out_pub=pub_path, out_key=key_path)
+            cert_sign(
+                Path(network.ca_cert_path),
+                Path(network.ca_key_path),
+                name=name,
+                ip=ip,
+                out_crt=out_crt_tmp,
+                groups=node.groups or [],
+                duration_hours=duration_hours,
+                in_pub=pub_path,
+                subnet_cidr=network.subnet_cidr,
+            )
+            cert_pem = out_crt_tmp.read_text()
+            private_key_pem = key_path.read_text()
+            public_key_pem = pub_path.read_text()
+
+        (base / f"{name}.crt").write_text(cert_pem)
+        key_file = base / f"{name}.key"
+        key_file.write_text(private_key_pem)
+        key_file.chmod(0o600)
+
+        node.ip_address = ip
+        node.public_key = public_key_pem
+        node.cert_fingerprint = None  # Can be set when device first polls
+        node.status = "active"
+        await self.session.flush()
+
+        expires_at = datetime.utcnow() + timedelta(days=duration_days)
+        cert_record = Certificate(
+            node_id=node.id,
+            expires_at=expires_at,
+            cert_path=None,
+        )
+        self.session.add(cert_record)
+        await self.session.flush()
 
         ca_pem = ""
         if network.ca_cert_path:

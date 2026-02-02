@@ -123,7 +123,7 @@ export function Networks() {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                   Create a network to define your overlay subnet, then generate certificates and enroll nodes.
                 </p>
-                <Button color="blue" onClick={() => setShowForm(true)}>
+                <Button color="blue" onClick={() => setShowForm(true)} data-onboarding-target="networks-create-button">
                   <HiPlus className="mr-2 h-5 w-5" />
                   Add your first network
                 </Button>

@@ -127,6 +127,18 @@ export async function deleteNode(nodeId: number): Promise<void> {
   }
 }
 
+export async function revokeNodeCertificate(nodeId: number): Promise<{ ok: boolean }> {
+  return apiFetch<{ ok: boolean }>(`/nodes/${nodeId}/revoke-certificate`, {
+    method: "POST",
+  });
+}
+
+export async function reenrollNode(nodeId: number): Promise<{ ok: boolean; node_id: number }> {
+  return apiFetch<{ ok: boolean; node_id: number }>(`/nodes/${nodeId}/re-enroll`, {
+    method: "POST",
+  });
+}
+
 /** Fetch a binary endpoint with auth; returns blob. Throws on error. */
 async function apiFetchBlob(path: string): Promise<Blob> {
   let res = await fetch(`${API_BASE}${path}`, {

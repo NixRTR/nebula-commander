@@ -25,8 +25,41 @@ import {
   createCertificate,
   checkIpAvailable,
   deleteNode,
+  revokeNodeCertificate,
+  reenrollNode,
 } from "../api/client";
 import type { CreateEnrollmentCodeResponse } from "../api/client";
+
+type EnrollmentState =
+  | { type: "enroll" }
+  | { type: "re-enroll" }
+  | { type: "active" }
+  | { type: "idle"; severity: "success" | "warning" | "failure" };
+
+function getEnrollmentState(node: Node): EnrollmentState {
+  if (!node.first_polled_at) {
+    return { type: "enroll" };
+  }
+  if (node.last_seen) {
+    const lastSeenDate = new Date(node.last_seen);
+    const now = new Date();
+    const minutesSinceLastSeen = (now.getTime() - lastSeenDate.getTime()) / (1000 * 60);
+    if (minutesSinceLastSeen > 24 * 60) {
+      return { type: "re-enroll" };
+    }
+    if (minutesSinceLastSeen <= 30) {
+      return { type: "active" };
+    }
+    if (minutesSinceLastSeen <= 60) {
+      return { type: "idle", severity: "success" };
+    }
+    if (minutesSinceLastSeen <= 180) {
+      return { type: "idle", severity: "warning" };
+    }
+    return { type: "idle", severity: "failure" };
+  }
+  return { type: "re-enroll" };
+}
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -43,26 +76,41 @@ export function Nodes() {
   const [filterNetworkId, setFilterNetworkId] = useState<number | "">("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editModalOpen, setEditModalOpen] = useState(false);
-  const [editingNode, setEditingNode] = useState<Node | null>(null);
-  const [editForm, setEditForm] = useState<{
+  const [deviceDetailsModal, setDeviceDetailsModal] = useState<{
+    open: boolean;
+    node: Node | null;
+    isEditing: boolean;
+    showSaved: boolean;
+    savedFading: boolean;
+  }>({ open: false, node: null, isEditing: false, showSaved: false, savedFading: false });
+  const [deviceDetailsForm, setDeviceDetailsForm] = useState<{
+    groups: string;
     is_lighthouse: boolean;
     public_endpoint: string;
-    groups: string;
     serve_dns: boolean;
     dns_host: string;
     dns_port: string;
     interval_seconds: string;
   }>({
+    groups: "",
     is_lighthouse: false,
     public_endpoint: "",
-    groups: "",
     serve_dns: false,
     dns_host: "0.0.0.0",
     dns_port: "53",
     interval_seconds: "60",
   });
   const [saving, setSaving] = useState(false);
+  const [reEnrollModal, setReEnrollModal] = useState<{
+    open: boolean;
+    node: Node | null;
+    processing: boolean;
+  }>({ open: false, node: null, processing: false });
+  const [revokeModal, setRevokeModal] = useState<{
+    open: boolean;
+    node: Node | null;
+    processing: boolean;
+  }>({ open: false, node: null, processing: false });
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [enrollmentCodeModal, setEnrollmentCodeModal] = useState<{
     open: boolean;
@@ -159,6 +207,7 @@ export function Nodes() {
     setError(null);
     if (nodeNameError || suggestedIpError) return;
     setCreateSubmitting(true);
+    const firstInNetwork = isFirstNodeInNetwork(createNodeForm.network_id);
     const body = {
       network_id: createNodeForm.network_id,
       name: createNodeForm.name.trim(),
@@ -167,7 +216,7 @@ export function Nodes() {
         : undefined,
       suggested_ip: createNodeForm.suggested_ip.trim() || undefined,
       duration_days: createNodeForm.duration_days ? parseInt(createNodeForm.duration_days, 10) : undefined,
-      is_lighthouse: createNodeForm.is_lighthouse,
+      is_lighthouse: firstInNetwork ? true : createNodeForm.is_lighthouse,
       public_endpoint: createNodeForm.public_endpoint.trim() || undefined,
       lighthouse_options: createNodeForm.is_lighthouse
         ? {
@@ -221,10 +270,22 @@ export function Nodes() {
       .finally(() => setDeleting(false));
   };
 
-  const openEditModal = (node: Node) => {
-    setEditingNode(node);
+  const getNetworkName = (networkId: number): string => {
+    const network = networks.find((n) => n.id === networkId);
+    return network?.name ?? `Network ${networkId}`;
+  };
+
+  const isFirstNodeInNetwork = (networkId: number): boolean =>
+    nodes.filter((n) => n.network_id === networkId).length === 0;
+
+  const isOnlyLighthouseInNetwork = (node: Node): boolean =>
+    !!node?.is_lighthouse &&
+    nodes.filter((n) => n.network_id === node.network_id && n.is_lighthouse).length === 1;
+
+  const openDeviceDetailsModal = (node: Node) => {
+    setDeviceDetailsModal({ open: true, node, isEditing: false, showSaved: false, savedFading: false });
     const opts = node.lighthouse_options;
-    setEditForm({
+    setDeviceDetailsForm({
       is_lighthouse: node.is_lighthouse,
       public_endpoint: node.public_endpoint ?? "",
       groups: (node.groups ?? []).join(", "),
@@ -233,41 +294,132 @@ export function Nodes() {
       dns_port: String(opts?.dns_port ?? 53),
       interval_seconds: String(opts?.interval_seconds ?? 60),
     });
-    setEditModalOpen(true);
     setDownloadError(null);
   };
 
-  const closeEditModal = () => {
-    setEditModalOpen(false);
-    setEditingNode(null);
+  const closeDeviceDetailsModal = () => {
+    setDeviceDetailsModal({ open: false, node: null, isEditing: false, showSaved: false, savedFading: false });
   };
 
-  const handleSaveEdit = (e: React.FormEvent) => {
+  const hasDeviceDetailsFormChanges = (): boolean => {
+    const node = deviceDetailsModal.node;
+    if (!node) return false;
+    const opts = node.lighthouse_options;
+    return (
+      deviceDetailsForm.groups !== (node.groups ?? []).join(", ") ||
+      deviceDetailsForm.is_lighthouse !== node.is_lighthouse ||
+      (deviceDetailsForm.public_endpoint ?? "") !== (node.public_endpoint ?? "") ||
+      deviceDetailsForm.serve_dns !== (opts?.serve_dns ?? false) ||
+      (deviceDetailsForm.dns_host ?? "0.0.0.0") !== (opts?.dns_host ?? "0.0.0.0") ||
+      String(deviceDetailsForm.dns_port ?? 53) !== String(opts?.dns_port ?? 53) ||
+      String(deviceDetailsForm.interval_seconds ?? 60) !== String(opts?.interval_seconds ?? 60)
+    );
+  };
+
+  const handleSaveDeviceDetails = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingNode) return;
+    const node = deviceDetailsModal.node;
+    if (!node) return;
+    if (
+      deviceDetailsForm.is_lighthouse === false &&
+      node.is_lighthouse === true &&
+      isOnlyLighthouseInNetwork(node)
+    ) {
+      setError("Cannot remove the only lighthouse. Designate another node as lighthouse first.");
+      return;
+    }
     setSaving(true);
-    const groups = editForm.groups
+    const groups = deviceDetailsForm.groups
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
     const lighthouse_options: LighthouseOptions = {
-      serve_dns: editForm.serve_dns,
-      dns_host: editForm.dns_host || "0.0.0.0",
-      dns_port: parseInt(editForm.dns_port, 10) || 53,
-      interval_seconds: parseInt(editForm.interval_seconds, 10) || 60,
+      serve_dns: deviceDetailsForm.serve_dns,
+      dns_host: deviceDetailsForm.dns_host || "0.0.0.0",
+      dns_port: parseInt(deviceDetailsForm.dns_port, 10) || 53,
+      interval_seconds: parseInt(deviceDetailsForm.interval_seconds, 10) || 60,
     };
-    updateNode(editingNode.id, {
-      is_lighthouse: editForm.is_lighthouse,
-      public_endpoint: editForm.public_endpoint.trim() || null,
+    updateNode(node.id, {
+      is_lighthouse: deviceDetailsForm.is_lighthouse,
+      public_endpoint: deviceDetailsForm.public_endpoint.trim() || null,
       groups,
       lighthouse_options,
     })
       .then(() => {
-        closeEditModal();
-        loadNodes();
+        setDeviceDetailsModal((s) => ({ ...s, showSaved: true, savedFading: false }));
+        setTimeout(() => setDeviceDetailsModal((s) => ({ ...s, savedFading: true })), 500);
+        setTimeout(() => {
+          getNode(node.id).then((updated) => {
+            setDeviceDetailsModal((s) => ({ ...s, node: updated, isEditing: false, showSaved: false, savedFading: false }));
+            setDeviceDetailsForm({
+              groups: (updated.groups ?? []).join(", "),
+              is_lighthouse: updated.is_lighthouse,
+              public_endpoint: updated.public_endpoint ?? "",
+              serve_dns: updated.lighthouse_options?.serve_dns ?? false,
+              dns_host: updated.lighthouse_options?.dns_host ?? "0.0.0.0",
+              dns_port: String(updated.lighthouse_options?.dns_port ?? 53),
+              interval_seconds: String(updated.lighthouse_options?.interval_seconds ?? 60),
+            });
+          });
+          loadNodes();
+        }, 2000);
       })
       .catch((e) => setError(e.message))
       .finally(() => setSaving(false));
+  };
+
+  const openReEnrollModal = (node: Node) => {
+    setReEnrollModal({ open: true, node, processing: false });
+  };
+
+  const closeReEnrollModal = () => {
+    setReEnrollModal({ open: false, node: null, processing: false });
+  };
+
+  const handleReEnrollConfirm = () => {
+    const node = reEnrollModal.node;
+    if (!node) return;
+    setReEnrollModal((s) => ({ ...s, processing: true }));
+    reenrollNode(node.id)
+      .then(() => {
+        closeReEnrollModal();
+        closeDeviceDetailsModal();
+        loadNodes();
+        return createEnrollmentCode(node.id, 24);
+      })
+      .then((enrollData) => {
+        setEnrollmentCodeModal({
+          open: true,
+          data: enrollData,
+          nodeId: enrollData.node_id,
+          loading: false,
+          enrollmentSuccess: false,
+        });
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setReEnrollModal((s) => ({ ...s, processing: false })));
+  };
+
+  const openRevokeModal = (node: Node) => {
+    setRevokeModal({ open: true, node, processing: false });
+  };
+
+  const closeRevokeModal = () => {
+    setRevokeModal({ open: false, node: null, processing: false });
+  };
+
+  const handleRevokeConfirm = () => {
+    const node = revokeModal.node;
+    if (!node) return;
+    setRevokeModal((s) => ({ ...s, processing: true }));
+    revokeNodeCertificate(node.id)
+      .then(() => {
+        closeRevokeModal();
+        closeDeviceDetailsModal();
+        loadNodes();
+      })
+      .catch((e) => setError(e.message))
+      .finally(() => setRevokeModal((s) => ({ ...s, processing: false })));
   };
 
   const handleDownloadConfig = async (node: Node) => {
@@ -420,6 +572,7 @@ export function Nodes() {
                   setNodeNameError(null);
                   setSuggestedIpError(null);
                 }}
+                data-onboarding-target="nodes-create-button"
               >
                 <HiPlus className="mr-2 h-5 w-5" />
                 {showCreateNodeForm ? "Cancel" : "Create Node"}
@@ -444,7 +597,11 @@ export function Nodes() {
                       value={String(createNodeForm.network_id)}
                       onChange={(e) => {
                         const v = parseInt(e.target.value, 10);
-                        setCreateNodeForm((f) => ({ ...f, network_id: v }));
+                        setCreateNodeForm((f) => ({
+                          ...f,
+                          network_id: v,
+                          is_lighthouse: nodes.filter((n) => n.network_id === v).length === 0 ? true : f.is_lighthouse,
+                        }));
                         setNodeNameError(null);
                         setSuggestedIpError(null);
                       }}
@@ -521,8 +678,14 @@ export function Nodes() {
                       onChange={(e) =>
                         setCreateNodeForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
                       }
+                      disabled={isFirstNodeInNetwork(createNodeForm.network_id)}
                     />
                     <Label htmlFor="create_node_lighthouse">Lighthouse</Label>
+                    {isFirstNodeInNetwork(createNodeForm.network_id) && (
+                      <span className="text-sm text-gray-500 dark:text-gray-400">
+                        The first node in this network must be a lighthouse.
+                      </span>
+                    )}
                   </div>
                   {createNodeForm.is_lighthouse && (
                     <>
@@ -601,82 +764,97 @@ export function Nodes() {
           <div className="overflow-x-auto">
             <Table>
               <Table.Head>
-                <Table.HeadCell>ID</Table.HeadCell>
                 <Table.HeadCell>Hostname</Table.HeadCell>
-                <Table.HeadCell>Network ID</Table.HeadCell>
+                <Table.HeadCell>Network</Table.HeadCell>
                 <Table.HeadCell>IP Address</Table.HeadCell>
-                <Table.HeadCell>Groups</Table.HeadCell>
-                <Table.HeadCell>Lighthouse</Table.HeadCell>
+                <Table.HeadCell>Type</Table.HeadCell>
                 <Table.HeadCell>Status</Table.HeadCell>
-                <Table.HeadCell>Last Seen</Table.HeadCell>
+                <Table.HeadCell>Details</Table.HeadCell>
+                <Table.HeadCell>Enrollment</Table.HeadCell>
                 <Table.HeadCell>Actions</Table.HeadCell>
               </Table.Head>
               <Table.Body className="divide-y">
-                {nodes.map((n) => (
-                  <Table.Row key={n.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
-                    <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
-                      {n.id}
-                    </Table.Cell>
-                    <Table.Cell>{n.hostname}</Table.Cell>
-                    <Table.Cell>{n.network_id}</Table.Cell>
-                    <Table.Cell>{n.ip_address || "—"}</Table.Cell>
-                    <Table.Cell>
-                      {n.groups && n.groups.length > 0 ? (
-                        <div className="flex gap-1 flex-wrap">
-                          {n.groups.map((g, i) => (
-                            <Badge key={i} color="info" size="sm">
-                              {g}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        "—"
-                      )}
-                    </Table.Cell>
-                    <Table.Cell>
-                      {n.is_lighthouse ? (
-                        <Badge color="purple" size="sm">
-                          Yes
-                        </Badge>
-                      ) : (
-                        <span className="text-gray-500 dark:text-gray-400">No</span>
-                      )}
-                    </Table.Cell>
-                    <Table.Cell>{getStatusBadge(n.status)}</Table.Cell>
-                    <Table.Cell>
-                      {n.last_seen ? new Date(n.last_seen).toLocaleString() : "—"}
-                    </Table.Cell>
-                    <Table.Cell>
-                      <div className="flex flex-wrap gap-2 items-center">
-                        <Button size="xs" color="gray" onClick={() => openEditModal(n)}>
-                          <HiPencil className="w-4 h-4 mr-1" />
-                          Edit
-                        </Button>
-                        <Button size="xs" color="gray" onClick={() => handleDownloadConfig(n)}>
-                          <HiDownload className="w-4 h-4 mr-1" />
-                          Config
-                        </Button>
-                        {n.ip_address ? (
-                          <Button size="xs" color="gray" onClick={() => handleDownloadCerts(n)}>
-                            <HiDownload className="w-4 h-4 mr-1" />
-                            Certs
-                          </Button>
+                {nodes.map((n) => {
+                  const enrollState = getEnrollmentState(n);
+                  return (
+                    <Table.Row key={n.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
+                      <Table.Cell>
+                        <button
+                          type="button"
+                          onClick={() => openDeviceDetailsModal(n)}
+                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer underline font-medium text-left"
+                        >
+                          {n.hostname}
+                        </button>
+                      </Table.Cell>
+                      <Table.Cell>{getNetworkName(n.network_id)}</Table.Cell>
+                      <Table.Cell>{n.ip_address || "—"}</Table.Cell>
+                      <Table.Cell>
+                        {n.is_lighthouse ? (
+                          <Badge color="purple" size="sm">
+                            Lighthouse
+                          </Badge>
                         ) : (
-                          <span className="text-gray-400 text-xs">No cert</span>
+                          <span className="text-gray-600 dark:text-gray-400">Node</span>
                         )}
-                        {n.ip_address && (
+                      </Table.Cell>
+                      <Table.Cell>{getStatusBadge(n.status)}</Table.Cell>
+                      <Table.Cell>
+                        <Button size="xs" color="gray" onClick={() => openDeviceDetailsModal(n)}>
+                          Details
+                        </Button>
+                      </Table.Cell>
+                      <Table.Cell>
+                        {enrollState.type === "enroll" && (
                           <Button size="xs" color="purple" onClick={() => openEnrollmentCodeModal(n)}>
                             Enroll
                           </Button>
                         )}
-                        <Button size="xs" color="failure" onClick={() => openDeleteModal(n)}>
-                          <HiTrash className="w-4 h-4 mr-1" />
-                          Delete
-                        </Button>
-                      </div>
-                    </Table.Cell>
-                  </Table.Row>
-                ))}
+                        {enrollState.type === "re-enroll" && (
+                          <Button size="xs" color="warning" onClick={() => openEnrollmentCodeModal(n)}>
+                            Re-Enroll
+                          </Button>
+                        )}
+                        {enrollState.type === "active" && (
+                          <Badge color="success">Active</Badge>
+                        )}
+                        {enrollState.type === "idle" && (
+                          <Badge
+                            color={
+                              enrollState.severity === "success"
+                                ? "success"
+                                : enrollState.severity === "warning"
+                                  ? "warning"
+                                  : "failure"
+                            }
+                          >
+                            Idle
+                          </Badge>
+                        )}
+                      </Table.Cell>
+                      <Table.Cell>
+                        <div className="flex flex-wrap gap-2 items-center">
+                          <Button size="xs" color="gray" onClick={() => handleDownloadConfig(n)}>
+                            <HiDownload className="w-4 h-4 mr-1" />
+                            Config
+                          </Button>
+                          {n.ip_address ? (
+                            <Button size="xs" color="gray" onClick={() => handleDownloadCerts(n)}>
+                              <HiDownload className="w-4 h-4 mr-1" />
+                              Certs
+                            </Button>
+                          ) : (
+                            <span className="text-gray-400 text-xs">No cert</span>
+                          )}
+                          <Button size="xs" color="failure" onClick={() => openDeleteModal(n)}>
+                            <HiTrash className="w-4 h-4 mr-1" />
+                            Delete
+                          </Button>
+                        </div>
+                      </Table.Cell>
+                    </Table.Row>
+                  );
+                })}
               </Table.Body>
             </Table>
             {nodes.length === 0 && (
@@ -688,103 +866,301 @@ export function Nodes() {
         </Card>
       )}
 
-      <Modal show={editModalOpen} onClose={closeEditModal} size="md">
-        <Modal.Header>Edit node {editingNode?.hostname}</Modal.Header>
-        <form onSubmit={handleSaveEdit}>
-          <Modal.Body className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="edit_is_lighthouse"
-                checked={editForm.is_lighthouse}
-                onChange={(e) =>
-                  setEditForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
-                }
-              />
-              <Label htmlFor="edit_is_lighthouse">This node is a lighthouse</Label>
-            </div>
-            {editForm.is_lighthouse && (
+      <Modal show={deviceDetailsModal.open} onClose={closeDeviceDetailsModal} size="7xl" className="max-w-[90vw] w-full">
+        <Modal.Header>Device Details - {deviceDetailsModal.node?.hostname ?? ""}</Modal.Header>
+        <form onSubmit={handleSaveDeviceDetails}>
+          <Modal.Body className="space-y-6 overflow-x-hidden">
+            {deviceDetailsModal.node && (
               <>
-                <div>
-                  <Label htmlFor="edit_public_endpoint" value="Public endpoint (hostname or IP:port)" />
-                  <TextInput
-                    id="edit_public_endpoint"
-                    value={editForm.public_endpoint}
-                    onChange={(e) =>
-                      setEditForm((f) => ({ ...f, public_endpoint: e.target.value }))
-                    }
-                    placeholder="lighthouse.example.com:4242"
-                  />
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  <div className="min-w-0">
+                    <Label value="ID" className="text-gray-500 dark:text-gray-400" />
+                    <p className="text-gray-900 dark:text-white truncate" title={String(deviceDetailsModal.node.id)}>{deviceDetailsModal.node.id}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <Label value="Hostname" className="text-gray-500 dark:text-gray-400" />
+                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.hostname}>{deviceDetailsModal.node.hostname}</p>
+                  </div>
+                  <div className="min-w-0">
+                    <Label value="Network" className="text-gray-500 dark:text-gray-400" />
+                    <p className="text-gray-900 dark:text-white truncate" title={getNetworkName(deviceDetailsModal.node.network_id)}>
+                      {getNetworkName(deviceDetailsModal.node.network_id)}
+                    </p>
+                  </div>
+                  <div className="min-w-0">
+                    <Label value="IP Address" className="text-gray-500 dark:text-gray-400" />
+                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.ip_address || "—"}>
+                      {deviceDetailsModal.node.ip_address || "—"}
+                    </p>
+                  </div>
+                  <div className="min-w-0">
+                    <Label value="Status" className="text-gray-500 dark:text-gray-400" />
+                    <div className="mt-1">{getStatusBadge(deviceDetailsModal.node.status)}</div>
+                  </div>
+                  <div className="min-w-0">
+                    <Label value="Created At" className="text-gray-500 dark:text-gray-400" />
+                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.created_at ? new Date(deviceDetailsModal.node.created_at).toLocaleString() : "—"}>
+                      {deviceDetailsModal.node.created_at
+                        ? new Date(deviceDetailsModal.node.created_at).toLocaleString()
+                        : "—"}
+                    </p>
+                  </div>
+                  <div className="min-w-0">
+                    <Label value="Last Seen" className="text-gray-500 dark:text-gray-400" />
+                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.last_seen ? new Date(deviceDetailsModal.node.last_seen).toLocaleString() : "—"}>
+                      {deviceDetailsModal.node.last_seen
+                        ? new Date(deviceDetailsModal.node.last_seen).toLocaleString()
+                        : "—"}
+                    </p>
+                  </div>
+                  <div className="min-w-0">
+                    <Label value="First Polled At" className="text-gray-500 dark:text-gray-400" />
+                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.first_polled_at ? new Date(deviceDetailsModal.node.first_polled_at).toLocaleString() : "—"}>
+                      {deviceDetailsModal.node.first_polled_at
+                        ? new Date(deviceDetailsModal.node.first_polled_at).toLocaleString()
+                        : "—"}
+                    </p>
+                  </div>
                 </div>
-                <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-                  <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Lighthouse options
-                  </p>
-                  <div className="flex items-center gap-2 mb-2">
-                    <Checkbox
-                      id="edit_serve_dns"
-                      checked={editForm.serve_dns}
-                      onChange={(e) =>
-                        setEditForm((f) => ({ ...f, serve_dns: e.target.checked }))
-                      }
-                    />
-                    <Label htmlFor="edit_serve_dns">Serve DNS</Label>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label htmlFor="edit_dns_host" value="DNS host" />
-                      <TextInput
-                        id="edit_dns_host"
-                        value={editForm.dns_host}
-                        onChange={(e) =>
-                          setEditForm((f) => ({ ...f, dns_host: e.target.value }))
-                        }
-                      />
-                    </div>
-                    <div>
-                      <Label htmlFor="edit_dns_port" value="DNS port" />
-                      <TextInput
-                        id="edit_dns_port"
-                        type="number"
-                        value={editForm.dns_port}
-                        onChange={(e) =>
-                          setEditForm((f) => ({ ...f, dns_port: e.target.value }))
-                        }
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label htmlFor="edit_interval" value="Report interval (seconds)" />
+
+                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                  <div className="min-w-0">
+                    <Label htmlFor="dd_groups" value="Groups (comma-separated)" className="text-gray-500 dark:text-gray-400" />
                     <TextInput
-                      id="edit_interval"
-                      type="number"
-                      value={editForm.interval_seconds}
+                      id="dd_groups"
+                      value={deviceDetailsForm.groups}
                       onChange={(e) =>
-                        setEditForm((f) => ({ ...f, interval_seconds: e.target.value }))
+                        setDeviceDetailsForm((f) => ({ ...f, groups: e.target.value }))
                       }
+                      placeholder="laptops, admin"
+                      disabled={!deviceDetailsModal.isEditing}
+                      className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
                     />
                   </div>
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      id="dd_is_lighthouse"
+                      checked={deviceDetailsForm.is_lighthouse}
+                      onChange={(e) =>
+                        setDeviceDetailsForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
+                      }
+                      disabled={!deviceDetailsModal.isEditing}
+                    />
+                    <Label htmlFor="dd_is_lighthouse">Lighthouse</Label>
+                  </div>
+                  {deviceDetailsModal.isEditing &&
+                    deviceDetailsModal.node &&
+                    isOnlyLighthouseInNetwork(deviceDetailsModal.node) && (
+                      <p className="text-sm text-amber-600 dark:text-amber-400">
+                        This is the only lighthouse in the network; it cannot be unchecked until another node is set as lighthouse.
+                      </p>
+                    )}
                 </div>
+
+                {deviceDetailsForm.is_lighthouse && (
+                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                    <div className="min-w-0">
+                      <Label htmlFor="dd_public_endpoint" value="Public endpoint (hostname or IP:port)" className="text-gray-500 dark:text-gray-400" />
+                      <TextInput
+                        id="dd_public_endpoint"
+                        value={deviceDetailsForm.public_endpoint}
+                        onChange={(e) =>
+                          setDeviceDetailsForm((f) => ({ ...f, public_endpoint: e.target.value }))
+                        }
+                        placeholder="lighthouse.example.com:4242"
+                        disabled={!deviceDetailsModal.isEditing}
+                        className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                      />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                        Lighthouse options
+                      </p>
+                      <div className="flex items-center gap-2 mb-3">
+                        <Checkbox
+                          id="dd_serve_dns"
+                          checked={deviceDetailsForm.serve_dns}
+                          onChange={(e) =>
+                            setDeviceDetailsForm((f) => ({ ...f, serve_dns: e.target.checked }))
+                          }
+                          disabled={!deviceDetailsModal.isEditing}
+                        />
+                        <Label htmlFor="dd_serve_dns">Serve DNS</Label>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="min-w-0">
+                          <Label htmlFor="dd_dns_host" value="DNS host" className="text-gray-500 dark:text-gray-400" />
+                          <TextInput
+                            id="dd_dns_host"
+                            value={deviceDetailsForm.dns_host}
+                            onChange={(e) =>
+                              setDeviceDetailsForm((f) => ({ ...f, dns_host: e.target.value }))
+                            }
+                            disabled={!deviceDetailsModal.isEditing}
+                            className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <Label htmlFor="dd_dns_port" value="DNS port" className="text-gray-500 dark:text-gray-400" />
+                          <TextInput
+                            id="dd_dns_port"
+                            type="number"
+                            value={deviceDetailsForm.dns_port}
+                            onChange={(e) =>
+                              setDeviceDetailsForm((f) => ({ ...f, dns_port: e.target.value }))
+                            }
+                            disabled={!deviceDetailsModal.isEditing}
+                            className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <Label htmlFor="dd_interval" value="Report interval (seconds)" className="text-gray-500 dark:text-gray-400" />
+                          <TextInput
+                            id="dd_interval"
+                            type="number"
+                            value={deviceDetailsForm.interval_seconds}
+                            onChange={(e) =>
+                              setDeviceDetailsForm((f) => ({ ...f, interval_seconds: e.target.value }))
+                            }
+                            disabled={!deviceDetailsModal.isEditing}
+                            className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
-            <div>
-              <Label htmlFor="edit_groups" value="Groups (comma-separated)" />
-              <TextInput
-                id="edit_groups"
-                value={editForm.groups}
-                onChange={(e) => setEditForm((f) => ({ ...f, groups: e.target.value }))}
-                placeholder="laptops, admin"
-              />
-            </div>
           </Modal.Body>
-          <Modal.Footer>
-            <Button type="submit" color="blue" isProcessing={saving} disabled={saving}>
-              Save
-            </Button>
-            <Button color="gray" onClick={closeEditModal}>
-              Cancel
-            </Button>
+          <Modal.Footer className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex flex-wrap gap-2">
+              {!deviceDetailsModal.isEditing ? (
+                <Button
+                  type="button"
+                  color="gray"
+                  onClick={() => setDeviceDetailsModal((s) => ({ ...s, isEditing: true }))}
+                >
+                  <HiPencil className="w-4 h-4 mr-1" />
+                  Edit
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  color="gray"
+                  onClick={() => {
+                    const node = deviceDetailsModal.node;
+                    if (node) {
+                      setDeviceDetailsForm({
+                        groups: (node.groups ?? []).join(", "),
+                        is_lighthouse: node.is_lighthouse,
+                        public_endpoint: node.public_endpoint ?? "",
+                        serve_dns: node.lighthouse_options?.serve_dns ?? false,
+                        dns_host: node.lighthouse_options?.dns_host ?? "0.0.0.0",
+                        dns_port: String(node.lighthouse_options?.dns_port ?? 53),
+                        interval_seconds: String(node.lighthouse_options?.interval_seconds ?? 60),
+                      });
+                      setDeviceDetailsModal((s) => ({ ...s, isEditing: false }));
+                    }
+                  }}
+                >
+                  Cancel
+                </Button>
+              )}
+              {deviceDetailsModal.node && (
+                <>
+                  <Button
+                    type="button"
+                    color="warning"
+                    onClick={() => openReEnrollModal(deviceDetailsModal.node!)}
+                  >
+                    Re-Enroll
+                  </Button>
+                  {deviceDetailsModal.node.ip_address && (
+                    <Button
+                      type="button"
+                      color="failure"
+                      onClick={() => openRevokeModal(deviceDetailsModal.node!)}
+                    >
+                      Revoke Certificate
+                    </Button>
+                  )}
+                </>
+              )}
+            </div>
+            <div className="flex items-center gap-2">
+              {deviceDetailsModal.isEditing && hasDeviceDetailsFormChanges() && (
+                deviceDetailsModal.showSaved ? (
+                  <span
+                    className={`inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium transition-opacity duration-500 ease-in-out ${
+                      deviceDetailsModal.savedFading ? "opacity-0" : "opacity-100"
+                    }`}
+                  >
+                    <HiCheckCircle className="w-5 h-5" />
+                    Saved
+                  </span>
+                ) : (
+                  <Button
+                    type="submit"
+                    color="blue"
+                    isProcessing={saving}
+                    disabled={saving}
+                  >
+                    Save
+                  </Button>
+                )
+              )}
+            </div>
           </Modal.Footer>
         </form>
+      </Modal>
+
+      <Modal show={reEnrollModal.open} onClose={closeReEnrollModal} size="md">
+        <Modal.Header>Re-Enroll Device</Modal.Header>
+        <Modal.Body>
+          <p className="text-gray-700 dark:text-gray-300">
+            This will generate a new certificate for this device. The current certificate will be
+            revoked and any node currently enrolled with the old certificate will no longer function.
+            Do you want to continue?
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button color="gray" onClick={closeReEnrollModal}>
+            Cancel
+          </Button>
+          <Button
+            color="warning"
+            onClick={handleReEnrollConfirm}
+            isProcessing={reEnrollModal.processing}
+            disabled={reEnrollModal.processing}
+          >
+            Re-Enroll
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+      <Modal show={revokeModal.open} onClose={closeRevokeModal} size="md">
+        <Modal.Header>Revoke Certificate</Modal.Header>
+        <Modal.Body>
+          <p className="text-gray-700 dark:text-gray-300">
+            This will revoke the node&apos;s certificate and take it offline. The node will no
+            longer be able to connect to the network. You can re-enroll it later to issue a new
+            certificate. Do you want to continue?
+          </p>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button color="gray" onClick={closeRevokeModal}>
+            Cancel
+          </Button>
+          <Button
+            color="failure"
+            onClick={handleRevokeConfirm}
+            isProcessing={revokeModal.processing}
+            disabled={revokeModal.processing}
+          >
+            Revoke
+          </Button>
+        </Modal.Footer>
       </Modal>
 
       <Modal show={deleteModal.open} onClose={closeDeleteModal} size="md">
@@ -795,6 +1171,11 @@ export function Nodes() {
               <p className="text-gray-700 dark:text-gray-300">
                 Are you sure you want to delete the node <strong>{deleteModal.node.hostname}</strong>? This will remove the node, its certificate, enrollment codes, and release its IP. This cannot be undone.
               </p>
+              {isOnlyLighthouseInNetwork(deleteModal.node) && (
+                <Alert color="failure">
+                  Cannot delete the only lighthouse. Designate another node as lighthouse first, or delete the network.
+                </Alert>
+              )}
             </div>
           )}
           {deleteModal.step === 2 && deleteModal.node && (
@@ -822,6 +1203,7 @@ export function Nodes() {
               <Button
                 color="failure"
                 onClick={() => setDeleteModal((s) => ({ ...s, step: 2 }))}
+                disabled={deleteModal.node ? isOnlyLighthouseInNetwork(deleteModal.node) : false}
               >
                 Continue
               </Button>

@@ -9,7 +9,7 @@ from typing import Any, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import require_user, UserInfo
@@ -18,6 +18,7 @@ from ..database import get_session
 from ..models import Certificate, EnrollmentCode, Network, NetworkConfig, Node
 from ..services.config_generator import generate_config_for_node
 from ..services.ip_allocator import IPAllocator
+from ..services.cert_manager import CertManager
 
 logger = logging.getLogger(__name__)
 
@@ -196,6 +197,20 @@ async def update_node(
     if body.groups is not None:
         node.groups = body.groups
     if body.is_lighthouse is not None:
+        if body.is_lighthouse is False and node.is_lighthouse:
+            # Cannot remove the only lighthouse
+            count_result = await session.execute(
+                select(func.count(Node.id)).where(
+                    Node.network_id == node.network_id,
+                    Node.is_lighthouse.is_(True),
+                )
+            )
+            lighthouse_count = count_result.scalar() or 0
+            if lighthouse_count <= 1:
+                raise HTTPException(
+                    status_code=409,
+                    detail="Cannot remove the only lighthouse. Designate another node as lighthouse first.",
+                )
         node.is_lighthouse = body.is_lighthouse
     if body.public_endpoint is not None:
         node.public_endpoint = body.public_endpoint.strip() or None
@@ -216,6 +231,20 @@ async def delete_node(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+
+    if node.is_lighthouse:
+        count_result = await session.execute(
+            select(func.count(Node.id)).where(
+                Node.network_id == node.network_id,
+                Node.is_lighthouse.is_(True),
+            )
+        )
+        lighthouse_count = count_result.scalar() or 0
+        if lighthouse_count <= 1:
+            raise HTTPException(
+                status_code=409,
+                detail="Cannot delete the only lighthouse. Designate another node as lighthouse first, or delete the network.",
+            )
 
     # 1. Release the allocated IP
     if node.ip_address:
@@ -240,3 +269,85 @@ async def delete_node(
     await session.delete(node)
     await session.flush()
     return None
+
+
+@router.post("/{node_id}/revoke-certificate")
+async def revoke_node_certificate(
+    node_id: int,
+    _user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Revoke the node's certificate and take it offline. Node record is kept; can re-enroll later."""
+    result = await session.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    # Mark all certificates for this node as revoked
+    await session.execute(
+        update(Certificate).where(Certificate.node_id == node_id).values(revoked_at=datetime.utcnow())
+    )
+    await session.flush()
+
+    # Release IP and remove host cert/key files
+    if node.ip_address:
+        ip_allocator = IPAllocator(session)
+        await ip_allocator.release(node.network_id, node.ip_address)
+        hosts_dir = Path(settings.cert_store_path) / str(node.network_id) / "hosts"
+        for ext in (".crt", ".key"):
+            p = hosts_dir / f"{node.hostname}{ext}"
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    node.ip_address = None
+    node.public_key = None
+    node.cert_fingerprint = None
+    node.status = "revoked"
+    await session.flush()
+    return {"ok": True}
+
+
+@router.post("/{node_id}/re-enroll")
+async def reenroll_node(
+    node_id: int,
+    _user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Revoke existing certificate (if any) and issue a new one for this node. Returns success; frontend creates enrollment code."""
+    result = await session.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+    # If node has a certificate, revoke it first (mark certs, release IP, remove files, clear node fields)
+    if node.ip_address:
+        await session.execute(
+            update(Certificate).where(Certificate.node_id == node_id).values(revoked_at=datetime.utcnow())
+        )
+        await session.flush()
+        ip_allocator = IPAllocator(session)
+        await ip_allocator.release(node.network_id, node.ip_address)
+        hosts_dir = Path(settings.cert_store_path) / str(node.network_id) / "hosts"
+        for ext in (".crt", ".key"):
+            p = hosts_dir / f"{node.hostname}{ext}"
+            try:
+                p.unlink(missing_ok=True)
+            except OSError:
+                pass
+        node.ip_address = None
+        node.public_key = None
+        node.cert_fingerprint = None
+        await session.flush()
+
+    # Load network and create new certificate for existing node
+    net_result = await session.execute(select(Network).where(Network.id == node.network_id))
+    network = net_result.scalar_one_or_none()
+    if not network:
+        raise HTTPException(status_code=404, detail="Network not found")
+
+    cert_manager = CertManager(session)
+    await cert_manager.create_host_certificate_for_existing_node(node, network)
+    await session.flush()
+    return {"ok": True, "node_id": node.id}

@@ -5,7 +5,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.oidc import require_user, UserInfo
 from ..config import settings
@@ -166,6 +166,22 @@ async def create_certificate(
     if not network:
         raise HTTPException(status_code=404, detail="Network not found")
 
+    # First node in network must be a lighthouse
+    count_result = await session.execute(
+        select(func.count(Node.id)).where(Node.network_id == body.network_id)
+    )
+    node_count = count_result.scalar() or 0
+    if node_count == 0:
+        if body.is_lighthouse is False:
+            raise HTTPException(
+                status_code=400,
+                detail="The first node in a network must be a lighthouse.",
+            )
+        # Force first node to be lighthouse regardless of request
+        is_lighthouse = True
+    else:
+        is_lighthouse = body.is_lighthouse if body.is_lighthouse is not None else False
+
     # Reject duplicate node (create-only for network_id + hostname)
     node_result = await session.execute(
         select(Node).where(
@@ -206,7 +222,7 @@ async def create_certificate(
         ip_address=ip,
         status="active",
         groups=body.groups or [],
-        is_lighthouse=body.is_lighthouse if body.is_lighthouse is not None else False,
+        is_lighthouse=is_lighthouse,
         public_endpoint=body.public_endpoint.strip() if body.public_endpoint else None,
         lighthouse_options=body.lighthouse_options,
     )

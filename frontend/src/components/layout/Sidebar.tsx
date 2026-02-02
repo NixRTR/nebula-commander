@@ -5,12 +5,13 @@ import { useState, useEffect } from 'react';
 import { Sidebar as FlowbiteSidebar } from 'flowbite-react';
 import { Link, useLocation } from 'react-router-dom';
 import {
-  HiChartPie,
+  HiHome,
   HiServer,
   HiCog,
   HiShieldCheck,
   HiLogout,
   HiGlobe,
+  HiDownload,
 } from 'react-icons/hi';
 import { FaGithub } from 'react-icons/fa';
 
@@ -113,11 +114,11 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               <FlowbiteSidebar.Item
                 as={Link}
                 to="/"
-                icon={HiChartPie}
+                icon={HiHome}
                 active={location.pathname === '/'}
                 onClick={handleItemClick}
               >
-                Dashboard
+                Home
               </FlowbiteSidebar.Item>
 
               <FlowbiteSidebar.Item
@@ -126,6 +127,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 icon={HiGlobe}
                 active={location.pathname === '/networks'}
                 onClick={handleItemClick}
+                data-onboarding-target="sidebar-networks"
               >
                 Networks
               </FlowbiteSidebar.Item>
@@ -136,8 +138,20 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 icon={HiServer}
                 active={location.pathname === '/nodes'}
                 onClick={handleItemClick}
+                data-onboarding-target="sidebar-nodes"
               >
                 Nodes
+              </FlowbiteSidebar.Item>
+
+              <FlowbiteSidebar.Item
+                as={Link}
+                to="/client-download"
+                icon={HiDownload}
+                active={location.pathname === '/client-download'}
+                onClick={handleItemClick}
+                data-onboarding-target="sidebar-client-download"
+              >
+                Client Download
               </FlowbiteSidebar.Item>
 
               {/* Settings - collapsible */}
