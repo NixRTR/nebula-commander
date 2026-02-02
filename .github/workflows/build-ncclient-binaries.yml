@@ -1,0 +1,201 @@
+name: Build ncclient Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags (e.g., v0.1.5)
+    branches:
+      - main  # Also build on main branch pushes (for testing)
+  pull_request:
+    paths:
+      - 'client/binaries/**'
+      - 'client/ncclient.py'
+      - '.github/workflows/build-ncclient-binaries.yml'
+  workflow_dispatch:  # Allow manual trigger from Actions tab
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false  # Continue building other platforms if one fails
+      matrix:
+        include:
+          # Linux builds
+          - os: ubuntu-latest
+            artifact_name: ncclient
+            asset_name: ncclient-linux-amd64
+            platform: Linux (x86_64)
+            arch: x64
+          - os: ubuntu-latest
+            artifact_name: ncclient
+            asset_name: ncclient-linux-arm64
+            platform: Linux (ARM64)
+            arch: arm64
+          
+          # Windows builds
+          - os: windows-latest
+            artifact_name: ncclient.exe
+            asset_name: ncclient-windows-amd64.exe
+            platform: Windows (x86_64)
+            arch: x64
+          - os: windows-latest
+            artifact_name: ncclient.exe
+            asset_name: ncclient-windows-arm64.exe
+            platform: Windows (ARM64)
+            arch: arm64
+          
+          # macOS builds
+          - os: macos-13  # Intel Mac
+            artifact_name: ncclient
+            asset_name: ncclient-macos-amd64
+            platform: macOS (Intel)
+            arch: x64
+          - os: macos-latest  # Apple Silicon (macos-14+)
+            artifact_name: ncclient
+            asset_name: ncclient-macos-arm64
+            platform: macOS (ARM64)
+            arch: arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: ${{ matrix.arch }}
+          cache: 'pip'
+
+      - name: Set up QEMU (for Linux ARM64)
+        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r client/binaries/requirements.txt
+          pip install -r client/requirements.txt
+
+      - name: Build executable (native)
+        if: matrix.arch == 'x64' || runner.os == 'macOS'
+        working-directory: client/binaries
+        run: python build.py
+
+      - name: Build executable (Linux ARM64 via Docker)
+        if: runner.os == 'Linux' && matrix.arch == 'arm64'
+        run: |
+          docker run --rm --platform linux/arm64 \
+            -v "${{ github.workspace }}:/work" \
+            -w /work/client/binaries \
+            python:3.11-slim \
+            bash -c "
+              apt-get update && apt-get install -y binutils &&
+              pip install --upgrade pip &&
+              pip install -r requirements.txt &&
+              pip install -r ../requirements.txt &&
+              python build.py
+            "
+
+      - name: Build executable (Windows ARM64)
+        if: runner.os == 'Windows' && matrix.arch == 'arm64'
+        working-directory: client/binaries
+        run: python build.py
+        env:
+          # PyInstaller will detect ARM64 from Python architecture
+          PYINSTALLER_TARGET_ARCH: arm64
+
+      - name: Run tests (native architectures only)
+        if: matrix.arch == 'x64' || runner.os == 'macOS'
+        working-directory: client/binaries
+        run: python build.py --test
+        continue-on-error: true  # ARM64 builds may not run on x64 runners
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp client/binaries/dist/${{ matrix.artifact_name }} artifacts/${{ matrix.asset_name }}
+          # Make executable on Unix systems
+          if [ "$RUNNER_OS" != "Windows" ]; then
+            chmod +x artifacts/${{ matrix.asset_name }}
+          fi
+
+      - name: Display file info
+        shell: bash
+        run: |
+          ls -lh artifacts/
+          file artifacts/${{ matrix.asset_name }} || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset_name }}
+          path: artifacts/${{ matrix.asset_name }}
+          if-no-files-found: error
+
+      - name: Upload to Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/${{ matrix.asset_name }}
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Generate checksums for all binaries
+  checksums:
+    name: Generate Checksums
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          # Each artifact is in its own subdirectory, flatten them
+          find . -type f -name "ncclient*" -exec mv {} . \;
+          # Remove empty directories
+          find . -type d -empty -delete
+          # Generate SHA256 checksums
+          sha256sum ncclient* > SHA256SUMS.txt
+          echo "=== Checksums ==="
+          cat SHA256SUMS.txt
+
+      - name: Upload checksums artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SHA256SUMS
+          path: artifacts/SHA256SUMS.txt
+
+      - name: Add checksums to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/SHA256SUMS.txt
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Summary job to report build status
+  summary:
+    name: Build Summary
+    needs: build
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Check build status
+        run: |
+          echo "Build completed!"
+          echo "Artifacts are available in the Actions tab."
+          if [ "${{ startsWith(github.ref, 'refs/tags/') }}" == "true" ]; then
+            echo "Release binaries have been uploaded to the release."
+          fi

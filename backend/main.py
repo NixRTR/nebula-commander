@@ -4,6 +4,7 @@ Nebula Commander - self-hosted Nebula control plane.
 Copyright (c) 2025 NixRTR. MIT License. See LICENSE in the repo root.
 """
 import logging
+import os
 import sys
 from contextlib import asynccontextmanager
 
@@ -31,9 +32,11 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
 
 
+VERSION = os.getenv("VERSION", "0.1.0")
+
 app = FastAPI(
     title=settings.app_name,
-    version="0.1.0",
+    version=VERSION,
     description="Self-hosted Nebula control plane",
     lifespan=lifespan,
     docs_url="/api/docs",
@@ -61,7 +64,7 @@ async def root():
     """API root."""
     return {
         "name": settings.app_name,
-        "version": "0.1.0",
+        "version": VERSION,
         "status": "operational",
     }
 

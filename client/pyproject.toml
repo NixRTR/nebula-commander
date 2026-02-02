@@ -1,10 +1,10 @@
 [build-system]
-requires = ["setuptools>=61", "wheel"]
+requires = ["setuptools>=61", "wheel", "setuptools-scm>=8"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "nebula-commander"
-version = "0.1.4"
+dynamic = ["version"]
 description = "Nebula Commander device client (ncclient): enroll with a one-time code, then run as a daemon to pull config and certs and optionally orchestrate Nebula."
 readme = "README.md"
 license = { text = "GPL-3.0-or-later" }
@@ -49,3 +49,9 @@ ncclient = "client.ncclient:main"
 "client" = "."
 [tool.setuptools]
 packages = ["client"]
+
+[tool.setuptools_scm]
+# Version from git tag (e.g. v0.1.5 -> 0.1.5); fallback when no git
+version_scheme = "guess-next-dev"
+local_scheme = "no-local-version"
+fallback_version = "0.1.0"

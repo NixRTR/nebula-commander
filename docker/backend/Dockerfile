@@ -3,6 +3,10 @@
 
 FROM python:3.13-slim
 
+# App version (from git tag in CI; e.g. 0.1.5)
+ARG VERSION=latest
+ENV VERSION=${VERSION}
+
 # Install nebula-cert from GitHub release (required for certificate signing)
 ARG NEBULA_VERSION=1.8.2
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -6,6 +6,7 @@ services:
     build:
       context: ..
       dockerfile: docker/backend/Dockerfile
+    image: ghcr.io/nixrtr/nebula-commander-backend:latest
     container_name: nebula-commander-backend
     restart: unless-stopped
     ports:
@@ -51,6 +52,7 @@ services:
     build:
       context: ..
       dockerfile: docker/frontend/Dockerfile
+    image: ghcr.io/nixrtr/nebula-commander-frontend:latest
     container_name: nebula-commander-frontend
     restart: unless-stopped
     ports:

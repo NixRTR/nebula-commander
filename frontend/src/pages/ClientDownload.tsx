@@ -1,4 +1,14 @@
 import { Card, Tabs } from "flowbite-react";
+import { HiDownload } from "react-icons/hi";
+
+const DOWNLOADS = [
+  { name: "Linux (x86_64)", file: "ncclient-linux-amd64", platform: "linux" },
+  { name: "Linux (ARM64)", file: "ncclient-linux-arm64", platform: "linux" },
+  { name: "Windows (x86_64)", file: "ncclient-windows-amd64.exe", platform: "windows" },
+  { name: "Windows (ARM64)", file: "ncclient-windows-arm64.exe", platform: "windows" },
+  { name: "macOS (Intel)", file: "ncclient-macos-amd64", platform: "macos" },
+  { name: "macOS (Apple Silicon)", file: "ncclient-macos-arm64", platform: "macos" },
+] as const;
 
 export function ClientDownload() {
   return (
@@ -8,6 +18,30 @@ export function ClientDownload() {
         Install and run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> on your device to enroll with Nebula Commander and pull config and certificates. Get the enrollment code from the Nodes page (Enroll button).
       </p>
 
+      <Card className="mb-6">
+        <h2 className="text-xl font-bold mb-2">Download ncclient (standalone)</h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
+          Pre-built executables — no Python required. Served from this server so no internet access is needed after deployment.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {DOWNLOADS.map((d) => (
+            <a
+              key={d.file}
+              href={`/downloads/${d.file}`}
+              download={d.file}
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white transition-colors"
+            >
+              <HiDownload className="w-5 h-5 shrink-0" />
+              <span>{d.name}</span>
+            </a>
+          ))}
+        </div>
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
+          Linux/macOS: after download run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">chmod +x ncclient-*</code> then move to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/usr/local/bin</code> or your PATH.
+        </p>
+      </Card>
+
+      <h2 className="text-xl font-bold mb-4">Alternative: install via Python (PyPI)</h2>
       <Tabs aria-label="Client installation instructions" style="underline">
         <Tabs.Item active title="Linux">
           <Card className="mt-4">
