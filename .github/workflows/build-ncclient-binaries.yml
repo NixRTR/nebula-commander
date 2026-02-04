@@ -23,13 +23,13 @@ jobs:
       fail-fast: false  # Continue building other platforms if one fails
       matrix:
         include:
-          # Linux builds
-          - os: ubuntu-latest
+          # Linux builds (ubuntu-22.04 for GLIBC 2.35 compatibility with Ubuntu 22.04 LTS)
+          - os: ubuntu-22.04
             artifact_name: ncclient
             asset_name: ncclient-linux-amd64
             platform: Linux (x86_64)
             arch: x64
-          - os: ubuntu-latest
+          - os: ubuntu-22.04
             artifact_name: ncclient
             asset_name: ncclient-linux-arm64
             platform: Linux (ARM64)

@@ -12,6 +12,7 @@ from sqlalchemy import (
     String,
     Text,
     JSON,
+    UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,11 +29,36 @@ class Network(Base):
     subnet_cidr: Mapped[str] = mapped_column(String(64), nullable=False)
     ca_cert_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     ca_key_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    firewall_outbound_action: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # drop | reject
+    firewall_inbound_action: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    firewall_outbound_rules: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    firewall_inbound_rules: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     nodes: Mapped[list["Node"]] = relationship("Node", back_populates="network")
     allocated_ips: Mapped[list["AllocatedIP"]] = relationship(
         "AllocatedIP", back_populates="network"
+    )
+    group_firewalls: Mapped[list["NetworkGroupFirewall"]] = relationship(
+        "NetworkGroupFirewall", back_populates="network", cascade="all, delete-orphan"
+    )
+
+
+class NetworkGroupFirewall(Base):
+    """Per-group firewall rules for a network. Keyed by (network_id, group_name)."""
+
+    __tablename__ = "network_group_firewall"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    network_id: Mapped[int] = mapped_column(ForeignKey("networks.id"), nullable=False)
+    group_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    outbound_rules: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    inbound_rules: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+
+    network: Mapped["Network"] = relationship("Network", back_populates="group_firewalls")
+
+    __table_args__ = (
+        UniqueConstraint("network_id", "group_name", name="uq_network_group_firewall_network_group"),
     )
 
 
@@ -49,8 +75,11 @@ class Node(Base):
     cert_fingerprint: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     groups: Mapped[Optional[list]] = mapped_column(JSON, default=list)  # ["group1", "group2"]
     is_lighthouse: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_relay: Mapped[bool] = mapped_column(Boolean, default=False)
     public_endpoint: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # e.g. hostname:4242 for static_host_map
     lighthouse_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # serve_dns, dns_host, dns_port, interval_seconds
+    logging_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # level, format, disable_timestamp, timestamp_format
+    punchy_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # respond, delay, respond_delay
     status: Mapped[str] = mapped_column(String(32), default="pending")  # pending, active, revoked, offline
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     first_polled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # set when device first fetches config/bundle

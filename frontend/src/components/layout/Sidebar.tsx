@@ -12,6 +12,7 @@ import {
   HiLogout,
   HiGlobe,
   HiDownload,
+  HiUserGroup,
 } from 'react-icons/hi';
 import { FaGithub } from 'react-icons/fa';
 
@@ -130,6 +131,16 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 data-onboarding-target="sidebar-networks"
               >
                 Networks
+              </FlowbiteSidebar.Item>
+
+              <FlowbiteSidebar.Item
+                as={Link}
+                to="/groups"
+                icon={HiUserGroup}
+                active={location.pathname === '/groups'}
+                onClick={handleItemClick}
+              >
+                Groups
               </FlowbiteSidebar.Item>
 
               <FlowbiteSidebar.Item

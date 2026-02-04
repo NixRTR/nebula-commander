@@ -26,10 +26,15 @@ router = APIRouter(prefix="/api/nodes", tags=["nodes"])
 
 
 class NodeUpdate(BaseModel):
-    groups: Optional[list[str]] = None
+    """One group per node. Pass a single group name or null to clear."""
+
+    group: Optional[str] = None
     is_lighthouse: Optional[bool] = None
+    is_relay: Optional[bool] = None
     public_endpoint: Optional[str] = None
     lighthouse_options: Optional[dict[str, Any]] = None
+    logging_options: Optional[dict[str, Any]] = None
+    punchy_options: Optional[dict[str, Any]] = None
 
 
 class NodeResponse(BaseModel):
@@ -40,8 +45,11 @@ class NodeResponse(BaseModel):
     cert_fingerprint: Optional[str] = None
     groups: list = []
     is_lighthouse: bool = False
+    is_relay: bool = False
     public_endpoint: Optional[str] = None
     lighthouse_options: Optional[dict[str, Any]] = None
+    logging_options: Optional[dict[str, Any]] = None
+    punchy_options: Optional[dict[str, Any]] = None
     status: str = "pending"
     last_seen: Optional[str] = None
     first_polled_at: Optional[str] = None
@@ -72,8 +80,11 @@ async def list_nodes(
             cert_fingerprint=n.cert_fingerprint,
             groups=n.groups or [],
             is_lighthouse=n.is_lighthouse,
+            is_relay=n.is_relay,
             public_endpoint=n.public_endpoint,
             lighthouse_options=n.lighthouse_options,
+            logging_options=n.logging_options,
+            punchy_options=n.punchy_options,
             status=n.status,
             last_seen=n.last_seen.isoformat() if n.last_seen else None,
             first_polled_at=n.first_polled_at.isoformat() if n.first_polled_at else None,
@@ -173,8 +184,11 @@ async def get_node(
         cert_fingerprint=node.cert_fingerprint,
         groups=node.groups or [],
         is_lighthouse=node.is_lighthouse,
+        is_relay=node.is_relay,
         public_endpoint=node.public_endpoint,
         lighthouse_options=node.lighthouse_options,
+        logging_options=node.logging_options,
+        punchy_options=node.punchy_options,
         status=node.status,
         last_seen=node.last_seen.isoformat() if node.last_seen else None,
         first_polled_at=node.first_polled_at.isoformat() if node.first_polled_at else None,
@@ -189,13 +203,13 @@ async def update_node(
     _user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update node groups, lighthouse flag, public endpoint, or lighthouse options."""
+    """Update node group (single), lighthouse flag, public endpoint, or lighthouse options."""
     result = await session.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
-    if body.groups is not None:
-        node.groups = body.groups
+    if body.group is not None:
+        node.groups = [body.group] if (body.group and body.group.strip()) else []
     if body.is_lighthouse is not None:
         if body.is_lighthouse is False and node.is_lighthouse:
             # Cannot remove the only lighthouse
@@ -212,10 +226,16 @@ async def update_node(
                     detail="Cannot remove the only lighthouse. Designate another node as lighthouse first.",
                 )
         node.is_lighthouse = body.is_lighthouse
+    if body.is_relay is not None:
+        node.is_relay = body.is_relay
     if body.public_endpoint is not None:
         node.public_endpoint = body.public_endpoint.strip() or None
     if body.lighthouse_options is not None:
         node.lighthouse_options = body.lighthouse_options
+    if body.logging_options is not None:
+        node.logging_options = body.logging_options
+    if body.punchy_options is not None:
+        node.punchy_options = body.punchy_options
     await session.flush()
     return {"ok": True}
 

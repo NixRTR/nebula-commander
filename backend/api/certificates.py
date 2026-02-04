@@ -21,12 +21,12 @@ router = APIRouter(prefix="/api/certificates", tags=["certificates"])
 
 
 class SignRequest(BaseModel):
-    """Request to sign a host cert (betterkeys: client sends public key)."""
+    """Request to sign a host cert (betterkeys: client sends public key). One group per node."""
 
     network_id: int
     name: str
     public_key: str
-    groups: Optional[list[str]] = None
+    group: Optional[str] = None
     suggested_ip: Optional[str] = None
     duration_days: Optional[int] = None
 
@@ -38,16 +38,18 @@ class SignResponse(BaseModel):
 
 
 class CreateRequest(BaseModel):
-    """Request to create a certificate (server generates keypair)."""
+    """Request to create a certificate (server generates keypair). One group per node."""
 
     network_id: int
     name: str
-    groups: Optional[list[str]] = None
+    group: Optional[str] = None
     suggested_ip: Optional[str] = None
     duration_days: Optional[int] = None
     is_lighthouse: Optional[bool] = None
+    is_relay: Optional[bool] = None
     public_endpoint: Optional[str] = None
     lighthouse_options: Optional[dict[str, Any]] = None  # serve_dns, dns_host, dns_port, interval_seconds
+    punchy_options: Optional[dict[str, Any]] = None  # respond, delay, respond_delay
 
 
 class CreateResponse(BaseModel):
@@ -94,7 +96,7 @@ async def sign_certificate(
         network=network,
         name=body.name,
         public_key_pem=body.public_key,
-        groups=body.groups,
+        groups=[body.group] if (body.group and body.group.strip()) else [],
         suggested_ip=body.suggested_ip,
         duration_days=duration,
     )
@@ -114,14 +116,14 @@ async def sign_certificate(
             public_key=body.public_key,
             ip_address=ip,
             status="active",
-            groups=body.groups or [],
+            groups=[body.group] if (body.group and body.group.strip()) else [],
         )
         session.add(node)
         await session.flush()
     else:
         node.ip_address = ip
         node.public_key = body.public_key
-        node.groups = body.groups or node.groups
+        node.groups = [body.group] if (body.group and body.group.strip()) else (node.groups or [])
         node.status = "active"
         await session.flush()
 
@@ -206,10 +208,11 @@ async def create_certificate(
 
     cert_manager = CertManager(session)
     duration = body.duration_days or settings.default_cert_expiry_days
+    groups_list = [body.group] if (body.group and body.group.strip()) else []
     ip, cert_pem, private_key_pem, ca_pem, public_key_pem = await cert_manager.create_host_certificate(
         network=network,
         name=body.name.strip(),
-        groups=body.groups,
+        groups=groups_list,
         suggested_ip=body.suggested_ip.strip() if body.suggested_ip else None,
         duration_days=duration,
     )
@@ -221,10 +224,12 @@ async def create_certificate(
         public_key=public_key_pem,
         ip_address=ip,
         status="active",
-        groups=body.groups or [],
+        groups=groups_list,
         is_lighthouse=is_lighthouse,
+        is_relay=body.is_relay if body.is_relay is not None else False,
         public_endpoint=body.public_endpoint.strip() if body.public_endpoint else None,
         lighthouse_options=body.lighthouse_options,
+        punchy_options=body.punchy_options,
     )
     session.add(node)
     await session.flush()

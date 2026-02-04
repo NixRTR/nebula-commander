@@ -8,6 +8,7 @@ import { OnboardingOverlay } from "./components/onboarding/OnboardingOverlay";
 // Lazy load pages for code splitting - reduces initial bundle size
 const Home = lazy(() => import("./pages/Home").then(m => ({ default: m.Home })));
 const Networks = lazy(() => import("./pages/Networks").then(m => ({ default: m.Networks })));
+const Groups = lazy(() => import("./pages/Groups").then(m => ({ default: m.Groups })));
 const Nodes = lazy(() => import("./pages/Nodes").then(m => ({ default: m.Nodes })));
 const ClientDownload = lazy(() => import("./pages/ClientDownload").then(m => ({ default: m.ClientDownload })));
 // Loading fallback component
@@ -49,6 +50,7 @@ export default function App() {
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/networks" element={<Networks />} />
+                  <Route path="/groups" element={<Groups />} />
                   <Route path="/nodes" element={<Nodes />} />
                   <Route path="/client-download" element={<ClientDownload />} />
                   <Route path="/settings/oidc" element={<Home />} />

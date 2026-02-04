@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, Fragment } from "react";
 import {
   Card,
   Table,
@@ -11,8 +11,8 @@ import {
   Select,
   Alert,
 } from "flowbite-react";
-import { HiCheckCircle, HiXCircle, HiClock, HiDownload, HiPencil, HiPlus, HiTrash, HiClipboard } from "react-icons/hi";
-import type { Node, LighthouseOptions } from "../types/nodes";
+import { HiCheckCircle, HiXCircle, HiClock, HiDownload, HiPencil, HiPlus, HiTrash, HiClipboard, HiChevronDown, HiChevronRight } from "react-icons/hi";
+import type { Node, LighthouseOptions, LoggingOptions, PunchyOptions } from "../types/nodes";
 import type { Network } from "../types/networks";
 import {
   listNodes,
@@ -77,28 +77,43 @@ export function Nodes() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deviceDetailsModal, setDeviceDetailsModal] = useState<{
-    open: boolean;
     node: Node | null;
     isEditing: boolean;
     showSaved: boolean;
     savedFading: boolean;
-  }>({ open: false, node: null, isEditing: false, showSaved: false, savedFading: false });
+  }>({ node: null, isEditing: false, showSaved: false, savedFading: false });
   const [deviceDetailsForm, setDeviceDetailsForm] = useState<{
-    groups: string;
+    group: string;
     is_lighthouse: boolean;
+    is_relay: boolean;
     public_endpoint: string;
     serve_dns: boolean;
     dns_host: string;
     dns_port: string;
     interval_seconds: string;
+    log_level: string;
+    log_format: string;
+    log_disable_timestamp: boolean;
+    log_timestamp_format: string;
+    punchy_respond: boolean;
+    punchy_delay: string;
+    punchy_respond_delay: string;
   }>({
-    groups: "",
+    group: "",
     is_lighthouse: false,
+    is_relay: false,
     public_endpoint: "",
     serve_dns: false,
     dns_host: "0.0.0.0",
     dns_port: "53",
     interval_seconds: "60",
+    log_level: "info",
+    log_format: "text",
+    log_disable_timestamp: false,
+    log_timestamp_format: "",
+    punchy_respond: true,
+    punchy_delay: "",
+    punchy_respond_delay: "",
   });
   const [saving, setSaving] = useState(false);
   const [reEnrollModal, setReEnrollModal] = useState<{
@@ -124,10 +139,11 @@ export function Nodes() {
   const [createNodeForm, setCreateNodeForm] = useState({
     network_id: 0,
     name: "",
-    groups: "",
+    group: "",
     suggested_ip: "",
     duration_days: "365",
     is_lighthouse: false,
+    is_relay: false,
     public_endpoint: "",
     serve_dns: false,
     dns_host: "0.0.0.0",
@@ -211,12 +227,11 @@ export function Nodes() {
     const body = {
       network_id: createNodeForm.network_id,
       name: createNodeForm.name.trim(),
-      groups: createNodeForm.groups.trim()
-        ? createNodeForm.groups.split(",").map((s) => s.trim()).filter(Boolean)
-        : undefined,
+      group: createNodeForm.group.trim() || undefined,
       suggested_ip: createNodeForm.suggested_ip.trim() || undefined,
       duration_days: createNodeForm.duration_days ? parseInt(createNodeForm.duration_days, 10) : undefined,
       is_lighthouse: firstInNetwork ? true : createNodeForm.is_lighthouse,
+      is_relay: createNodeForm.is_relay,
       public_endpoint: createNodeForm.public_endpoint.trim() || undefined,
       lighthouse_options: createNodeForm.is_lighthouse
         ? {
@@ -229,7 +244,7 @@ export function Nodes() {
     };
     createCertificate(body)
       .then((res) => {
-        setCreateNodeForm((f) => ({ ...f, name: "", groups: "", suggested_ip: "" }));
+        setCreateNodeForm((f) => ({ ...f, name: "", group: "", suggested_ip: "" }));
         setNodeNameError(null);
         setSuggestedIpError(null);
         loadNodes();
@@ -282,37 +297,62 @@ export function Nodes() {
     !!node?.is_lighthouse &&
     nodes.filter((n) => n.network_id === node.network_id && n.is_lighthouse).length === 1;
 
-  const openDeviceDetailsModal = (node: Node) => {
-    setDeviceDetailsModal({ open: true, node, isEditing: false, showSaved: false, savedFading: false });
+  const toggleDeviceDetails = (node: Node) => {
+    if (deviceDetailsModal.node?.id === node.id) {
+      setDeviceDetailsModal({ node: null, isEditing: false, showSaved: false, savedFading: false });
+      return;
+    }
+    setDeviceDetailsModal({ node, isEditing: false, showSaved: false, savedFading: false });
     const opts = node.lighthouse_options;
+    const logOpts = node.logging_options;
     setDeviceDetailsForm({
       is_lighthouse: node.is_lighthouse,
+      is_relay: node.is_relay,
       public_endpoint: node.public_endpoint ?? "",
-      groups: (node.groups ?? []).join(", "),
+      group: (node.groups && node.groups[0]) ?? "",
       serve_dns: opts?.serve_dns ?? false,
       dns_host: opts?.dns_host ?? "0.0.0.0",
       dns_port: String(opts?.dns_port ?? 53),
       interval_seconds: String(opts?.interval_seconds ?? 60),
+      log_level: logOpts?.level ?? "info",
+      log_format: logOpts?.format ?? "text",
+      log_disable_timestamp: logOpts?.disable_timestamp ?? false,
+      log_timestamp_format: logOpts?.timestamp_format ?? "",
+      punchy_respond: node.punchy_options?.respond ?? true,
+      punchy_delay: node.punchy_options?.delay ?? "",
+      punchy_respond_delay: node.punchy_options?.respond_delay ?? "",
     });
     setDownloadError(null);
   };
 
   const closeDeviceDetailsModal = () => {
-    setDeviceDetailsModal({ open: false, node: null, isEditing: false, showSaved: false, savedFading: false });
+    setDeviceDetailsModal({ node: null, isEditing: false, showSaved: false, savedFading: false });
   };
 
   const hasDeviceDetailsFormChanges = (): boolean => {
     const node = deviceDetailsModal.node;
     if (!node) return false;
+    const nodeGroup = (node.groups && node.groups[0]) ?? "";
+    const formGroup = deviceDetailsForm.group ?? "";
+    const groupEqual = (formGroup.trim() || "") === (nodeGroup.trim() || "");
     const opts = node.lighthouse_options;
+    const logOpts = node.logging_options;
     return (
-      deviceDetailsForm.groups !== (node.groups ?? []).join(", ") ||
+      !groupEqual ||
       deviceDetailsForm.is_lighthouse !== node.is_lighthouse ||
+      deviceDetailsForm.is_relay !== node.is_relay ||
       (deviceDetailsForm.public_endpoint ?? "") !== (node.public_endpoint ?? "") ||
       deviceDetailsForm.serve_dns !== (opts?.serve_dns ?? false) ||
       (deviceDetailsForm.dns_host ?? "0.0.0.0") !== (opts?.dns_host ?? "0.0.0.0") ||
       String(deviceDetailsForm.dns_port ?? 53) !== String(opts?.dns_port ?? 53) ||
-      String(deviceDetailsForm.interval_seconds ?? 60) !== String(opts?.interval_seconds ?? 60)
+      String(deviceDetailsForm.interval_seconds ?? 60) !== String(opts?.interval_seconds ?? 60) ||
+      (deviceDetailsForm.log_level ?? "info") !== (logOpts?.level ?? "info") ||
+      (deviceDetailsForm.log_format ?? "text") !== (logOpts?.format ?? "text") ||
+      deviceDetailsForm.log_disable_timestamp !== (logOpts?.disable_timestamp ?? false) ||
+      (deviceDetailsForm.log_timestamp_format ?? "") !== (logOpts?.timestamp_format ?? "") ||
+      deviceDetailsForm.punchy_respond !== (node.punchy_options?.respond ?? true) ||
+      (deviceDetailsForm.punchy_delay ?? "") !== (node.punchy_options?.delay ?? "") ||
+      (deviceDetailsForm.punchy_respond_delay ?? "") !== (node.punchy_options?.respond_delay ?? "")
     );
   };
 
@@ -329,21 +369,32 @@ export function Nodes() {
       return;
     }
     setSaving(true);
-    const groups = deviceDetailsForm.groups
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
+    const group = deviceDetailsForm.group?.trim() || null;
     const lighthouse_options: LighthouseOptions = {
       serve_dns: deviceDetailsForm.serve_dns,
       dns_host: deviceDetailsForm.dns_host || "0.0.0.0",
       dns_port: parseInt(deviceDetailsForm.dns_port, 10) || 53,
       interval_seconds: parseInt(deviceDetailsForm.interval_seconds, 10) || 60,
     };
+    const logging_options: LoggingOptions = {
+      level: (deviceDetailsForm.log_level || "info") as LoggingOptions["level"],
+      format: (deviceDetailsForm.log_format || "text") as LoggingOptions["format"],
+      disable_timestamp: deviceDetailsForm.log_disable_timestamp,
+      timestamp_format: deviceDetailsForm.log_timestamp_format.trim() || undefined,
+    };
+    const punchy_options: PunchyOptions = {
+      respond: deviceDetailsForm.punchy_respond,
+      delay: deviceDetailsForm.punchy_delay.trim() || undefined,
+      respond_delay: deviceDetailsForm.punchy_respond_delay.trim() || undefined,
+    };
     updateNode(node.id, {
       is_lighthouse: deviceDetailsForm.is_lighthouse,
+      is_relay: deviceDetailsForm.is_relay,
       public_endpoint: deviceDetailsForm.public_endpoint.trim() || null,
-      groups,
+      group,
       lighthouse_options,
+      logging_options,
+      punchy_options,
     })
       .then(() => {
         setDeviceDetailsModal((s) => ({ ...s, showSaved: true, savedFading: false }));
@@ -352,13 +403,21 @@ export function Nodes() {
           getNode(node.id).then((updated) => {
             setDeviceDetailsModal((s) => ({ ...s, node: updated, isEditing: false, showSaved: false, savedFading: false }));
             setDeviceDetailsForm({
-              groups: (updated.groups ?? []).join(", "),
+              group: (updated.groups && updated.groups[0]) ?? "",
               is_lighthouse: updated.is_lighthouse,
+              is_relay: updated.is_relay,
               public_endpoint: updated.public_endpoint ?? "",
               serve_dns: updated.lighthouse_options?.serve_dns ?? false,
               dns_host: updated.lighthouse_options?.dns_host ?? "0.0.0.0",
               dns_port: String(updated.lighthouse_options?.dns_port ?? 53),
               interval_seconds: String(updated.lighthouse_options?.interval_seconds ?? 60),
+              log_level: updated.logging_options?.level ?? "info",
+              log_format: updated.logging_options?.format ?? "text",
+              log_disable_timestamp: updated.logging_options?.disable_timestamp ?? false,
+              log_timestamp_format: updated.logging_options?.timestamp_format ?? "",
+              punchy_respond: updated.punchy_options?.respond ?? true,
+              punchy_delay: updated.punchy_options?.delay ?? "",
+              punchy_respond_delay: updated.punchy_options?.respond_delay ?? "",
             });
           });
           loadNodes();
@@ -475,7 +534,7 @@ export function Nodes() {
     loadNodes();
   };
 
-  // Poll for enrollment success (first_polled_at) while modal is open
+  // Poll for enrollment success (first_polled_at) while enrollment section is visible
   useEffect(() => {
     if (
       !enrollmentCodeModal.open ||
@@ -634,14 +693,26 @@ export function Nodes() {
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <Label htmlFor="create_node_groups" value="Groups (comma-separated, optional)" />
+                      <Label htmlFor="create_node_group" value="Group (one role, e.g. servers)" />
                       <TextInput
-                        id="create_node_groups"
+                        id="create_node_group"
                         type="text"
-                        value={createNodeForm.groups}
-                        onChange={(e) => setCreateNodeForm((f) => ({ ...f, groups: e.target.value }))}
-                        placeholder="laptops, admin"
+                        value={createNodeForm.group}
+                        onChange={(e) => setCreateNodeForm((f) => ({ ...f, group: e.target.value }))}
+                        placeholder="e.g. servers"
+                        list="create_node_group_list"
                       />
+                      <datalist id="create_node_group_list">
+                        {[
+                          ...new Set(
+                            nodes
+                              .filter((n) => n.network_id === createNodeForm.network_id)
+                              .flatMap((n) => n.groups ?? [])
+                          ),
+                        ].map((g) => (
+                          <option key={g} value={g} />
+                        ))}
+                      </datalist>
                     </div>
                     <div>
                       <Label htmlFor="create_node_suggested_ip" value="Suggested IP (optional)" />
@@ -671,23 +742,35 @@ export function Nodes() {
                       max={3650}
                     />
                   </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="create_node_lighthouse"
-                      checked={createNodeForm.is_lighthouse}
-                      onChange={(e) =>
-                        setCreateNodeForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
-                      }
-                      disabled={isFirstNodeInNetwork(createNodeForm.network_id)}
-                    />
-                    <Label htmlFor="create_node_lighthouse">Lighthouse</Label>
-                    {isFirstNodeInNetwork(createNodeForm.network_id) && (
-                      <span className="text-sm text-gray-500 dark:text-gray-400">
-                        The first node in this network must be a lighthouse.
-                      </span>
-                    )}
+                  <div className="flex flex-wrap items-center gap-4">
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="create_node_lighthouse"
+                        checked={createNodeForm.is_lighthouse}
+                        onChange={(e) =>
+                          setCreateNodeForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
+                        }
+                        disabled={isFirstNodeInNetwork(createNodeForm.network_id)}
+                      />
+                      <Label htmlFor="create_node_lighthouse">Lighthouse</Label>
+                      {isFirstNodeInNetwork(createNodeForm.network_id) && (
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          The first node in this network must be a lighthouse.
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Checkbox
+                        id="create_node_relay"
+                        checked={createNodeForm.is_relay}
+                        onChange={(e) =>
+                          setCreateNodeForm((f) => ({ ...f, is_relay: e.target.checked }))
+                        }
+                      />
+                      <Label htmlFor="create_node_relay">Relay</Label>
+                    </div>
                   </div>
-                  {createNodeForm.is_lighthouse && (
+                  {(createNodeForm.is_lighthouse || createNodeForm.is_relay) && (
                     <>
                       <div>
                         <Label htmlFor="create_node_public_endpoint" value="Public endpoint (hostname or IP:port)" />
@@ -700,6 +783,8 @@ export function Nodes() {
                           placeholder="lighthouse.example.com:4242"
                         />
                       </div>
+                      {createNodeForm.is_lighthouse && (
+                        <>
                       <div className="flex items-center gap-2">
                         <Checkbox
                           id="create_node_serve_dns"
@@ -746,6 +831,8 @@ export function Nodes() {
                           </div>
                         </div>
                       )}
+                        </>
+                      )}
                     </>
                   )}
                   <Button
@@ -759,6 +846,102 @@ export function Nodes() {
                 </form>
               )}
             </div>
+          )}
+
+          {enrollmentCodeModal.open && (
+            <Card className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                Enrollment code for {enrollmentCodeModal.nodeId != null ? (nodes.find((n) => n.id === enrollmentCodeModal.nodeId)?.hostname ?? `Node ${enrollmentCodeModal.nodeId}`) : "new node"}
+              </h3>
+              <div className="pt-2">
+                {enrollmentCodeModal.loading && (
+                  <p className="text-gray-600 dark:text-gray-400">Generating code...</p>
+                )}
+                {enrollmentCodeModal.data && (
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Use this code once on the device to enroll. Expires:{" "}
+                      {new Date(enrollmentCodeModal.data.expires_at).toLocaleString()}.
+                    </p>
+                    <div>
+                      <div className="flex flex-wrap gap-2 justify-between items-center mb-1">
+                        <Label value="Code" />
+                        <Button
+                          size="xs"
+                          color="gray"
+                          onClick={() =>
+                            enrollmentCodeModal.data &&
+                            navigator.clipboard.writeText(enrollmentCodeModal.data.code)
+                          }
+                        >
+                          <HiClipboard className="w-4 h-4 mr-1" /> Copy
+                        </Button>
+                      </div>
+                      <p className="mt-1 p-3 bg-gray-100 dark:bg-gray-800 rounded font-mono text-lg">
+                        {enrollmentCodeModal.data.code}
+                      </p>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      On the device, run (replace with your Nebula Commander URL if needed):
+                    </p>
+                    <div className="flex flex-wrap gap-2 justify-between items-start">
+                      <pre className="flex-1 min-w-0 p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre">
+                        {`ncclient --server ${typeof window !== "undefined" && window.location?.origin ? window.location.origin : "http://your-server"} enroll --code ${enrollmentCodeModal.data.code}`}
+                      </pre>
+                      <Button
+                        size="xs"
+                        color="gray"
+                        className="shrink-0"
+                        onClick={() => {
+                          const server =
+                            typeof window !== "undefined" && window.location?.origin
+                              ? window.location.origin
+                              : "http://your-server";
+                          const cmd = `ncclient --server ${server} enroll --code ${enrollmentCodeModal.data!.code}`;
+                          navigator.clipboard.writeText(cmd);
+                        }}
+                      >
+                        <HiClipboard className="w-4 h-4 mr-1" /> Copy
+                      </Button>
+                    </div>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">
+                      Then run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient --server &lt;URL&gt; run</code> to poll for config and certs every minute.
+                    </p>
+                    <div className="flex items-center gap-2 pt-2">
+                      {enrollmentCodeModal.enrollmentSuccess ? (
+                        <>
+                          <span
+                            className="flex h-3 w-3 rounded-full bg-green-500"
+                            title="Enrollment successful"
+                          />
+                          <span className="text-green-600 dark:text-green-400 font-medium">
+                            Enrollment Successful!
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <span
+                            className="flex h-3 w-3 rounded-full bg-red-500 animate-pulse"
+                            title="Waiting for enrollment"
+                          />
+                          <span className="text-red-600 dark:text-red-400">Waiting for enrollment</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
+                <Button color="gray" onClick={closeEnrollmentCodeModal}>
+                  {enrollmentCodeModal.enrollmentSuccess ? "Close" : "Cancel"}
+                </Button>
+                {enrollmentCodeModal.enrollmentSuccess && (
+                  <Button color="success" onClick={handleEnrollmentContinue}>
+                    Continue
+                  </Button>
+                )}
+              </div>
+            </Card>
           )}
 
           <div className="overflow-x-auto">
@@ -777,30 +960,53 @@ export function Nodes() {
                 {nodes.map((n) => {
                   const enrollState = getEnrollmentState(n);
                   return (
-                    <Table.Row key={n.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
+                    <Fragment key={n.id}>
+                    <Table.Row className="bg-white dark:border-gray-700 dark:bg-gray-800">
                       <Table.Cell>
-                        <button
-                          type="button"
-                          onClick={() => openDeviceDetailsModal(n)}
-                          className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer underline font-medium text-left"
-                        >
-                          {n.hostname}
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => toggleDeviceDetails(n)}
+                            className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
+                            aria-label={deviceDetailsModal.node?.id === n.id ? "Collapse" : "Expand"}
+                          >
+                            {deviceDetailsModal.node?.id === n.id ? (
+                              <HiChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                            ) : (
+                              <HiChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleDeviceDetails(n)}
+                            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer underline font-medium text-left"
+                          >
+                            {n.hostname}
+                          </button>
+                        </div>
                       </Table.Cell>
                       <Table.Cell>{getNetworkName(n.network_id)}</Table.Cell>
                       <Table.Cell>{n.ip_address || "—"}</Table.Cell>
                       <Table.Cell>
-                        {n.is_lighthouse ? (
-                          <Badge color="purple" size="sm">
-                            Lighthouse
-                          </Badge>
-                        ) : (
-                          <span className="text-gray-600 dark:text-gray-400">Node</span>
-                        )}
+                        <div className="flex flex-wrap gap-1">
+                          {n.is_lighthouse && (
+                            <Badge color="purple" size="sm">
+                              Lighthouse
+                            </Badge>
+                          )}
+                          {n.is_relay && (
+                            <Badge color="indigo" size="sm">
+                              Relay
+                            </Badge>
+                          )}
+                          {!n.is_lighthouse && !n.is_relay && (
+                            <span className="text-gray-600 dark:text-gray-400">Node</span>
+                          )}
+                        </div>
                       </Table.Cell>
                       <Table.Cell>{getStatusBadge(n.status)}</Table.Cell>
                       <Table.Cell>
-                        <Button size="xs" color="gray" onClick={() => openDeviceDetailsModal(n)}>
+                        <Button size="xs" color="gray" onClick={() => toggleDeviceDetails(n)}>
                           Details
                         </Button>
                       </Table.Cell>
@@ -853,6 +1059,413 @@ export function Nodes() {
                         </div>
                       </Table.Cell>
                     </Table.Row>
+                    {deviceDetailsModal.node?.id === n.id && (
+                      <Table.Row key={`${n.id}-details`} className="bg-gray-50 dark:bg-gray-800/80">
+                        <Table.Cell colSpan={8} className="p-0 align-top">
+                          <div className="p-4 border-t border-gray-200 dark:border-gray-700">
+                            <form onSubmit={handleSaveDeviceDetails} className="space-y-6">
+                              {deviceDetailsModal.node && (
+                                <>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                    <div className="min-w-0">
+                                      <Label value="ID" className="text-gray-500 dark:text-gray-400" />
+                                      <p className="text-gray-900 dark:text-white truncate" title={String(deviceDetailsModal.node.id)}>{deviceDetailsModal.node.id}</p>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <Label value="Hostname" className="text-gray-500 dark:text-gray-400" />
+                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.hostname}>{deviceDetailsModal.node.hostname}</p>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <Label value="Network" className="text-gray-500 dark:text-gray-400" />
+                                      <p className="text-gray-900 dark:text-white truncate" title={getNetworkName(deviceDetailsModal.node.network_id)}>
+                                        {getNetworkName(deviceDetailsModal.node.network_id)}
+                                      </p>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <Label value="IP Address" className="text-gray-500 dark:text-gray-400" />
+                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.ip_address || "—"}>
+                                        {deviceDetailsModal.node.ip_address || "—"}
+                                      </p>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <Label value="Status" className="text-gray-500 dark:text-gray-400" />
+                                      <div className="mt-1">{getStatusBadge(deviceDetailsModal.node.status)}</div>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <Label value="Created At" className="text-gray-500 dark:text-gray-400" />
+                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.created_at ? new Date(deviceDetailsModal.node.created_at).toLocaleString() : "—"}>
+                                        {deviceDetailsModal.node.created_at
+                                          ? new Date(deviceDetailsModal.node.created_at).toLocaleString()
+                                          : "—"}
+                                      </p>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <Label value="Last Seen" className="text-gray-500 dark:text-gray-400" />
+                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.last_seen ? new Date(deviceDetailsModal.node.last_seen).toLocaleString() : "—"}>
+                                        {deviceDetailsModal.node.last_seen
+                                          ? new Date(deviceDetailsModal.node.last_seen).toLocaleString()
+                                          : "—"}
+                                      </p>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <Label value="First Polled At" className="text-gray-500 dark:text-gray-400" />
+                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.first_polled_at ? new Date(deviceDetailsModal.node.first_polled_at).toLocaleString() : "—"}>
+                                        {deviceDetailsModal.node.first_polled_at
+                                          ? new Date(deviceDetailsModal.node.first_polled_at).toLocaleString()
+                                          : "—"}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                                    <div className="min-w-0">
+                                      <Label htmlFor="dd_group" value="Group (one role)" className="text-gray-500 dark:text-gray-400" />
+                                      <TextInput
+                                        id="dd_group"
+                                        type="text"
+                                        value={deviceDetailsForm.group}
+                                        onChange={(e) => setDeviceDetailsForm((f) => ({ ...f, group: e.target.value }))}
+                                        placeholder="e.g. servers"
+                                        disabled={!deviceDetailsModal.isEditing}
+                                        list="dd_group_list"
+                                        className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                      />
+                                      <datalist id="dd_group_list">
+                                        {(
+                                          deviceDetailsModal.node
+                                            ? [...new Set(
+                                                nodes
+                                                  .filter((n) => n.network_id === deviceDetailsModal.node!.network_id)
+                                                  .flatMap((n) => n.groups ?? [])
+                                              )]
+                                            : []
+                                        ).map((g) => (
+                                          <option key={g} value={g} />
+                                        ))}
+                                      </datalist>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-4">
+                                      <div className="flex items-center gap-2">
+                                        <Checkbox
+                                          id="dd_is_lighthouse"
+                                          checked={deviceDetailsForm.is_lighthouse}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
+                                          }
+                                          disabled={!deviceDetailsModal.isEditing}
+                                        />
+                                        <Label htmlFor="dd_is_lighthouse">Lighthouse</Label>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <Checkbox
+                                          id="dd_is_relay"
+                                          checked={deviceDetailsForm.is_relay}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, is_relay: e.target.checked }))
+                                          }
+                                          disabled={!deviceDetailsModal.isEditing}
+                                        />
+                                        <Label htmlFor="dd_is_relay">Relay</Label>
+                                      </div>
+                                    </div>
+                                    {deviceDetailsModal.isEditing &&
+                                      deviceDetailsModal.node &&
+                                      isOnlyLighthouseInNetwork(deviceDetailsModal.node) && (
+                                        <p className="text-sm text-amber-600 dark:text-amber-400">
+                                          This is the only lighthouse in the network; it cannot be unchecked until another node is set as lighthouse.
+                                        </p>
+                                      )}
+                                  </div>
+
+                                  {(deviceDetailsForm.is_lighthouse || deviceDetailsForm.is_relay) && (
+                                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                                      <div className="min-w-0">
+                                        <Label htmlFor="dd_public_endpoint" value="Public endpoint (hostname or IP:port)" className="text-gray-500 dark:text-gray-400" />
+                                        <TextInput
+                                          id="dd_public_endpoint"
+                                          value={deviceDetailsForm.public_endpoint}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, public_endpoint: e.target.value }))
+                                          }
+                                          placeholder="lighthouse.example.com:4242"
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        />
+                                      </div>
+                                      {deviceDetailsForm.is_lighthouse && (
+                                      <div>
+                                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                          Lighthouse options
+                                        </p>
+                                        <div className="flex items-center gap-2 mb-3">
+                                          <Checkbox
+                                            id="dd_serve_dns"
+                                            checked={deviceDetailsForm.serve_dns}
+                                            onChange={(e) =>
+                                              setDeviceDetailsForm((f) => ({ ...f, serve_dns: e.target.checked }))
+                                            }
+                                            disabled={!deviceDetailsModal.isEditing}
+                                          />
+                                          <Label htmlFor="dd_serve_dns">Serve DNS</Label>
+                                        </div>
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                          <div className="min-w-0">
+                                            <Label htmlFor="dd_dns_host" value="DNS host" className="text-gray-500 dark:text-gray-400" />
+                                            <TextInput
+                                              id="dd_dns_host"
+                                              value={deviceDetailsForm.dns_host}
+                                              onChange={(e) =>
+                                                setDeviceDetailsForm((f) => ({ ...f, dns_host: e.target.value }))
+                                              }
+                                              disabled={!deviceDetailsModal.isEditing}
+                                              className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                            />
+                                          </div>
+                                          <div className="min-w-0">
+                                            <Label htmlFor="dd_dns_port" value="DNS port" className="text-gray-500 dark:text-gray-400" />
+                                            <TextInput
+                                              id="dd_dns_port"
+                                              type="number"
+                                              value={deviceDetailsForm.dns_port}
+                                              onChange={(e) =>
+                                                setDeviceDetailsForm((f) => ({ ...f, dns_port: e.target.value }))
+                                              }
+                                              disabled={!deviceDetailsModal.isEditing}
+                                              className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                            />
+                                          </div>
+                                          <div className="min-w-0">
+                                            <Label htmlFor="dd_interval" value="Report interval (seconds)" className="text-gray-500 dark:text-gray-400" />
+                                            <TextInput
+                                              id="dd_interval"
+                                              type="number"
+                                              value={deviceDetailsForm.interval_seconds}
+                                              onChange={(e) =>
+                                                setDeviceDetailsForm((f) => ({ ...f, interval_seconds: e.target.value }))
+                                              }
+                                              disabled={!deviceDetailsModal.isEditing}
+                                              className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                            />
+                                          </div>
+                                        </div>
+                                      </div>
+                                      )}
+                                    </div>
+                                  )}
+
+                                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                      Logging (Nebula config)
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                      <div className="min-w-0">
+                                        <Label htmlFor="dd_log_level" value="Level" className="text-gray-500 dark:text-gray-400" />
+                                        <Select
+                                          id="dd_log_level"
+                                          value={deviceDetailsForm.log_level}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, log_level: e.target.value }))
+                                          }
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        >
+                                          <option value="panic">panic</option>
+                                          <option value="fatal">fatal</option>
+                                          <option value="error">error</option>
+                                          <option value="warning">warning</option>
+                                          <option value="info">info</option>
+                                          <option value="debug">debug</option>
+                                        </Select>
+                                      </div>
+                                      <div className="min-w-0">
+                                        <Label htmlFor="dd_log_format" value="Format" className="text-gray-500 dark:text-gray-400" />
+                                        <Select
+                                          id="dd_log_format"
+                                          value={deviceDetailsForm.log_format}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, log_format: e.target.value }))
+                                          }
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        >
+                                          <option value="text">text</option>
+                                          <option value="json">json</option>
+                                        </Select>
+                                      </div>
+                                      <div className="min-w-0 flex items-end pb-2">
+                                        <div className="flex items-center gap-2">
+                                          <Checkbox
+                                            id="dd_log_disable_timestamp"
+                                            checked={deviceDetailsForm.log_disable_timestamp}
+                                            onChange={(e) =>
+                                              setDeviceDetailsForm((f) => ({ ...f, log_disable_timestamp: e.target.checked }))
+                                            }
+                                            disabled={!deviceDetailsModal.isEditing}
+                                          />
+                                          <Label htmlFor="dd_log_disable_timestamp">Disable timestamp</Label>
+                                        </div>
+                                      </div>
+                                      <div className="min-w-0">
+                                        <Label htmlFor="dd_log_timestamp_format" value="Timestamp format (Go format, optional)" className="text-gray-500 dark:text-gray-400" />
+                                        <TextInput
+                                          id="dd_log_timestamp_format"
+                                          value={deviceDetailsForm.log_timestamp_format}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, log_timestamp_format: e.target.value }))
+                                          }
+                                          placeholder="e.g. 2006-01-02T15:04:05.000Z07:00"
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                      Punchy (NAT traversal)
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                      <div className="min-w-0 flex items-end pb-2">
+                                        <div className="flex items-center gap-2">
+                                          <Checkbox
+                                            id="dd_punchy_respond"
+                                            checked={deviceDetailsForm.punchy_respond}
+                                            onChange={(e) =>
+                                              setDeviceDetailsForm((f) => ({ ...f, punchy_respond: e.target.checked }))
+                                            }
+                                            disabled={!deviceDetailsModal.isEditing}
+                                          />
+                                          <Label htmlFor="dd_punchy_respond">Respond (punch back)</Label>
+                                        </div>
+                                      </div>
+                                      <div className="min-w-0">
+                                        <Label htmlFor="dd_punchy_delay" value="Delay (e.g. 1s)" className="text-gray-500 dark:text-gray-400" />
+                                        <TextInput
+                                          id="dd_punchy_delay"
+                                          value={deviceDetailsForm.punchy_delay}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, punchy_delay: e.target.value }))
+                                          }
+                                          placeholder="1s"
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        />
+                                      </div>
+                                      <div className="min-w-0">
+                                        <Label htmlFor="dd_punchy_respond_delay" value="Respond delay (e.g. 5s)" className="text-gray-500 dark:text-gray-400" />
+                                        <TextInput
+                                          id="dd_punchy_respond_delay"
+                                          value={deviceDetailsForm.punchy_respond_delay}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, punchy_respond_delay: e.target.value }))
+                                          }
+                                          placeholder="5s"
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        />
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                    <div className="flex flex-wrap gap-2">
+                                      <Button type="button" color="gray" onClick={closeDeviceDetailsModal}>
+                                        Close
+                                      </Button>
+                                      {!deviceDetailsModal.isEditing ? (
+                                        <Button
+                                          type="button"
+                                          color="gray"
+                                          onClick={() => setDeviceDetailsModal((s) => ({ ...s, isEditing: true }))}
+                                        >
+                                          <HiPencil className="w-4 h-4 mr-1" />
+                                          Edit
+                                        </Button>
+                                      ) : (
+                                        <Button
+                                          type="button"
+                                          color="gray"
+                                          onClick={() => {
+                                            const node = deviceDetailsModal.node;
+                                            if (node) {
+                                              setDeviceDetailsForm({
+                                                group: (node.groups && node.groups[0]) ?? "",
+                                                is_lighthouse: node.is_lighthouse,
+                                                is_relay: node.is_relay,
+                                                public_endpoint: node.public_endpoint ?? "",
+                                                serve_dns: node.lighthouse_options?.serve_dns ?? false,
+                                                dns_host: node.lighthouse_options?.dns_host ?? "0.0.0.0",
+                                                dns_port: String(node.lighthouse_options?.dns_port ?? 53),
+                                                interval_seconds: String(node.lighthouse_options?.interval_seconds ?? 60),
+                                                log_level: node.logging_options?.level ?? "info",
+                                                log_format: node.logging_options?.format ?? "text",
+                                                log_disable_timestamp: node.logging_options?.disable_timestamp ?? false,
+                                                log_timestamp_format: node.logging_options?.timestamp_format ?? "",
+                                                punchy_respond: node.punchy_options?.respond ?? true,
+                                                punchy_delay: node.punchy_options?.delay ?? "",
+                                                punchy_respond_delay: node.punchy_options?.respond_delay ?? "",
+                                              });
+                                              setDeviceDetailsModal((s) => ({ ...s, isEditing: false }));
+                                            }
+                                          }}
+                                        >
+                                          Cancel
+                                        </Button>
+                                      )}
+                                      {deviceDetailsModal.node && (
+                                        <>
+                                          <Button
+                                            type="button"
+                                            color="warning"
+                                            onClick={() => openReEnrollModal(deviceDetailsModal.node!)}
+                                          >
+                                            Re-Enroll
+                                          </Button>
+                                          {deviceDetailsModal.node.ip_address && (
+                                            <Button
+                                              type="button"
+                                              color="failure"
+                                              onClick={() => openRevokeModal(deviceDetailsModal.node!)}
+                                            >
+                                              Revoke Certificate
+                                            </Button>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      {deviceDetailsModal.isEditing && hasDeviceDetailsFormChanges() && (
+                                        deviceDetailsModal.showSaved ? (
+                                          <span
+                                            className={`inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium transition-opacity duration-500 ease-in-out ${
+                                              deviceDetailsModal.savedFading ? "opacity-0" : "opacity-100"
+                                            }`}
+                                          >
+                                            <HiCheckCircle className="w-5 h-5" />
+                                            Saved
+                                          </span>
+                                        ) : (
+                                          <Button
+                                            type="submit"
+                                            color="blue"
+                                            isProcessing={saving}
+                                            disabled={saving}
+                                          >
+                                            Save
+                                          </Button>
+                                        )
+                                      )}
+                                    </div>
+                                  </div>
+                                </>
+                              )}
+                            </form>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    )}
+                    </Fragment>
                   );
                 })}
               </Table.Body>
@@ -865,255 +1478,6 @@ export function Nodes() {
           </div>
         </Card>
       )}
-
-      <Modal show={deviceDetailsModal.open} onClose={closeDeviceDetailsModal} size="7xl" className="max-w-[90vw] w-full">
-        <Modal.Header>Device Details - {deviceDetailsModal.node?.hostname ?? ""}</Modal.Header>
-        <form onSubmit={handleSaveDeviceDetails}>
-          <Modal.Body className="space-y-6 overflow-x-hidden">
-            {deviceDetailsModal.node && (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  <div className="min-w-0">
-                    <Label value="ID" className="text-gray-500 dark:text-gray-400" />
-                    <p className="text-gray-900 dark:text-white truncate" title={String(deviceDetailsModal.node.id)}>{deviceDetailsModal.node.id}</p>
-                  </div>
-                  <div className="min-w-0">
-                    <Label value="Hostname" className="text-gray-500 dark:text-gray-400" />
-                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.hostname}>{deviceDetailsModal.node.hostname}</p>
-                  </div>
-                  <div className="min-w-0">
-                    <Label value="Network" className="text-gray-500 dark:text-gray-400" />
-                    <p className="text-gray-900 dark:text-white truncate" title={getNetworkName(deviceDetailsModal.node.network_id)}>
-                      {getNetworkName(deviceDetailsModal.node.network_id)}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <Label value="IP Address" className="text-gray-500 dark:text-gray-400" />
-                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.ip_address || "—"}>
-                      {deviceDetailsModal.node.ip_address || "—"}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <Label value="Status" className="text-gray-500 dark:text-gray-400" />
-                    <div className="mt-1">{getStatusBadge(deviceDetailsModal.node.status)}</div>
-                  </div>
-                  <div className="min-w-0">
-                    <Label value="Created At" className="text-gray-500 dark:text-gray-400" />
-                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.created_at ? new Date(deviceDetailsModal.node.created_at).toLocaleString() : "—"}>
-                      {deviceDetailsModal.node.created_at
-                        ? new Date(deviceDetailsModal.node.created_at).toLocaleString()
-                        : "—"}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <Label value="Last Seen" className="text-gray-500 dark:text-gray-400" />
-                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.last_seen ? new Date(deviceDetailsModal.node.last_seen).toLocaleString() : "—"}>
-                      {deviceDetailsModal.node.last_seen
-                        ? new Date(deviceDetailsModal.node.last_seen).toLocaleString()
-                        : "—"}
-                    </p>
-                  </div>
-                  <div className="min-w-0">
-                    <Label value="First Polled At" className="text-gray-500 dark:text-gray-400" />
-                    <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.first_polled_at ? new Date(deviceDetailsModal.node.first_polled_at).toLocaleString() : "—"}>
-                      {deviceDetailsModal.node.first_polled_at
-                        ? new Date(deviceDetailsModal.node.first_polled_at).toLocaleString()
-                        : "—"}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
-                  <div className="min-w-0">
-                    <Label htmlFor="dd_groups" value="Groups (comma-separated)" className="text-gray-500 dark:text-gray-400" />
-                    <TextInput
-                      id="dd_groups"
-                      value={deviceDetailsForm.groups}
-                      onChange={(e) =>
-                        setDeviceDetailsForm((f) => ({ ...f, groups: e.target.value }))
-                      }
-                      placeholder="laptops, admin"
-                      disabled={!deviceDetailsModal.isEditing}
-                      className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                    />
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Checkbox
-                      id="dd_is_lighthouse"
-                      checked={deviceDetailsForm.is_lighthouse}
-                      onChange={(e) =>
-                        setDeviceDetailsForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
-                      }
-                      disabled={!deviceDetailsModal.isEditing}
-                    />
-                    <Label htmlFor="dd_is_lighthouse">Lighthouse</Label>
-                  </div>
-                  {deviceDetailsModal.isEditing &&
-                    deviceDetailsModal.node &&
-                    isOnlyLighthouseInNetwork(deviceDetailsModal.node) && (
-                      <p className="text-sm text-amber-600 dark:text-amber-400">
-                        This is the only lighthouse in the network; it cannot be unchecked until another node is set as lighthouse.
-                      </p>
-                    )}
-                </div>
-
-                {deviceDetailsForm.is_lighthouse && (
-                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
-                    <div className="min-w-0">
-                      <Label htmlFor="dd_public_endpoint" value="Public endpoint (hostname or IP:port)" className="text-gray-500 dark:text-gray-400" />
-                      <TextInput
-                        id="dd_public_endpoint"
-                        value={deviceDetailsForm.public_endpoint}
-                        onChange={(e) =>
-                          setDeviceDetailsForm((f) => ({ ...f, public_endpoint: e.target.value }))
-                        }
-                        placeholder="lighthouse.example.com:4242"
-                        disabled={!deviceDetailsModal.isEditing}
-                        className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                      />
-                    </div>
-                    <div>
-                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                        Lighthouse options
-                      </p>
-                      <div className="flex items-center gap-2 mb-3">
-                        <Checkbox
-                          id="dd_serve_dns"
-                          checked={deviceDetailsForm.serve_dns}
-                          onChange={(e) =>
-                            setDeviceDetailsForm((f) => ({ ...f, serve_dns: e.target.checked }))
-                          }
-                          disabled={!deviceDetailsModal.isEditing}
-                        />
-                        <Label htmlFor="dd_serve_dns">Serve DNS</Label>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div className="min-w-0">
-                          <Label htmlFor="dd_dns_host" value="DNS host" className="text-gray-500 dark:text-gray-400" />
-                          <TextInput
-                            id="dd_dns_host"
-                            value={deviceDetailsForm.dns_host}
-                            onChange={(e) =>
-                              setDeviceDetailsForm((f) => ({ ...f, dns_host: e.target.value }))
-                            }
-                            disabled={!deviceDetailsModal.isEditing}
-                            className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <Label htmlFor="dd_dns_port" value="DNS port" className="text-gray-500 dark:text-gray-400" />
-                          <TextInput
-                            id="dd_dns_port"
-                            type="number"
-                            value={deviceDetailsForm.dns_port}
-                            onChange={(e) =>
-                              setDeviceDetailsForm((f) => ({ ...f, dns_port: e.target.value }))
-                            }
-                            disabled={!deviceDetailsModal.isEditing}
-                            className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                          />
-                        </div>
-                        <div className="min-w-0">
-                          <Label htmlFor="dd_interval" value="Report interval (seconds)" className="text-gray-500 dark:text-gray-400" />
-                          <TextInput
-                            id="dd_interval"
-                            type="number"
-                            value={deviceDetailsForm.interval_seconds}
-                            onChange={(e) =>
-                              setDeviceDetailsForm((f) => ({ ...f, interval_seconds: e.target.value }))
-                            }
-                            disabled={!deviceDetailsModal.isEditing}
-                            className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                          />
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </Modal.Body>
-          <Modal.Footer className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap gap-2">
-              {!deviceDetailsModal.isEditing ? (
-                <Button
-                  type="button"
-                  color="gray"
-                  onClick={() => setDeviceDetailsModal((s) => ({ ...s, isEditing: true }))}
-                >
-                  <HiPencil className="w-4 h-4 mr-1" />
-                  Edit
-                </Button>
-              ) : (
-                <Button
-                  type="button"
-                  color="gray"
-                  onClick={() => {
-                    const node = deviceDetailsModal.node;
-                    if (node) {
-                      setDeviceDetailsForm({
-                        groups: (node.groups ?? []).join(", "),
-                        is_lighthouse: node.is_lighthouse,
-                        public_endpoint: node.public_endpoint ?? "",
-                        serve_dns: node.lighthouse_options?.serve_dns ?? false,
-                        dns_host: node.lighthouse_options?.dns_host ?? "0.0.0.0",
-                        dns_port: String(node.lighthouse_options?.dns_port ?? 53),
-                        interval_seconds: String(node.lighthouse_options?.interval_seconds ?? 60),
-                      });
-                      setDeviceDetailsModal((s) => ({ ...s, isEditing: false }));
-                    }
-                  }}
-                >
-                  Cancel
-                </Button>
-              )}
-              {deviceDetailsModal.node && (
-                <>
-                  <Button
-                    type="button"
-                    color="warning"
-                    onClick={() => openReEnrollModal(deviceDetailsModal.node!)}
-                  >
-                    Re-Enroll
-                  </Button>
-                  {deviceDetailsModal.node.ip_address && (
-                    <Button
-                      type="button"
-                      color="failure"
-                      onClick={() => openRevokeModal(deviceDetailsModal.node!)}
-                    >
-                      Revoke Certificate
-                    </Button>
-                  )}
-                </>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              {deviceDetailsModal.isEditing && hasDeviceDetailsFormChanges() && (
-                deviceDetailsModal.showSaved ? (
-                  <span
-                    className={`inline-flex items-center gap-1 text-green-600 dark:text-green-400 text-sm font-medium transition-opacity duration-500 ease-in-out ${
-                      deviceDetailsModal.savedFading ? "opacity-0" : "opacity-100"
-                    }`}
-                  >
-                    <HiCheckCircle className="w-5 h-5" />
-                    Saved
-                  </span>
-                ) : (
-                  <Button
-                    type="submit"
-                    color="blue"
-                    isProcessing={saving}
-                    disabled={saving}
-                  >
-                    Save
-                  </Button>
-                )
-              )}
-            </div>
-          </Modal.Footer>
-        </form>
-      </Modal>
 
       <Modal show={reEnrollModal.open} onClose={closeReEnrollModal} size="md">
         <Modal.Header>Re-Enroll Device</Modal.Header>
@@ -1231,99 +1595,6 @@ export function Nodes() {
         </Modal.Footer>
       </Modal>
 
-      <Modal show={enrollmentCodeModal.open} onClose={closeEnrollmentCodeModal} size="xl">
-        <Modal.Header>Enroll Your New Node!</Modal.Header>
-        <Modal.Body>
-          {enrollmentCodeModal.loading && (
-            <p className="text-gray-600 dark:text-gray-400">Generating code...</p>
-          )}
-          {enrollmentCodeModal.data && (
-            <div className="space-y-4">
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Use this code once on the device to enroll. Expires:{" "}
-                {new Date(enrollmentCodeModal.data.expires_at).toLocaleString()}.
-              </p>
-              <div>
-                <div className="flex flex-wrap gap-2 justify-between items-center mb-1">
-                  <Label value="Code" />
-                  <Button
-                    size="xs"
-                    color="gray"
-                    onClick={() =>
-                      enrollmentCodeModal.data &&
-                      navigator.clipboard.writeText(enrollmentCodeModal.data.code)
-                    }
-                  >
-                    <HiClipboard className="w-4 h-4 mr-1" /> Copy
-                  </Button>
-                </div>
-                <p className="mt-1 p-3 bg-gray-100 dark:bg-gray-800 rounded font-mono text-lg">
-                  {enrollmentCodeModal.data.code}
-                </p>
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                On the device, run (replace with your Nebula Commander URL if needed):
-              </p>
-              <div className="flex flex-wrap gap-2 justify-between items-start">
-                <pre className="flex-1 min-w-0 p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto whitespace-pre">
-                  {`ncclient --server ${typeof window !== "undefined" && window.location?.origin ? window.location.origin : "http://your-server"} enroll --code ${enrollmentCodeModal.data.code}`}
-                </pre>
-                <Button
-                  size="xs"
-                  color="gray"
-                  className="shrink-0"
-                  onClick={() => {
-                    const server =
-                      typeof window !== "undefined" && window.location?.origin
-                        ? window.location.origin
-                        : "http://your-server";
-                    const cmd = `ncclient --server ${server} enroll --code ${enrollmentCodeModal.data!.code}`;
-                    navigator.clipboard.writeText(cmd);
-                  }}
-                >
-                  <HiClipboard className="w-4 h-4 mr-1" /> Copy
-                </Button>
-              </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Then run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient --server &lt;URL&gt; run</code> to poll for config and certs every minute.
-              </p>
-              <div className="flex items-center gap-2 pt-2">
-                {enrollmentCodeModal.enrollmentSuccess ? (
-                  <>
-                    <span
-                      className="flex h-3 w-3 rounded-full bg-green-500"
-                      title="Enrollment successful"
-                    />
-                    <span className="text-green-600 dark:text-green-400 font-medium">
-                      Enrollment Successful!
-                    </span>
-                  </>
-                ) : (
-                  <>
-                    <span
-                      className="flex h-3 w-3 rounded-full bg-red-500 animate-pulse"
-                      title="Waiting for enrollment"
-                    />
-                    <span className="text-red-600 dark:text-red-400">Waiting for enrollment</span>
-                  </>
-                )}
-              </div>
-            </div>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <div className="flex w-full justify-between">
-            <Button color="gray" onClick={closeEnrollmentCodeModal}>
-              Cancel
-            </Button>
-            {enrollmentCodeModal.enrollmentSuccess && (
-              <Button color="success" onClick={handleEnrollmentContinue}>
-                Continue
-              </Button>
-            )}
-          </div>
-        </Modal.Footer>
-      </Modal>
     </div>
   );
 }

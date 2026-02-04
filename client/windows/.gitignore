@@ -1,0 +1,8 @@
+# Build outputs
+dist/
+build/
+*.spec.bak
+nebula-windows-amd64.zip
+
+# Bundled Nebula (downloaded by build.py)
+nebula/

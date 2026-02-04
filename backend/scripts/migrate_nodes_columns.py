@@ -46,11 +46,41 @@ def main() -> int:
         print("Added column: lighthouse_options")
     else:
         print("Column lighthouse_options already exists")
+    if "logging_options" not in columns:
+        cur.execute("ALTER TABLE nodes ADD COLUMN logging_options TEXT")
+        print("Added column: logging_options")
+    else:
+        print("Column logging_options already exists")
+    if "is_relay" not in columns:
+        cur.execute("ALTER TABLE nodes ADD COLUMN is_relay BOOLEAN DEFAULT 0")
+        print("Added column: is_relay")
+    else:
+        print("Column is_relay already exists")
     if "first_polled_at" not in columns:
         cur.execute("ALTER TABLE nodes ADD COLUMN first_polled_at DATETIME")
         print("Added column: first_polled_at")
     else:
         print("Column first_polled_at already exists")
+    if "punchy_options" not in columns:
+        cur.execute("ALTER TABLE nodes ADD COLUMN punchy_options TEXT")
+        print("Added column: punchy_options")
+    else:
+        print("Column punchy_options already exists")
+
+    # networks firewall columns
+    cur.execute("PRAGMA table_info(networks)")
+    net_columns = {row[1] for row in cur.fetchall()}
+    for col, sql in [
+        ("firewall_outbound_action", "ALTER TABLE networks ADD COLUMN firewall_outbound_action VARCHAR(32)"),
+        ("firewall_inbound_action", "ALTER TABLE networks ADD COLUMN firewall_inbound_action VARCHAR(32)"),
+        ("firewall_outbound_rules", "ALTER TABLE networks ADD COLUMN firewall_outbound_rules TEXT"),
+        ("firewall_inbound_rules", "ALTER TABLE networks ADD COLUMN firewall_inbound_rules TEXT"),
+    ]:
+        if col not in net_columns:
+            cur.execute(sql)
+            print(f"Added column: networks.{col}")
+        else:
+            print(f"Column networks.{col} already exists")
 
     # enrollment_codes table (for dnclient-style enrollment)
     cur.execute(

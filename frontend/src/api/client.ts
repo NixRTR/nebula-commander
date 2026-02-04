@@ -65,6 +65,60 @@ export async function getNetwork(id: number) {
   return apiFetch<import("../types/networks").Network>(`/networks/${id}`);
 }
 
+export async function updateNetwork(
+  id: number,
+  data: import("../types/networks").NetworkUpdateData
+) {
+  return apiFetch<import("../types/networks").Network>(`/networks/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+export async function listGroupFirewall(networkId: number) {
+  return apiFetch<import("../types/networks").GroupFirewallConfig[]>(
+    `/networks/${networkId}/group-firewall`
+  );
+}
+
+export async function updateGroupFirewall(
+  networkId: number,
+  groupName: string,
+  data: { inbound_rules: import("../types/networks").InboundFirewallRule[] }
+) {
+  const encoded = encodeURIComponent(groupName);
+  return apiFetch<import("../types/networks").GroupFirewallConfig>(
+    `/networks/${networkId}/group-firewall/${encoded}`,
+    { method: "PUT", body: JSON.stringify(data) }
+  );
+}
+
+export async function deleteGroupFirewall(networkId: number, groupName: string): Promise<void> {
+  const encoded = encodeURIComponent(groupName);
+  const res = await fetch(`${API_BASE}/networks/${networkId}/group-firewall/${encoded}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+  if (res.status === 401 && !localStorage.getItem(TOKEN_KEY)) {
+    const got = await tryDevToken();
+    if (got) {
+      const retry = await fetch(`${API_BASE}/networks/${networkId}/group-firewall/${encoded}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+      });
+      if (!retry.ok) {
+        const err = await retry.json().catch(() => ({ detail: retry.statusText }));
+        throw new Error((err as { detail?: string }).detail || retry.statusText);
+      }
+      return;
+    }
+  }
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error((err as { detail?: string }).detail || res.statusText);
+  }
+}
+
 export interface CheckIpAvailableResponse {
   available: boolean;
 }
@@ -89,10 +143,13 @@ export async function getNode(id: number) {
 }
 
 export type NodeUpdateData = {
-  groups?: string[];
+  group?: string | null;
   is_lighthouse?: boolean;
+  is_relay?: boolean;
   public_endpoint?: string | null;
   lighthouse_options?: import("../types/nodes").LighthouseOptions | null;
+  logging_options?: import("../types/nodes").LoggingOptions | null;
+  punchy_options?: import("../types/nodes").PunchyOptions | null;
 };
 
 export async function updateNode(id: number, data: NodeUpdateData) {
@@ -186,7 +243,7 @@ export interface SignCertificateRequest {
   network_id: number;
   name: string;
   public_key: string;
-  groups?: string[];
+  group?: string | null;
   suggested_ip?: string;
   duration_days?: number;
 }
@@ -207,10 +264,11 @@ export async function signCertificate(body: SignCertificateRequest) {
 export interface CreateCertificateRequest {
   network_id: number;
   name: string;
-  groups?: string[];
+  group?: string | null;
   suggested_ip?: string;
   duration_days?: number;
   is_lighthouse?: boolean;
+  is_relay?: boolean;
   public_endpoint?: string;
   lighthouse_options?: {
     serve_dns?: boolean;
@@ -218,6 +276,7 @@ export interface CreateCertificateRequest {
     dns_port?: number;
     interval_seconds?: number;
   };
+  punchy_options?: import("../types/nodes").PunchyOptions;
 }
 
 export interface CreateCertificateResponse {

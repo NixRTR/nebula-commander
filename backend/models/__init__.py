@@ -3,6 +3,7 @@
 from .db import (
     Base,
     Network,
+    NetworkGroupFirewall,
     Node,
     Certificate,
     User,
@@ -14,6 +15,7 @@ from .db import (
 __all__ = [
     "Base",
     "Network",
+    "NetworkGroupFirewall",
     "Node",
     "Certificate",
     "User",

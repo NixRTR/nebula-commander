@@ -65,15 +65,44 @@ def _run_sqlite_migrations() -> None:
     cur = conn.cursor()
     try:
         cur.execute("PRAGMA table_info(nodes)")
-        columns = {row[1] for row in cur.fetchall()}
+        node_columns = {row[1] for row in cur.fetchall()}
         for col, sql in [
             ("public_endpoint", "ALTER TABLE nodes ADD COLUMN public_endpoint VARCHAR(512)"),
             ("lighthouse_options", "ALTER TABLE nodes ADD COLUMN lighthouse_options TEXT"),
+            ("logging_options", "ALTER TABLE nodes ADD COLUMN logging_options TEXT"),
+            ("is_relay", "ALTER TABLE nodes ADD COLUMN is_relay BOOLEAN DEFAULT 0"),
             ("first_polled_at", "ALTER TABLE nodes ADD COLUMN first_polled_at DATETIME"),
+            ("punchy_options", "ALTER TABLE nodes ADD COLUMN punchy_options TEXT"),
         ]:
-            if col not in columns:
+            if col not in node_columns:
                 cur.execute(sql)
                 logger.info("Migration: added column nodes.%s", col)
+        cur.execute("PRAGMA table_info(networks)")
+        net_columns = {row[1] for row in cur.fetchall()}
+        for col, sql in [
+            ("firewall_outbound_action", "ALTER TABLE networks ADD COLUMN firewall_outbound_action VARCHAR(32)"),
+            ("firewall_inbound_action", "ALTER TABLE networks ADD COLUMN firewall_inbound_action VARCHAR(32)"),
+            ("firewall_outbound_rules", "ALTER TABLE networks ADD COLUMN firewall_outbound_rules TEXT"),
+            ("firewall_inbound_rules", "ALTER TABLE networks ADD COLUMN firewall_inbound_rules TEXT"),
+        ]:
+            if col not in net_columns:
+                cur.execute(sql)
+                logger.info("Migration: added column networks.%s", col)
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='network_group_firewall'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE network_group_firewall (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    network_id INTEGER NOT NULL REFERENCES networks(id),
+                    group_name VARCHAR(255) NOT NULL,
+                    outbound_rules TEXT,
+                    inbound_rules TEXT,
+                    UNIQUE (network_id, group_name)
+                )
+            """)
+            logger.info("Migration: created table network_group_firewall")
         cur.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='enrollment_codes'"
         )

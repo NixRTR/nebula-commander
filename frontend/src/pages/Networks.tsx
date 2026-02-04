@@ -122,7 +122,7 @@ export function Networks() {
               <div className="p-8 text-center">
                 <p className="text-gray-500 dark:text-gray-400 mb-2">No networks yet.</p>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  Create a network to define your overlay subnet, then generate certificates and enroll nodes.
+                  Create a network to define your overlay subnet. Configure per-group firewall rules on the Groups page.
                 </p>
                 <Button color="blue" onClick={() => setShowForm(true)} data-onboarding-target="networks-create-button">
                   <HiPlus className="mr-2 h-5 w-5" />

@@ -27,9 +27,11 @@ import shutil
 import signal
 import subprocess
 import sys
+import threading
 import time
 import zipfile
 import io
+from typing import Callable
 
 # systemd unit template for ncclient install (ExecStart path is substituted)
 _SYSTEMD_UNIT_TEMPLATE = """[Unit]
@@ -104,6 +106,34 @@ def cmd_enroll(server: str, code: str, token_path_out: str | None) -> None:
 
 def _config_path(output_dir: str) -> str:
     return os.path.join(output_dir, "config.yaml")
+
+
+def _rewrite_config_pki_for_windows(output_dir: str) -> None:
+    """On Windows, rewrite config.yaml pki paths to use output_dir (e.g. C:\\Users\\Willi\\.nebula)."""
+    config_path = _config_path(output_dir)
+    if not os.path.isfile(config_path):
+        return
+    base = os.path.abspath(output_dir)
+    pki_replacements = (
+        ("ca:", os.path.join(base, "ca.crt")),
+        ("cert:", os.path.join(base, "host.crt")),
+        ("key:", os.path.join(base, "host.key")),
+    )
+    with open(config_path, "r", encoding="utf-8") as f:
+        lines = f.readlines()
+    new_lines = []
+    for line in lines:
+        stripped = line.strip()
+        new_line = line
+        for key_prefix, path in pki_replacements:
+            if stripped.startswith(key_prefix):
+                idx = line.find(":")
+                if idx != -1:
+                    new_line = line[: idx + 1] + " " + path + "\n"
+                break
+        new_lines.append(new_line)
+    with open(config_path, "w", encoding="utf-8") as f:
+        f.writelines(new_lines)
 
 
 def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
@@ -288,19 +318,29 @@ def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
     print("Done. Edit /etc/default/ncclient to change settings.")
 
 
-def cmd_run(
+def run_poll_loop(
     server: str,
     token_path_in: str | None,
     output_dir: str,
     interval: int,
     nebula_bin: str | None,
     restart_service: str | None,
+    stop_event: threading.Event,
+    status_callback: Callable[[str, str], None] | None = None,
 ) -> None:
+    """
+    Poll for config/certs and optionally run Nebula. Exits when stop_event is set.
+    status_callback(status, message) is called with "idle", "connected", or "error".
+    """
     base = _server_url(server)
     path = token_path_in or _token_path()
     if not os.path.exists(path):
-        print(f"Token not found at {path}. Run 'ncclient enroll' first.", file=sys.stderr)
-        sys.exit(1)
+        if status_callback:
+            status_callback("error", "Token not found. Enroll first.")
+        else:
+            print(f"Token not found at {path}. Run 'ncclient enroll' first.", file=sys.stderr)
+            sys.exit(1)
+        return
     with open(path) as f:
         token = f.read().strip()
     url = f"{base}/api/device/bundle"
@@ -309,64 +349,109 @@ def cmd_run(
     last_etag: str | None = None
     nebula_proc: subprocess.Popen | None = None
 
-    if nebula_bin:
-        print(f"Orchestrating Nebula: {nebula_bin} (restart on config change)")
-    if restart_service:
-        print(f"Orchestrating service: systemctl restart {restart_service} on config change")
-    print(f"Polling {url} every {interval}s. Output: {output_dir}. Ctrl+C to stop.")
+    def _sleep() -> None:
+        elapsed = 0
+        while elapsed < interval and not stop_event.is_set():
+            stop_event.wait(timeout=1)
+            elapsed += 1
 
-    def on_exit() -> None:
+    if not status_callback:
+        if nebula_bin:
+            print(f"Orchestrating Nebula: {nebula_bin} (restart on config change)")
+        if restart_service:
+            print(f"Orchestrating service: systemctl restart {restart_service} on config change")
+        print(f"Polling {url} every {interval}s. Output: {output_dir}. Ctrl+C to stop.")
+    elif status_callback:
+        status_callback("idle", "Polling...")
+
+    try:
+        while not stop_event.is_set():
+            try:
+                r = requests.get(url, headers=headers, timeout=30)
+                if r.status_code == 401:
+                    if status_callback:
+                        status_callback("error", "Token invalid or expired. Re-enroll.")
+                        return
+                    print("Token invalid or expired. Re-enroll with a new code.", file=sys.stderr)
+                    sys.exit(1)
+                if not r.ok:
+                    msg = f"Poll failed: {r.status_code} {r.text[:200]}"
+                    if status_callback:
+                        status_callback("error", msg)
+                    else:
+                        print(msg, file=sys.stderr)
+                    _sleep()
+                    continue
+                etag = r.headers.get("ETag")
+                if last_etag is not None and etag == last_etag:
+                    if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
+                        nebula_proc = _start_nebula(nebula_bin, output_dir)
+                    _sleep()
+                    continue
+                last_etag = etag
+                z = zipfile.ZipFile(io.BytesIO(r.content), "r")
+                for name in z.namelist():
+                    if name.endswith("/"):
+                        continue
+                    data = z.read(name)
+                    out = os.path.join(output_dir, name)
+                    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
+                    with open(out, "wb") as f:
+                        f.write(data)
+                    if not status_callback:
+                        print(f"Wrote {out}")
+                if status_callback:
+                    status_callback("connected", "Config updated")
+                if sys.platform == "win32":
+                    _rewrite_config_pki_for_windows(output_dir)
+                if nebula_bin:
+                    _stop_nebula(nebula_proc)
+                    nebula_proc = _start_nebula(nebula_bin, output_dir)
+                if restart_service:
+                    _restart_systemd_service(restart_service)
+            except requests.RequestException as e:
+                err = str(e)
+                if status_callback:
+                    status_callback("error", err)
+                else:
+                    print(f"Request error: {e}", file=sys.stderr)
+            _sleep()
+    finally:
         _stop_nebula(nebula_proc)
 
-    atexit.register(on_exit)
+
+def cmd_run(
+    server: str,
+    token_path_in: str | None,
+    output_dir: str,
+    interval: int,
+    nebula_bin: str | None,
+    restart_service: str | None,
+) -> None:
+    stop_event = threading.Event()
+
+    def noop_callback(_status: str, _message: str) -> None:
+        pass
+
     try:
-        signal.signal(signal.SIGTERM, lambda s, f: sys.exit(0))
+        signal.signal(signal.SIGTERM, lambda s, f: stop_event.set())
     except (ValueError, OSError):
-        pass  # not main thread or Windows
-
-    while True:
-        try:
-            r = requests.get(url, headers=headers, timeout=30)
-            if r.status_code == 401:
-                print("Token invalid or expired. Re-enroll with a new code.", file=sys.stderr)
-                sys.exit(1)
-            if not r.ok:
-                print(f"Poll failed: {r.status_code} {r.text[:200]}", file=sys.stderr)
-                time.sleep(interval)
-                continue
-            etag = r.headers.get("ETag")
-            # Skip write only when we have a previous etag and it's unchanged (saves re-writing when server sends ETag).
-            # When server sends no ETag, we always write (first time and every poll).
-            if last_etag is not None and etag == last_etag:
-                if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
-                    nebula_proc = _start_nebula(nebula_bin, output_dir)
-                time.sleep(interval)
-                continue
-            last_etag = etag
-            z = zipfile.ZipFile(io.BytesIO(r.content), "r")
-            for name in z.namelist():
-                if name.endswith("/"):
-                    continue
-                data = z.read(name)
-                out = os.path.join(output_dir, name)
-                os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
-                with open(out, "wb") as f:
-                    f.write(data)
-                print(f"Wrote {out}")
-            if nebula_bin:
-                _stop_nebula(nebula_proc)
-                nebula_proc = _start_nebula(nebula_bin, output_dir)
-            if restart_service:
-                _restart_systemd_service(restart_service)
-        except requests.RequestException as e:
-            print(f"Request error: {e}", file=sys.stderr)
-        except KeyboardInterrupt:
-            print("\nStopped.")
-            break
-        time.sleep(interval)
-
-    atexit.unregister(on_exit)
-    _stop_nebula(nebula_proc)
+        pass
+    try:
+        run_poll_loop(
+            server,
+            token_path_in,
+            output_dir,
+            interval,
+            nebula_bin,
+            restart_service,
+            stop_event=stop_event,
+            status_callback=noop_callback,
+        )
+    except KeyboardInterrupt:
+        print("\nStopped.")
+        stop_event.set()
+    # run_poll_loop already stopped nebula and returned
 
 
 def main() -> None:

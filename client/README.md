@@ -109,3 +109,7 @@ ncclient works on Windows 11. Use Python 3.10+ and install with `pip install neb
 - **Default output dir** for config and certs is `%USERPROFILE%\.nebula`. Override with `--output-dir` (e.g. `C:\ProgramData\Nebula` if you run as Administrator).
 - **Nebula**: ncclient runs `nebula` from your PATH by default. If `nebula.exe` is not on PATH, use `--nebula "C:\Path\To\nebula.exe"`. Do not use `--restart-service`; there is no systemd on Windows.
 - Run ncclient in a terminal or install it as a Windows service (e.g. with NSSM or Task Scheduler) so it keeps running.
+
+### Windows tray app
+
+A **system-tray app** for Windows provides the same enroll-and-poll flow with a GUI: tray icon, Enroll and Settings dialogs, Start/Stop polling, optional bundled Nebula binary, and **Start at login** (Registry Run). See **[client/windows/README.md](windows/README.md)** for how to run from source and how to build `ncclient-tray.exe` (with optional bundled `nebula.exe`) using PyInstaller.
