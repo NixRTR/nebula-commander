@@ -8,7 +8,8 @@ import os
 
 block_cipher = None
 
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# SPECPATH is provided by PyInstaller and points to the directory containing this spec file
+SCRIPT_DIR = SPECPATH
 REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 
 # Entry script (run from client/windows/, so tray.py is here)
