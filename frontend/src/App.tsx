@@ -1,9 +1,10 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Navbar } from "./components/layout/Navbar";
 import { OnboardingProvider } from "./contexts/OnboardingContext";
 import { OnboardingOverlay } from "./components/onboarding/OnboardingOverlay";
+import { initializeTokenRefresh } from "./api/client";
 
 // Lazy load pages for code splitting - reduces initial bundle size
 const Home = lazy(() => import("./pages/Home").then(m => ({ default: m.Home })));
@@ -22,6 +23,11 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const username = "admin"; // TODO: Get from auth context
   const connectionStatus = "connected"; // TODO: Get from WebSocket/API
+
+  // Initialize automatic token refresh on app startup
+  useEffect(() => {
+    initializeTokenRefresh();
+  }, []);
 
   const handleLogout = () => {
     // TODO: Implement logout

@@ -1,6 +1,8 @@
 const API_BASE = "/api";
 const TOKEN_KEY = "nebula_commander_token";
 
+let tokenRefreshTimer: number | null = null;
+
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem(TOKEN_KEY);
   const headers: HeadersInit = { "Content-Type": "application/json" };
@@ -8,6 +10,67 @@ function getAuthHeaders(): HeadersInit {
     (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
   }
   return headers;
+}
+
+/**
+ * Decode JWT token to extract expiration time.
+ * Returns null if token is invalid or cannot be decoded.
+ */
+function decodeTokenExpiration(token: string): number | null {
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    
+    const payload = JSON.parse(atob(parts[1]));
+    return payload.exp ? payload.exp * 1000 : null; // Convert to milliseconds
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Schedule automatic token refresh before expiration.
+ * Refreshes 5 minutes before the token expires.
+ */
+function scheduleTokenRefresh(token: string): void {
+  // Clear any existing timer
+  if (tokenRefreshTimer !== null) {
+    clearTimeout(tokenRefreshTimer);
+    tokenRefreshTimer = null;
+  }
+
+  const expirationTime = decodeTokenExpiration(token);
+  if (!expirationTime) return;
+
+  const now = Date.now();
+  const timeUntilExpiry = expirationTime - now;
+  
+  // Refresh 5 minutes before expiration, or immediately if already expired
+  const refreshBuffer = 5 * 60 * 1000; // 5 minutes in milliseconds
+  const timeUntilRefresh = Math.max(0, timeUntilExpiry - refreshBuffer);
+
+  if (timeUntilRefresh > 0) {
+    console.log(`Token will be refreshed in ${Math.round(timeUntilRefresh / 1000)} seconds`);
+    tokenRefreshTimer = window.setTimeout(async () => {
+      console.log('Auto-refreshing token...');
+      const refreshed = await tryDevToken();
+      if (refreshed) {
+        console.log('Token auto-refreshed successfully');
+      } else {
+        console.warn('Failed to auto-refresh token');
+      }
+    }, timeUntilRefresh);
+  } else {
+    // Token is already expired or about to expire, refresh immediately
+    console.log('Token expired or expiring soon, refreshing immediately...');
+    tryDevToken().then(refreshed => {
+      if (refreshed) {
+        console.log('Token refreshed successfully');
+      } else {
+        console.warn('Failed to refresh expired token');
+      }
+    });
+  }
 }
 
 /** Try to obtain a dev token when backend is in debug mode (development). */
@@ -18,12 +81,28 @@ async function tryDevToken(): Promise<boolean> {
     const data = (await res.json()) as { token: string };
     if (data.token) {
       localStorage.setItem(TOKEN_KEY, data.token);
+      // Schedule automatic refresh for the new token
+      scheduleTokenRefresh(data.token);
       return true;
     }
   } catch {
     // ignore
   }
   return false;
+}
+
+/**
+ * Initialize automatic token refresh on app startup.
+ * Call this when the app loads to set up auto-refresh for existing tokens.
+ */
+export function initializeTokenRefresh(): void {
+  const token = localStorage.getItem(TOKEN_KEY);
+  if (token) {
+    scheduleTokenRefresh(token);
+  } else {
+    // Try to get a dev token if none exists
+    tryDevToken();
+  }
 }
 
 export async function apiFetch<T>(
