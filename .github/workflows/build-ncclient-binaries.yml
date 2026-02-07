@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - 'client/binaries/**'
+      - 'client/windows/**'
       - 'client/ncclient.py'
       - '.github/workflows/build-ncclient-binaries.yml'
   workflow_dispatch:  # Allow manual trigger from Actions tab
@@ -148,10 +149,68 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+  # Build Windows tray app with bundled Nebula
+  build-windows-tray:
+    name: Build Windows Tray App
+    runs-on: windows-latest
+    needs: build  # Wait for CLI build to complete
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          architecture: x64
+      
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r client/requirements.txt
+          pip install -r client/windows/requirements.txt
+          pip install pyinstaller
+      
+      - name: Build tray app (with bundled Nebula)
+        working-directory: client/windows
+        run: python build.py
+      
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp client/windows/dist/ncclient-tray.exe artifacts/ncclient-tray-windows-amd64.exe
+      
+      - name: Display file info
+        shell: bash
+        run: |
+          ls -lh artifacts/
+          file artifacts/ncclient-tray-windows-amd64.exe || true
+      
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ncclient-tray-windows-amd64.exe
+          path: artifacts/ncclient-tray-windows-amd64.exe
+          if-no-files-found: error
+      
+      - name: Upload to Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/ncclient-tray-windows-amd64.exe
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   # Generate checksums for all binaries
   checksums:
     name: Generate Checksums
-    needs: build
+    needs: [build, build-windows-tray]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -195,7 +254,7 @@ jobs:
   # Summary job to report build status
   summary:
     name: Build Summary
-    needs: build
+    needs: [build, build-windows-tray]
     runs-on: ubuntu-latest
     if: always()
     steps:
