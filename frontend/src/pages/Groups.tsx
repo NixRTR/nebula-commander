@@ -39,11 +39,10 @@ export function Groups() {
 
   useEffect(() => {
     if (selectedNetworkId === "") {
-      setGroupList([]);
-      setLoading(false);
       return;
     }
     setLoading(true);
+    setGroupList([]);
     listGroupFirewall(selectedNetworkId as number)
       .then(setGroupList)
       .catch((e) => {
