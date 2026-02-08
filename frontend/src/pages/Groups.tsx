@@ -41,15 +41,34 @@ export function Groups() {
     if (selectedNetworkId === "") {
       return;
     }
-    setLoading(true);
-    setGroupList([]);
-    listGroupFirewall(selectedNetworkId as number)
-      .then(setGroupList)
-      .catch((e) => {
-        setError(e.message);
+    
+    let cancelled = false;
+    
+    const loadGroups = async () => {
+      try {
+        setLoading(true);
         setGroupList([]);
-      })
-      .finally(() => setLoading(false));
+        const groups = await listGroupFirewall(selectedNetworkId as number);
+        if (!cancelled) {
+          setGroupList(groups);
+        }
+      } catch (e: any) {
+        if (!cancelled) {
+          setError(e.message);
+          setGroupList([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    };
+    
+    loadGroups();
+    
+    return () => {
+      cancelled = true;
+    };
   }, [selectedNetworkId]);
 
   const getRules = (groupName: string): InboundFirewallRule[] => {

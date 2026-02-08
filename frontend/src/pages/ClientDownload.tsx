@@ -9,6 +9,10 @@ const DOWNLOADS = [
   { name: "macOS (Apple Silicon)", file: "ncclient-macos-arm64", platform: "macos" },
 ] as const;
 
+const TRAY_DOWNLOADS = [
+  { name: "Windows Tray App (x86_64)", file: "ncclient-tray-windows-amd64.exe", platform: "windows" },
+] as const;
+
 export function ClientDownload() {
   return (
     <div>
@@ -18,9 +22,9 @@ export function ClientDownload() {
       </p>
 
       <Card className="mb-6">
-        <h2 className="text-xl font-bold mb-2">Download ncclient (standalone)</h2>
+        <h2 className="text-xl font-bold mb-2">Download ncclient (command-line)</h2>
         <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-          Pre-built executables — no Python required. Served from this server so no internet access is needed after deployment.
+          Pre-built command-line executables — no Python required. Served from this server so no internet access is needed after deployment.
         </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {DOWNLOADS.map((d) => (
@@ -38,6 +42,41 @@ export function ClientDownload() {
         <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
           Linux/macOS: after download run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">chmod +x ncclient-*</code> then move to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/usr/local/bin</code> or your PATH.
         </p>
+      </Card>
+
+      <Card className="mb-6">
+        <h2 className="text-xl font-bold mb-2">Download ncclient (Windows Tray App)</h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
+          Windows system-tray application with GUI for enrollment, settings, and auto-start at login. Includes bundled Nebula binary — no separate Nebula installation required.
+        </p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {TRAY_DOWNLOADS.map((d) => (
+            <a
+              key={d.file}
+              href={`/downloads/${d.file}`}
+              download={d.file}
+              className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-gray-900 dark:text-white transition-colors"
+            >
+              <HiDownload className="w-5 h-5 shrink-0" />
+              <span>{d.name}</span>
+            </a>
+          ))}
+        </div>
+        <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
+          <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
+            <strong>Features:</strong>
+          </p>
+          <ul className="text-sm text-gray-600 dark:text-gray-400 list-disc list-inside space-y-1">
+            <li>System tray icon with Start/Stop polling</li>
+            <li>Enroll dialog — paste enrollment code from Nodes page</li>
+            <li>Settings dialog — configure server URL, output directory, poll interval</li>
+            <li>Auto-start at login (adds Registry entry, no Windows Service required)</li>
+            <li>Bundled Nebula binary (official Windows release)</li>
+          </ul>
+          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
+            Simply download and run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient-tray-windows-amd64.exe</code> — no installation needed.
+          </p>
+        </div>
       </Card>
 
       <h2 className="text-xl font-bold mb-4">Alternative: install via Python (PyPI)</h2>
