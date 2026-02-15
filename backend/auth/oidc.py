@@ -63,6 +63,7 @@ def decode_token(token: str) -> Optional[dict]:
     """Decode and validate JWT. Uses OIDC JWKS if issuer is set, else JWT secret."""
     try:
         if settings.oidc_issuer_url:
+            # Try OIDC JWKS validation first (for tokens from Keycloak)
             key_data = _get_signing_key_from_jwks(token, settings.oidc_issuer_url)
             if key_data:
                 key = jwk.construct(key_data)
@@ -74,7 +75,10 @@ def decode_token(token: str) -> Optional[dict]:
                     options={"verify_aud": bool(settings.oidc_client_id)},
                 )
                 return payload
-            return None
+            # If JWKS validation fails (no kid or key not found), fall back to local JWT secret
+            # This allows our own JWTs (created in /callback) to work alongside OIDC
+        
+        # Validate using local JWT secret
         payload = jwt.decode(
             token,
             settings.jwt_secret_key,
@@ -90,7 +94,8 @@ class UserInfo(BaseModel):
 
     sub: str
     email: Optional[str] = None
-    role: str = "user"
+    role: str = "user"  # Legacy field
+    system_role: str = "user"  # system-admin, network-owner, user
 
 
 async def get_current_user_optional(
@@ -114,6 +119,7 @@ async def get_current_user_optional(
         sub=sub,
         email=payload.get("email"),
         role=payload.get("role", "user"),
+        system_role=payload.get("system_role", payload.get("role", "user")),
     )
 
 

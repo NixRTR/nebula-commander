@@ -13,8 +13,11 @@ import {
   HiGlobe,
   HiDownload,
   HiUserGroup,
+  HiUsers,
+  HiMail,
 } from 'react-icons/hi';
 import { FaGithub } from 'react-icons/fa';
+import { usePermissions } from '../../contexts/PermissionContext';
 
 const SIDEBAR_STORAGE_KEY = 'nebula-commander-sidebar-expanded';
 
@@ -47,6 +50,7 @@ interface SidebarProps {
 
 export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   const location = useLocation();
+  const { isSystemAdmin, isNetworkOwner } = usePermissions();
   const [settingsExpanded, setSettingsExpanded] = useState(() => loadSidebarExpanded().settings);
 
   const handleItemClick = () => {
@@ -164,6 +168,32 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               >
                 Client Download
               </FlowbiteSidebar.Item>
+
+              {/* System Admin Only */}
+              {isSystemAdmin && (
+                <FlowbiteSidebar.Item
+                  as={Link}
+                  to="/users"
+                  icon={HiUsers}
+                  active={location.pathname === '/users'}
+                  onClick={handleItemClick}
+                >
+                  Users
+                </FlowbiteSidebar.Item>
+              )}
+
+              {/* Network Owners and System Admins */}
+              {(isNetworkOwner || isSystemAdmin) && (
+                <FlowbiteSidebar.Item
+                  as={Link}
+                  to="/invitations"
+                  icon={HiMail}
+                  active={location.pathname === '/invitations'}
+                  onClick={handleItemClick}
+                >
+                  Invitations
+                </FlowbiteSidebar.Item>
+              )}
 
               {/* Settings - collapsible */}
               <li>

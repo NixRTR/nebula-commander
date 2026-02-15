@@ -38,6 +38,7 @@ class Settings(BaseSettings):
 
     # OIDC
     oidc_issuer_url: Optional[str] = None
+    oidc_public_issuer_url: Optional[str] = None  # Public URL for browser redirects (logout, etc.)
     oidc_client_id: Optional[str] = None
     oidc_client_secret: Optional[str] = None
     oidc_client_secret_file: Optional[str] = None
@@ -62,6 +63,17 @@ class Settings(BaseSettings):
         "http://localhost:5173",
         "http://localhost:8080",
     ]
+
+    # Email / SMTP
+    smtp_enabled: bool = False
+    smtp_host: str = "localhost"
+    smtp_port: int = 587
+    smtp_username: Optional[str] = None
+    smtp_password: Optional[str] = None
+    smtp_password_file: Optional[str] = None
+    smtp_use_tls: bool = True
+    smtp_from_email: str = "noreply@example.com"
+    smtp_from_name: str = "Nebula Commander"
 
     @field_validator("cors_origins", mode="after")
     @classmethod
@@ -101,7 +113,19 @@ def load_oidc_secret(settings_obj: Settings) -> Optional[str]:
     return settings_obj.oidc_client_secret
 
 
+def load_smtp_password(settings_obj: Settings) -> Optional[str]:
+    """Load SMTP password from file if specified."""
+    if settings_obj.smtp_password_file and os.path.exists(settings_obj.smtp_password_file):
+        try:
+            with open(settings_obj.smtp_password_file, "r") as f:
+                return f.read().strip()
+        except Exception as e:
+            print(f"Warning: Could not read SMTP password: {e}")
+    return settings_obj.smtp_password
+
+
 settings = Settings()
 if not getattr(settings, "_jwt_loaded", False):
     settings.jwt_secret_key = load_jwt_secret(settings)
     settings.oidc_client_secret = load_oidc_secret(settings)
+    settings.smtp_password = load_smtp_password(settings)

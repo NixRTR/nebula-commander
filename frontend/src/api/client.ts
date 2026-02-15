@@ -1,5 +1,7 @@
+import axios from 'axios';
+
 const API_BASE = "/api";
-const TOKEN_KEY = "nebula_commander_token";
+const TOKEN_KEY = "token"; // Changed to match AuthContext
 
 let tokenRefreshTimer: number | null = null;
 
@@ -94,16 +96,62 @@ async function tryDevToken(): Promise<boolean> {
 /**
  * Initialize automatic token refresh on app startup.
  * Call this when the app loads to set up auto-refresh for existing tokens.
+ * In OIDC mode, tokens are managed by the auth flow, so we only try dev token
+ * if no token exists (for development/standalone mode).
  */
 export function initializeTokenRefresh(): void {
   const token = localStorage.getItem(TOKEN_KEY);
   if (token) {
     scheduleTokenRefresh(token);
   } else {
-    // Try to get a dev token if none exists
+    // Try to get a dev token if none exists (only works when OIDC is not configured)
     tryDevToken();
   }
 }
+
+// Create axios instance with interceptors
+export const apiClient = axios.create({
+  baseURL: API_BASE,
+});
+
+// Request interceptor to add auth token
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem(TOKEN_KEY);
+    console.log('Axios interceptor - token exists:', !!token, 'for URL:', config.url);
+    if (token) {
+      config.headers.Authorization = `Bearer ${token}`;
+      console.log('Added Authorization header');
+    }
+    return config;
+  },
+  (error) => Promise.reject(error)
+);
+
+// Response interceptor to handle 401 errors
+apiClient.interceptors.response.use(
+  (response) => response,
+  async (error) => {
+    const originalRequest = error.config;
+    
+    // If 401 and no token, try to get dev token (only works in dev mode)
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+      
+      if (!localStorage.getItem(TOKEN_KEY)) {
+        const got = await tryDevToken();
+        if (got) {
+          // Retry the original request with new token
+          const token = localStorage.getItem(TOKEN_KEY);
+          originalRequest.headers.Authorization = `Bearer ${token}`;
+          return apiClient(originalRequest);
+        }
+      }
+    }
+    
+    return Promise.reject(error);
+  }
+);
 
 export async function apiFetch<T>(
   path: string,

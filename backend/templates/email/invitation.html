@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Network Invitation</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f3f4f6;
+        }
+        .container {
+            background-color: #ffffff;
+            border-radius: 8px;
+            padding: 30px;
+            margin: 20px 0;
+            box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #e5e7eb;
+        }
+        .header h1 {
+            color: #1f2937;
+            margin: 0 0 10px 0;
+            font-size: 28px;
+        }
+        .header p {
+            color: #6b7280;
+            margin: 0;
+            font-size: 16px;
+        }
+        .content {
+            background-color: #f9fafb;
+            border-radius: 6px;
+            padding: 25px;
+            margin: 20px 0;
+        }
+        .detail-row {
+            margin: 15px 0;
+            padding: 12px;
+            background-color: #ffffff;
+            border-radius: 4px;
+            border-left: 3px solid #3b82f6;
+        }
+        .detail-label {
+            font-weight: 600;
+            color: #4b5563;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .detail-value {
+            color: #1f2937;
+            margin-top: 5px;
+            font-size: 16px;
+        }
+        .permissions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 8px;
+        }
+        .permission-badge {
+            display: inline-block;
+            padding: 6px 12px;
+            background-color: #3b82f6;
+            color: white;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        .button-container {
+            text-align: center;
+            margin: 30px 0;
+        }
+        .button {
+            display: inline-block;
+            padding: 14px 32px;
+            background-color: #2563eb;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 16px;
+            transition: background-color 0.2s;
+        }
+        .button:hover {
+            background-color: #1d4ed8;
+        }
+        .footer {
+            text-align: center;
+            color: #6b7280;
+            font-size: 14px;
+            margin-top: 30px;
+            padding-top: 20px;
+            border-top: 1px solid #e5e7eb;
+        }
+        .footer p {
+            margin: 5px 0;
+        }
+        .warning {
+            background-color: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            padding: 12px 16px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }
+        .warning strong {
+            color: #92400e;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🌐 Network Invitation</h1>
+            <p>You've been invited to join a Nebula network</p>
+        </div>
+        
+        <div class="content">
+            <div class="detail-row">
+                <div class="detail-label">Network</div>
+                <div class="detail-value">{{ network_name }}</div>
+            </div>
+            
+            <div class="detail-row">
+                <div class="detail-label">Invited by</div>
+                <div class="detail-value">{{ invited_by_email }}</div>
+            </div>
+            
+            <div class="detail-row">
+                <div class="detail-label">Role</div>
+                <div class="detail-value" style="text-transform: capitalize;">{{ role }}</div>
+            </div>
+            
+            {% if permissions.can_manage_nodes or permissions.can_invite_users or permissions.can_manage_firewall %}
+            <div class="detail-row">
+                <div class="detail-label">Permissions</div>
+                <div class="permissions">
+                    {% if permissions.can_manage_nodes %}
+                    <span class="permission-badge">Manage Nodes</span>
+                    {% endif %}
+                    {% if permissions.can_invite_users %}
+                    <span class="permission-badge">Invite Users</span>
+                    {% endif %}
+                    {% if permissions.can_manage_firewall %}
+                    <span class="permission-badge">Manage Firewall</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% endif %}
+            
+            <div class="button-container">
+                <a href="{{ invitation_link }}" class="button">Accept Invitation</a>
+            </div>
+            
+            <div class="warning">
+                <strong>⏰ This invitation expires on {{ expires_at }}</strong>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <p>If you didn't expect this invitation, you can safely ignore this email.</p>
+            <p>This is an automated message from Nebula Commander.</p>
+        </div>
+    </div>
+</body>
+</html>

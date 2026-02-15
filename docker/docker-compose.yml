@@ -1,3 +1,5 @@
+include:
+  - path: ./docker-compose-keycloak.yml
 services:
   # =============================================================================
   # Backend - FastAPI application
@@ -16,26 +18,13 @@ services:
       - nebula-commander-data:/var/lib/nebula-commander
       # Optional: mount JWT secret file
       - ${JWT_SECRET_FILE:-/dev/null}:/run/secrets/jwt-secret:ro
+    env_file:
+      # Backend configuration (database, JWT, OIDC, CORS, debug)
+      - env.d/backend
     environment:
-      # Database and certs must use paths inside the mounted volume so data persists.
-      # Do not use DATABASE_URL/CERT_STORE_PATH from host env (they point outside the volume).
-      - NEBULA_COMMANDER_DATABASE_URL=${NEBULA_COMMANDER_DATABASE_URL:-sqlite+aiosqlite:////var/lib/nebula-commander/db.sqlite}
-      - NEBULA_COMMANDER_CERT_STORE_PATH=${NEBULA_COMMANDER_CERT_STORE_PATH:-/var/lib/nebula-commander/certs}
-      # Server configuration
+      # Server configuration (not in env file since it's container-specific)
       - NEBULA_COMMANDER_SERVER_HOST=0.0.0.0
       - NEBULA_COMMANDER_SERVER_PORT=8081
-      # JWT authentication
-      - NEBULA_COMMANDER_JWT_SECRET_KEY=${JWT_SECRET_KEY:-}
-      - NEBULA_COMMANDER_JWT_SECRET_FILE=${JWT_SECRET_FILE_CONTAINER:-/run/secrets/jwt-secret}
-      - NEBULA_COMMANDER_JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
-      - NEBULA_COMMANDER_JWT_EXPIRATION_HOURS=${JWT_EXPIRATION_HOURS:-24}
-      # OIDC configuration (optional)
-      - NEBULA_COMMANDER_OIDC_ISSUER_URL=${OIDC_ISSUER_URL:-}
-      - NEBULA_COMMANDER_OIDC_CLIENT_ID=${OIDC_CLIENT_ID:-nebula-commander}
-      # CORS
-      - NEBULA_COMMANDER_CORS_ORIGINS=${CORS_ORIGINS:-*}
-      # Debug mode (enables /api/auth/dev-token so UI can get a JWT without OIDC)
-      - NEBULA_COMMANDER_DEBUG=${NEBULA_COMMANDER_DEBUG:-false}
     healthcheck:
       test: ["CMD", "python3", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8081/api/health')"]
       interval: 30s
@@ -43,7 +32,7 @@ services:
       retries: 3
       start_period: 10s
     networks:
-      - nebula-commander-network
+      - nebula-commander
 
   # =============================================================================
   # Frontend - Nginx serving React SPA
@@ -67,11 +56,11 @@ services:
       retries: 3
       start_period: 5s
     networks:
-      - nebula-commander-network
+      - nebula-commander
 
 networks:
-  nebula-commander-network:
-    driver: bridge
+  nebula-commander:
+    external: true
 
 volumes:
   nebula-commander-data:

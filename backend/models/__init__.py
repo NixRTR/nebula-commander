@@ -10,6 +10,12 @@ from .db import (
     NetworkConfig,
     AllocatedIP,
     EnrollmentCode,
+    NetworkPermission,
+    NodePermission,
+    NodeRequest,
+    AccessGrant,
+    NetworkSettings,
+    Invitation,
 )
 
 __all__ = [
@@ -22,4 +28,10 @@ __all__ = [
     "NetworkConfig",
     "AllocatedIP",
     "EnrollmentCode",
+    "NetworkPermission",
+    "NodePermission",
+    "NodeRequest",
+    "AccessGrant",
+    "NetworkSettings",
+    "Invitation",
 ]

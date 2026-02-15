@@ -1,0 +1,15 @@
+# =============================================================================
+# PostgreSQL Configuration for Keycloak
+# =============================================================================
+
+# Database name
+POSTGRES_DB=keycloak
+
+# Database user
+POSTGRES_USER=keycloak
+
+# Database password - CHANGE THIS IN PRODUCTION!
+POSTGRES_PASSWORD=keycloak_db_password
+
+# Optional: Custom data directory
+# PGDATA=/var/lib/postgresql/data/pgdata

@@ -118,6 +118,158 @@ def _run_sqlite_migrations() -> None:
                 )
             """)
             logger.info("Migration: created table enrollment_codes")
+        
+        # Add system_role column to users table
+        cur.execute("PRAGMA table_info(users)")
+        user_columns = {row[1] for row in cur.fetchall()}
+        if "system_role" not in user_columns:
+            cur.execute("ALTER TABLE users ADD COLUMN system_role VARCHAR(64) DEFAULT 'user'")
+            logger.info("Migration: added column users.system_role")
+            # Migrate existing users: set system_role based on legacy role
+            cur.execute("UPDATE users SET system_role = 'system-admin' WHERE role = 'admin'")
+            logger.info("Migration: migrated existing admin users to system-admin role")
+        
+        # Create network_permissions table
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='network_permissions'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE network_permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    network_id INTEGER NOT NULL REFERENCES networks(id),
+                    role VARCHAR(32) NOT NULL,
+                    can_manage_nodes BOOLEAN DEFAULT 0,
+                    can_invite_users BOOLEAN DEFAULT 0,
+                    can_manage_firewall BOOLEAN DEFAULT 0,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    invited_by_user_id INTEGER REFERENCES users(id),
+                    UNIQUE (user_id, network_id)
+                )
+            """)
+            logger.info("Migration: created table network_permissions")
+        
+        # Create node_permissions table
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='node_permissions'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE node_permissions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL REFERENCES users(id),
+                    node_id INTEGER NOT NULL REFERENCES nodes(id),
+                    can_view_details BOOLEAN DEFAULT 1,
+                    can_download_config BOOLEAN DEFAULT 1,
+                    can_download_cert BOOLEAN DEFAULT 1,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    granted_by_user_id INTEGER REFERENCES users(id),
+                    UNIQUE (user_id, node_id)
+                )
+            """)
+            logger.info("Migration: created table node_permissions")
+        
+        # Create node_requests table
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='node_requests'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE node_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    network_id INTEGER NOT NULL REFERENCES networks(id),
+                    requested_by_user_id INTEGER NOT NULL REFERENCES users(id),
+                    hostname VARCHAR(255) NOT NULL,
+                    groups TEXT,
+                    is_lighthouse BOOLEAN DEFAULT 0,
+                    is_relay BOOLEAN DEFAULT 0,
+                    status VARCHAR(32) DEFAULT 'pending',
+                    approved_by_user_id INTEGER REFERENCES users(id),
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    processed_at DATETIME,
+                    rejection_reason TEXT,
+                    created_node_id INTEGER REFERENCES nodes(id)
+                )
+            """)
+            logger.info("Migration: created table node_requests")
+        
+        # Create access_grants table
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='access_grants'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE access_grants (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    admin_user_id INTEGER NOT NULL REFERENCES users(id),
+                    resource_type VARCHAR(32) NOT NULL,
+                    resource_id INTEGER NOT NULL,
+                    granted_by_user_id INTEGER NOT NULL REFERENCES users(id),
+                    expires_at DATETIME NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    revoked_at DATETIME,
+                    reason TEXT
+                )
+            """)
+            logger.info("Migration: created table access_grants")
+        
+        # Create network_settings table
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='network_settings'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE network_settings (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    network_id INTEGER NOT NULL UNIQUE REFERENCES networks(id),
+                    auto_approve_nodes BOOLEAN DEFAULT 0,
+                    default_node_groups TEXT,
+                    default_is_lighthouse BOOLEAN DEFAULT 0,
+                    default_is_relay BOOLEAN DEFAULT 0
+                )
+            """)
+            logger.info("Migration: created table network_settings")
+        
+        # Create invitations table
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='invitations'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE invitations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email VARCHAR(255) NOT NULL,
+                    network_id INTEGER NOT NULL REFERENCES networks(id),
+                    invited_by_user_id INTEGER NOT NULL REFERENCES users(id),
+                    token VARCHAR(128) NOT NULL UNIQUE,
+                    role VARCHAR(32) NOT NULL,
+                    can_manage_nodes BOOLEAN DEFAULT 0,
+                    can_invite_users BOOLEAN DEFAULT 0,
+                    can_manage_firewall BOOLEAN DEFAULT 0,
+                    status VARCHAR(32) DEFAULT 'pending',
+                    expires_at DATETIME NOT NULL,
+                    accepted_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    email_status VARCHAR(32) DEFAULT 'not_sent',
+                    email_sent_at DATETIME,
+                    email_error VARCHAR(512)
+                )
+            """)
+            logger.info("Migration: created table invitations")
+        
+        # Add email status columns to existing invitations table
+        cur.execute("PRAGMA table_info(invitations)")
+        invitation_columns = {row[1] for row in cur.fetchall()}
+        for col, sql in [
+            ("email_status", "ALTER TABLE invitations ADD COLUMN email_status VARCHAR(32) DEFAULT 'not_sent'"),
+            ("email_sent_at", "ALTER TABLE invitations ADD COLUMN email_sent_at DATETIME"),
+            ("email_error", "ALTER TABLE invitations ADD COLUMN email_error VARCHAR(512)"),
+        ]:
+            if col not in invitation_columns:
+                cur.execute(sql)
+                logger.info("Migration: added column invitations.%s", col)
+        
         conn.commit()
     finally:
         conn.close()

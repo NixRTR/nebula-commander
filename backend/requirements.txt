@@ -13,6 +13,7 @@ alembic>=1.13.0
 # Data validation
 pydantic>=2.10.0
 pydantic-settings>=2.6.0
+email-validator>=2.0.0
 
 # YAML (config generation)
 pyyaml>=6.0
@@ -20,6 +21,12 @@ pyyaml>=6.0
 # OIDC / JWT
 python-jose[cryptography]>=3.3.0
 httpx>=0.28.0
+authlib>=1.3.0
+itsdangerous>=2.1.0
+
+# Email
+aiosmtplib>=3.0.0
+jinja2>=3.1.0
 
 # Testing
 pytest>=8.3.0

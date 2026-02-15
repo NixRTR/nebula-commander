@@ -1,0 +1,53 @@
+# =============================================================================
+# Keycloak Configuration
+# =============================================================================
+
+# Database Configuration
+KC_DB=postgres
+KC_DB_URL_HOST=keycloak_db
+KC_DB_URL_PORT=5432
+KC_DB_URL_DATABASE=keycloak
+KC_DB_USERNAME=keycloak
+KC_DB_PASSWORD=keycloak_db_password
+
+# Bootstrap Admin User (for initial setup)
+# CHANGE THESE IN PRODUCTION!
+KC_BOOTSTRAP_ADMIN_USERNAME=admin
+KC_BOOTSTRAP_ADMIN_PASSWORD=admin
+
+# Hostname Configuration
+# For development: just hostname
+KC_HOSTNAME=localhost
+
+# For production: use full URL
+# KC_HOSTNAME=https://auth.example.com
+
+# Hostname strict mode (disable dynamic hostname resolution from request headers)
+# Set to true in production
+KC_HOSTNAME_STRICT=false
+
+# HTTP Configuration (for development behind proxy)
+# Enable HTTP listener (disabled by default in production mode)
+KC_HTTP_ENABLED=true
+
+# Health and Metrics
+KC_HEALTH_ENABLED=true
+KC_METRICS_ENABLED=true
+
+# Proxy Configuration (when behind reverse proxy)
+# Options: edge, reencrypt, passthrough, none
+# KC_PROXY=edge
+
+# Logging
+KC_LOG_LEVEL=info
+
+# =============================================================================
+# Production Notes
+# =============================================================================
+# For production:
+# 1. Use start --optimized instead of start-dev in docker-compose
+# 2. Set KC_HOSTNAME to your public URL
+# 3. Set KC_HOSTNAME_STRICT=true
+# 4. Configure TLS certificates or use KC_PROXY=edge with reverse proxy
+# 5. Change admin credentials
+# 6. Use strong database password

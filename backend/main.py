@@ -10,10 +10,11 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .database import init_db
-from .api import networks, nodes, certificates, auth, heartbeat, device
+from .api import networks, nodes, certificates, auth, heartbeat, device, users, node_requests, access_grants, invitations, network_permissions
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -43,6 +44,16 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
+# Session middleware (required for OAuth)
+app.add_middleware(
+    SessionMiddleware,
+    secret_key=settings.jwt_secret_key,  # Use same secret as JWT
+    session_cookie="nebula_session",
+    max_age=3600,  # 1 hour
+    same_site="lax",
+    https_only=False,  # Set to True in production with HTTPS
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
@@ -57,6 +68,11 @@ app.include_router(networks.router)
 app.include_router(nodes.router)
 app.include_router(certificates.router)
 app.include_router(device.router)
+app.include_router(users.router)
+app.include_router(node_requests.router)
+app.include_router(access_grants.router)
+app.include_router(invitations.router)
+app.include_router(network_permissions.router)
 
 
 @app.get("/api")

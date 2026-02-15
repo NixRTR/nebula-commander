@@ -1,0 +1,64 @@
+# =============================================================================
+# Keycloak OIDC Authentication Stack
+# =============================================================================
+# This file provides Keycloak with PostgreSQL backend for OIDC authentication.
+# To use with Nebula Commander, run:
+#   docker compose -f docker-compose.yml -f docker-compose-keycloak.yml up -d
+
+services:
+  # =============================================================================
+  # PostgreSQL Database for Keycloak
+  # =============================================================================
+  keycloak_db:
+    image: postgres:16-alpine
+    container_name: keycloak-db
+    restart: unless-stopped
+    env_file:
+      - env.d/keycloak/postgresql
+    volumes:
+      - keycloak-db-data:/var/lib/postgresql/data
+    networks:
+      - nebula-commander
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-keycloak}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # =============================================================================
+  # Keycloak OIDC Provider
+  # =============================================================================
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.5.3
+    container_name: keycloak
+    restart: unless-stopped
+    env_file:
+      - env.d/keycloak/keycloak
+    ports:
+      - "${KEYCLOAK_PORT:-8080}:8080"
+      - "${KEYCLOAK_ADMIN_PORT:-9000}:9000"
+    depends_on:
+      keycloak_db:
+        condition: service_healthy
+    networks:
+      - nebula-commander
+    healthcheck:
+      test: ["CMD-SHELL", "exec 3<>/dev/tcp/127.0.0.1/8080 && echo -e 'GET /health/ready HTTP/1.1\\r\\nhost: 127.0.0.1\\r\\nConnection: close\\r\\n\\r\\n' >&3 && cat <&3 | grep -q '200 OK'"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    command:
+      - start-dev
+
+volumes:
+  keycloak-db-data:
+    driver: local
+
+# Use the existing network from main docker-compose.yml
+# The network must be created manually first:
+#   docker network create nebula-commander
+networks:
+  nebula-commander:
+    external: true
