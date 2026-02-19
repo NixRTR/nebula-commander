@@ -150,8 +150,12 @@ class CertManager:
         if network.ca_cert_path:
             try:
                 ca_pem = Path(network.ca_cert_path).read_text()
-            except Exception:
-                pass
+            except FileNotFoundError:
+                logger.warning("CA cert file not found: %s", network.ca_cert_path)
+            except PermissionError:
+                logger.error("Permission denied reading CA cert: %s", network.ca_cert_path)
+            except Exception as e:
+                logger.error("Unexpected error reading CA cert from %s: %s", network.ca_cert_path, e)
 
         return ip, cert_pem, private_key_pem, ca_pem, public_key_pem
 
@@ -224,7 +228,11 @@ class CertManager:
         if network.ca_cert_path:
             try:
                 ca_pem = Path(network.ca_cert_path).read_text()
-            except Exception:
-                pass
+            except FileNotFoundError:
+                logger.warning("CA cert file not found: %s", network.ca_cert_path)
+            except PermissionError:
+                logger.error("Permission denied reading CA cert: %s", network.ca_cert_path)
+            except Exception as e:
+                logger.error("Unexpected error reading CA cert from %s: %s", network.ca_cert_path, e)
 
         return ip, cert_pem, private_key_pem, ca_pem, public_key_pem

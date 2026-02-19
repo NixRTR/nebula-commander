@@ -8,13 +8,14 @@ import os
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .database import init_db
 from .api import networks, nodes, certificates, auth, heartbeat, device, users, node_requests, access_grants, invitations, network_permissions
+from .middleware import RateLimitMiddleware
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -28,6 +29,17 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Application lifespan: init DB on startup."""
     logger.info("Starting %s...", settings.app_name)
+    
+    # Warn if dev-token is available
+    if settings.debug or not settings.oidc_issuer_url:
+        logger.warning(
+            "⚠️  DEV-TOKEN ENDPOINT ENABLED - Anyone can obtain admin access without authentication!"
+        )
+        if settings.oidc_issuer_url:
+            logger.warning(
+                "⚠️  OIDC is configured but DEBUG=true - this is INSECURE for production!"
+            )
+    
     await init_db()
     yield
     logger.info("Shutting down...")
@@ -44,6 +56,9 @@ app = FastAPI(
     redoc_url="/api/redoc",
 )
 
+# Rate limiting middleware (applied first to catch attacks early)
+app.add_middleware(RateLimitMiddleware)
+
 # Session middleware (required for OAuth)
 app.add_middleware(
     SessionMiddleware,
@@ -51,7 +66,7 @@ app.add_middleware(
     session_cookie="nebula_session",
     max_age=3600,  # 1 hour
     same_site="lax",
-    https_only=False,  # Set to True in production with HTTPS
+    https_only=settings.session_https_only,
 )
 
 app.add_middleware(
@@ -61,6 +76,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Warn if CORS is set to allow all origins with credentials
+if "*" in settings.cors_origins:
+    logger.warning(
+        "⚠️  CORS is set to allow ALL origins (*) with credentials - this is INSECURE for production!"
+    )
 
 app.include_router(auth.router)
 app.include_router(heartbeat.router)
@@ -88,7 +109,7 @@ async def root():
 @app.get("/api/health")
 async def health():
     """Health check."""
-    return {"status": "healthy", "debug": settings.debug}
+    return {"status": "healthy"}
 
 
 if __name__ == "__main__":

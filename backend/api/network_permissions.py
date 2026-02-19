@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import require_user, UserInfo
@@ -254,14 +254,13 @@ async def update_network_user(
     
     # Prevent removing the last owner
     if body.role and body.role != "owner" and permission.role == "owner":
-        # Count owners
-        owners_result = await session.execute(
-            select(NetworkPermission).where(
+        # Count owners (server-side for performance)
+        owners_count = await session.scalar(
+            select(func.count()).select_from(NetworkPermission).where(
                 NetworkPermission.network_id == network_id,
                 NetworkPermission.role == "owner"
             )
         )
-        owners_count = len(owners_result.scalars().all())
         
         if owners_count <= 1:
             raise HTTPException(
@@ -356,14 +355,13 @@ async def remove_user_from_network(
     
     # Prevent removing the last owner
     if permission.role == "owner":
-        # Count owners
-        owners_result = await session.execute(
-            select(NetworkPermission).where(
+        # Count owners (server-side for performance)
+        owners_count = await session.scalar(
+            select(func.count()).select_from(NetworkPermission).where(
                 NetworkPermission.network_id == network_id,
                 NetworkPermission.role == "owner"
             )
         )
-        owners_count = len(owners_result.scalars().all())
         
         if owners_count <= 1:
             raise HTTPException(

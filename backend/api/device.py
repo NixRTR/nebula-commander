@@ -10,7 +10,7 @@ import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -94,12 +94,15 @@ class EnrollResponse(BaseModel):
 
 @router.post("/enroll", response_model=EnrollResponse)
 async def enroll(
+    request: Request,
     body: EnrollRequest,
     session: AsyncSession = Depends(get_session),
 ):
     """
     Redeem a one-time enrollment code. Returns a long-lived device token.
     Client should save the token and use it for GET /device/config and GET /device/certs.
+    
+    Rate limited to 5 attempts per 15 minutes per IP to prevent brute-force attacks.
     """
     code = (body.code or "").strip().upper()
     if not code:

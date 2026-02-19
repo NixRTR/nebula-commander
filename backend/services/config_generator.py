@@ -64,7 +64,7 @@ def _lighthouse_section(
         if opts.get("serve_dns") is True:
             section["serve_dns"] = True
             section["dns"] = {
-                "host": opts.get("dns_host") or "0.0.0.0",
+                "host": opts.get("dns_host") or "0.0.0.0",  # nosec B104 - Nebula node config needs all interfaces
                 "port": opts.get("dns_port") or 53,
             }
         if opts.get("interval_seconds") is not None:
@@ -73,7 +73,7 @@ def _lighthouse_section(
 
 
 def _default_listen(port: int = DEFAULT_LISTEN_PORT) -> dict[str, Any]:
-    return {"host": "0.0.0.0", "port": port}
+    return {"host": "0.0.0.0", "port": port}  # nosec B104 - Nebula node config needs all interfaces
 
 
 def _default_tun() -> dict[str, Any]:

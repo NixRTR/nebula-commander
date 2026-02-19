@@ -294,15 +294,16 @@ async def delete_network(
     if not db_user:
         raise HTTPException(status_code=403, detail="User not found")
     
-    # Check permission (only owners can delete)
-    has_permission = await check_network_permission(
-        db_user.id, network_id, "owner", session
-    )
-    if not has_permission:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only network owners can delete networks"
+    # Check permission (only owners can delete; system admins can delete any network)
+    if user.system_role != "system-admin":
+        has_permission = await check_network_permission(
+            db_user.id, network_id, "owner", session
         )
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only network owners can delete networks"
+            )
     
     # Verify reauthentication
     from ..auth.reauth import decode_reauth_token

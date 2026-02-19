@@ -20,6 +20,7 @@ const Users = lazy(() => import("./pages/Users").then(m => ({ default: m.Users }
 const Invitations = lazy(() => import("./pages/Invitations").then(m => ({ default: m.Invitations })));
 const NetworkUsers = lazy(() => import("./pages/NetworkUsers").then(m => ({ default: m.NetworkUsers })));
 const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation").then(m => ({ default: m.AcceptInvitation })));
+const ReauthComplete = lazy(() => import("./pages/ReauthComplete").then(m => ({ default: m.ReauthComplete })));
 const Login = lazy(() => import("./pages/Login"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 // Loading fallback component
@@ -73,6 +74,8 @@ function AppContent() {
                   <Route path="/client-download" element={<ClientDownload />} />
                   <Route path="/users" element={<Users />} />
                   <Route path="/invitations" element={<Invitations />} />
+                  <Route path="/reauth/complete" element={<ReauthComplete />} />
+                  <Route path="/auth/reauth/complete" element={<ReauthComplete />} />
                   <Route path="/settings/oidc" element={<Home />} />
                   <Route path="/settings/system" element={<Home />} />
                 </Routes>

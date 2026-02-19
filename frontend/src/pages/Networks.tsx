@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
-import { Card, Table, Button, TextInput, Label } from "flowbite-react";
-import { HiPlus } from "react-icons/hi";
+import { Card, Table, Button, TextInput, Label, Modal } from "flowbite-react";
+import { HiPlus, HiTrash } from "react-icons/hi";
 import type { Network, NetworkCreate } from "../types/networks";
-import { listNetworks, createNetwork } from "../api/client";
+import { listNetworks, createNetwork, createReauthChallenge } from "../api/client";
+import { setPendingNetworkDelete } from "./ReauthComplete";
 
 export function Networks() {
   const [networks, setNetworks] = useState<Network[]>([]);
@@ -13,6 +14,12 @@ export function Networks() {
     name: "",
     subnet_cidr: "10.100.0.0/24",
   });
+  const [deleteModal, setDeleteModal] = useState<{
+    open: boolean;
+    network: Network | null;
+    typedName: string;
+    redirecting: boolean;
+  }>({ open: false, network: null, typedName: "", redirecting: false });
 
   const load = () => {
     setLoading(true);
@@ -26,6 +33,29 @@ export function Networks() {
     const id = setTimeout(load, 0);
     return () => clearTimeout(id);
   }, []);
+
+  const openDeleteModal = (network: Network) => {
+    setDeleteModal({ open: true, network, typedName: "", redirecting: false });
+  };
+
+  const closeDeleteModal = () => {
+    setDeleteModal({ open: false, network: null, typedName: "", redirecting: false });
+  };
+
+  const startDeleteNetwork = async () => {
+    const network = deleteModal.network;
+    if (!network || deleteModal.typedName.trim() !== network.name.trim()) return;
+    setError(null);
+    setDeleteModal((m) => ({ ...m, redirecting: true }));
+    try {
+      const { reauth_url } = await createReauthChallenge();
+      setPendingNetworkDelete({ networkId: network.id, networkName: network.name });
+      window.location.href = reauth_url;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start reauthentication");
+      setDeleteModal((m) => ({ ...m, redirecting: false }));
+    }
+  };
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -104,6 +134,7 @@ export function Networks() {
                 <Table.HeadCell>Name</Table.HeadCell>
                 <Table.HeadCell>Subnet</Table.HeadCell>
                 <Table.HeadCell>Created</Table.HeadCell>
+                <Table.HeadCell>Actions</Table.HeadCell>
               </Table.Head>
               <Table.Body className="divide-y">
                 {networks.map((n) => (
@@ -114,6 +145,16 @@ export function Networks() {
                     <Table.Cell>{n.name}</Table.Cell>
                     <Table.Cell>{n.subnet_cidr}</Table.Cell>
                     <Table.Cell>{new Date(n.created_at).toLocaleString()}</Table.Cell>
+                    <Table.Cell>
+                      <Button
+                        color="failure"
+                        size="xs"
+                        onClick={() => openDeleteModal(n)}
+                        title="Delete network"
+                      >
+                        <HiTrash className="h-4 w-4" />
+                      </Button>
+                    </Table.Cell>
                   </Table.Row>
                 ))}
               </Table.Body>
@@ -133,6 +174,54 @@ export function Networks() {
           </div>
         </Card>
       )}
+
+      <Modal
+        show={deleteModal.open}
+        onClose={closeDeleteModal}
+        size="md"
+        dismissible={!deleteModal.redirecting}
+      >
+        <Modal.Header>Delete network</Modal.Header>
+        <Modal.Body>
+          {deleteModal.network && (
+            <>
+              <p className="text-gray-600 dark:text-gray-400 mb-4">
+                Deleting a network removes all nodes, certificates, and settings.
+                This cannot be undone.
+              </p>
+              <p className="text-gray-600 dark:text-gray-400 mb-2">
+                To confirm, type the network name:{" "}
+                <strong>{deleteModal.network.name}</strong>
+              </p>
+              <TextInput
+                type="text"
+                value={deleteModal.typedName}
+                onChange={(e) =>
+                  setDeleteModal((m) => ({ ...m, typedName: e.target.value }))
+                }
+                placeholder={deleteModal.network.name}
+                className="mt-2"
+              />
+            </>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button
+            color="failure"
+            onClick={startDeleteNetwork}
+            disabled={
+              !deleteModal.network ||
+              deleteModal.typedName.trim() !== deleteModal.network.name.trim() ||
+              deleteModal.redirecting
+            }
+          >
+            {deleteModal.redirecting ? "Redirecting to reauthenticate..." : "Delete network"}
+          </Button>
+          <Button color="gray" onClick={closeDeleteModal} disabled={deleteModal.redirecting}>
+            Cancel
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }

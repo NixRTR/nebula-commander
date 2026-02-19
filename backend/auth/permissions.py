@@ -67,11 +67,11 @@ async def check_network_permission(
     
     if permission == "owner":
         return perm.role == "owner"
-    elif permission == "manage_nodes":
+    elif permission in ("manage_nodes", "can_manage_nodes"):
         return perm.role == "owner" or perm.can_manage_nodes
-    elif permission == "invite_users":
+    elif permission in ("invite_users", "can_invite_users"):
         return perm.role == "owner" or perm.can_invite_users
-    elif permission == "manage_firewall":
+    elif permission in ("manage_firewall", "can_manage_firewall"):
         return perm.role == "owner" or perm.can_manage_firewall
     
     return False
@@ -179,15 +179,22 @@ async def get_user_networks(
     Returns:
         List of network IDs
     """
+    from ..models import User
+    
     # System admins can see all networks if include_limited is True
     if user.system_role == "system-admin" and include_limited:
         stmt = select(Network.id)
         result = await session.execute(stmt)
         return [row[0] for row in result.all()]
     
+    # Get user's database ID from oidc_sub
+    db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
+    if not db_user:
+        return []
+    
     # Get networks where user has permission
     stmt = select(NetworkPermission.network_id).where(
-        NetworkPermission.user_id == user.sub
+        NetworkPermission.user_id == db_user.id
     )
     result = await session.execute(stmt)
     return [row[0] for row in result.all()]
@@ -211,6 +218,8 @@ async def get_user_nodes(
     Returns:
         List of node IDs
     """
+    from ..models import User
+    
     # System admins can see all nodes if include_limited is True
     if user.system_role == "system-admin" and include_limited:
         stmt = select(Node.id)
@@ -218,6 +227,11 @@ async def get_user_nodes(
             stmt = stmt.where(Node.network_id == network_id)
         result = await session.execute(stmt)
         return [row[0] for row in result.all()]
+    
+    # Get user's database ID from oidc_sub
+    db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
+    if not db_user:
+        return []
     
     # Get nodes from networks where user has permission
     network_ids = await get_user_networks(user, session)
@@ -231,7 +245,7 @@ async def get_user_nodes(
     
     # Also include nodes with specific node permissions
     stmt = select(NodePermission.node_id).where(
-        NodePermission.user_id == user.sub
+        NodePermission.user_id == db_user.id
     )
     if network_id:
         # Join with nodes to filter by network

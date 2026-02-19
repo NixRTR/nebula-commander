@@ -1,10 +1,13 @@
 """
 Wrapper for nebula-cert CLI. Runs nebula-cert subprocess for CA and cert operations.
+
+Security: Uses subprocess with shell=False and validated arguments.
+Command path is resolved at runtime but not user-controllable.
 """
 import ipaddress
 import logging
 import shutil
-import subprocess
+import subprocess  # nosec B404 - used with shell=False and validated args
 from pathlib import Path
 from typing import Optional
 
@@ -16,13 +19,42 @@ def nebula_cert_path() -> Optional[str]:
     return shutil.which("nebula-cert")
 
 
+def _validate_arg(arg: str) -> None:
+    """
+    Validate subprocess argument for safety.
+    
+    While shell=False protects us from shell injection, this provides
+    defense in depth by rejecting arguments with suspicious characters.
+    """
+    # Check for shell metacharacters that should never appear in nebula-cert args
+    dangerous_chars = ['|', '&', ';', '`', '$', '(', ')', '<', '>', '\n', '\r']
+    arg_str = str(arg)
+    
+    for char in dangerous_chars:
+        if char in arg_str:
+            raise ValueError(f"Invalid character '{char}' in argument: {arg_str[:50]}")
+    
+    # Additional check: reject null bytes
+    if '\x00' in arg_str:
+        raise ValueError(f"Null byte in argument: {arg_str[:50]}")
+
+
 def run_nebula_cert(args: list[str], cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
-    """Run nebula-cert with given args. Raises CalledProcessError on failure; stderr is logged."""
+    """
+    Run nebula-cert with given args. Raises CalledProcessError on failure; stderr is logged.
+    
+    Security: Validates all arguments before execution to prevent injection attacks.
+    """
     cmd = nebula_cert_path()
     if not cmd:
         raise FileNotFoundError("nebula-cert not found in PATH")
+    
+    # Validate all arguments
+    for arg in args:
+        _validate_arg(arg)
+    
     try:
-        return subprocess.run(
+        return subprocess.run(  # nosec B603 - command path validated, shell=False, args validated
             [cmd] + args,
             cwd=cwd,
             capture_output=True,

@@ -1,7 +1,8 @@
 """Auth API: login and dev token for development."""
 from datetime import datetime, timedelta
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
+import logging
 
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -14,10 +15,57 @@ from ..auth.oidc import get_current_user_optional, require_user, UserInfo
 from ..auth.reauth import create_reauth_challenge, mark_reauth_completed, create_reauth_token
 from jose import jwt
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 # OAuth client setup
 oauth = OAuth()
+
+
+def get_safe_redirect_url(request: Request) -> str:
+    """
+    Get a safe redirect URL for OAuth/OIDC callbacks.
+    
+    Prevents open redirect vulnerabilities by:
+    1. Using OIDC redirect URI as primary source of truth
+    2. Validating against allowed_redirect_hosts whitelist
+    3. Falling back to request host only if explicitly allowed
+    
+    Returns the frontend base URL (scheme + host).
+    """
+    # Primary source: derive from OIDC redirect URI
+    if settings.oidc_redirect_uri:
+        parsed = urlparse(settings.oidc_redirect_uri)
+        base_url = f"{parsed.scheme}://{parsed.netloc}"
+        return base_url
+    
+    # Secondary: check if we have an allowed hosts whitelist
+    if settings.allowed_redirect_hosts:
+        request_host = request.headers.get("host", request.url.netloc)
+        
+        # Validate request host against whitelist
+        for allowed_host in settings.allowed_redirect_hosts:
+            if request_host == allowed_host or request_host.startswith(f"{allowed_host}:"):
+                return f"{request.url.scheme}://{request_host}"
+        
+        # Host not in whitelist - use first allowed host as fallback
+        logger.warning(
+            "Request host %s not in allowed_redirect_hosts, using first allowed host",
+            request_host
+        )
+        return f"{request.url.scheme}://{settings.allowed_redirect_hosts[0]}"
+    
+    # Fallback: use request host (less secure, but maintains backward compatibility)
+    # This should only happen in development when OIDC is not configured
+    request_host = request.headers.get("host", request.url.netloc)
+    logger.warning(
+        "No redirect validation configured (oidc_redirect_uri or allowed_redirect_hosts empty), "
+        "using request host: %s",
+        request_host
+    )
+    return f"{request.url.scheme}://{request_host}"
+
 
 def get_oauth_client():
     """Get or create OAuth client for OIDC."""
@@ -49,16 +97,28 @@ class DevTokenResponse(BaseModel):
 
 @router.get("/dev-token", response_model=DevTokenResponse)
 async def dev_token(
+    request: Request,
     user: Optional[UserInfo] = Depends(get_current_user_optional),
 ):
     """
     Return a JWT for development when debug is enabled or when OIDC is not configured.
     When OIDC is not set, this allows the UI to work in standalone/Docker mode.
     No authentication required. Disabled in production when OIDC is configured.
+    
+    WARNING: This endpoint grants full admin access without authentication.
+    Only use in development or when OIDC is not configured.
     """
     # Allow when debug is on, or when no OIDC (standalone mode)
     if not settings.debug and settings.oidc_issuer_url:
         raise HTTPException(status_code=404, detail="Not found")
+    
+    # Log warning when dev-token is accessed
+    # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
+    # This is intentional security logging, not a credential leak. "DEV-TOKEN" is a label, not an actual token.
+    logger.warning(
+        "DEV-TOKEN accessed from %s - granting admin access without authentication",
+        request.client.host if request.client else "unknown"
+    )
     expires = datetime.utcnow() + timedelta(minutes=settings.jwt_expiration_minutes)
     payload = {
         "sub": "dev",
@@ -169,10 +229,8 @@ async def callback(request: Request):
         )
         
         # Redirect to frontend with token in URL query params
-        # Construct frontend URL from the request, preserving the port
-        # Use the host header which includes the port the user accessed
-        host = request.headers.get("host", request.url.netloc)
-        frontend_url = f"{request.url.scheme}://{host}"
+        # Use validated redirect URL to prevent open redirect attacks
+        frontend_url = get_safe_redirect_url(request)
         redirect_url = f"{frontend_url}/auth/callback?token={our_token}"
         
         return RedirectResponse(url=redirect_url)
@@ -182,9 +240,8 @@ async def callback(request: Request):
         print(f"OAuth callback error: {e}")
         import traceback
         traceback.print_exc()
-        # Construct frontend URL from the request, preserving the port
-        host = request.headers.get("host", request.url.netloc)
-        frontend_url = f"{request.url.scheme}://{host}"
+        # Use validated redirect URL to prevent open redirect attacks
+        frontend_url = get_safe_redirect_url(request)
         error_url = f"{frontend_url}/login?error=auth_failed"
         return RedirectResponse(url=error_url)
 
@@ -197,14 +254,12 @@ async def logout(request: Request):
     """
     if not settings.oidc_issuer_url:
         # No OIDC, just redirect to frontend
-        host = request.headers.get("host", request.url.netloc)
-        frontend_url = f"{request.url.scheme}://{host}"
+        frontend_url = get_safe_redirect_url(request)
         return RedirectResponse(url=frontend_url)
     
     # Construct Keycloak logout URL using public issuer URL (browser-accessible)
     # Format: {issuer}/protocol/openid-connect/logout?post_logout_redirect_uri={frontend}&client_id={client_id}
-    host = request.headers.get("host", request.url.netloc)
-    frontend_url = f"{request.url.scheme}://{host}"
+    frontend_url = get_safe_redirect_url(request)
     
     # Use public issuer URL if set, otherwise fall back to regular issuer URL
     issuer_url = settings.oidc_public_issuer_url or settings.oidc_issuer_url
@@ -277,8 +332,7 @@ async def reauth_callback(request: Request, challenge: str):
         # In production, this should validate the user actually reauthenticated
         mark_reauth_completed("dev", challenge)
         token = create_reauth_token("dev", challenge)
-        host = request.headers.get("host", request.url.netloc)
-        frontend_url = f"{request.url.scheme}://{host}"
+        frontend_url = get_safe_redirect_url(request)
         return RedirectResponse(url=f"{frontend_url}/reauth/complete?token={token}")
     
     client = get_oauth_client()
@@ -306,8 +360,7 @@ async def reauth_callback(request: Request, challenge: str):
             reauth_token = create_reauth_token(user_sub, challenge)
             
             # Redirect to frontend with reauth token
-            host = request.headers.get("host", request.url.netloc)
-            frontend_url = f"{request.url.scheme}://{host}"
+            frontend_url = get_safe_redirect_url(request)
             return RedirectResponse(url=f"{frontend_url}/reauth/complete?token={reauth_token}")
         else:
             raise HTTPException(status_code=400, detail="Invalid or expired challenge")
@@ -316,6 +369,5 @@ async def reauth_callback(request: Request, challenge: str):
         print(f"Reauth callback error: {e}")
         import traceback
         traceback.print_exc()
-        host = request.headers.get("host", request.url.netloc)
-        frontend_url = f"{request.url.scheme}://{host}"
+        frontend_url = get_safe_redirect_url(request)
         return RedirectResponse(url=f"{frontend_url}?error=reauth_failed")

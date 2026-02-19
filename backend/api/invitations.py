@@ -456,16 +456,25 @@ async def resend_invitation_email(
     if not network:
         raise HTTPException(status_code=404, detail="Network not found")
     
+    # Get user details
+    db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
+    if not db_user:
+        raise HTTPException(status_code=403, detail="User not found")
+    
     # Permission check
     if user.system_role != "system-admin":
-        await check_network_permission(session, user.sub, network.id, "can_invite_users")
+        has_permission = await check_network_permission(
+            db_user.id, network.id, "invite_users", session
+        )
+        if not has_permission:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You don't have permission to manage invitations for this network"
+            )
     
     # Check if invitation is still pending
     if invitation.status != "pending":
         raise HTTPException(status_code=400, detail="Can only resend pending invitations")
-    
-    # Get user details
-    db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
     
     # Update status to sending if SMTP is enabled
     if settings.smtp_enabled:

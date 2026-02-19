@@ -13,6 +13,8 @@ from ..config import settings
 logger = logging.getLogger(__name__)
 
 # Initialize Jinja2 environment
+# nosemgrep: python.flask.security.xss.audit.direct-use-of-jinja2.direct-use-of-jinja2
+# Safe: autoescape is enabled for HTML/XML, all template variables come from trusted sources (database, config)
 jinja_env = Environment(
     loader=FileSystemLoader("backend/templates/email"),
     autoescape=select_autoescape(['html', 'xml'])
@@ -52,6 +54,8 @@ async def send_invitation_email(
         template = jinja_env.get_template("invitation.html")
         invitation_link = f"{base_url}/invitations/accept/{invitation_token}"
         
+        # nosemgrep: python.flask.security.xss.audit.direct-use-of-jinja2.direct-use-of-jinja2
+        # Safe: All variables are from trusted sources (database/config), autoescape is enabled
         html_content = template.render(
             to_email=to_email,
             network_name=network_name,

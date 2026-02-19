@@ -19,8 +19,10 @@ NEBULA_COMMANDER_CERT_STORE_PATH=/var/lib/nebula-commander/certs
 # =============================================================================
 
 # JWT secret key for signing tokens
-# IMPORTANT: Change this in production!
-NEBULA_COMMANDER_JWT_SECRET_KEY=ZUIQYU2erAYXjp4PA0TbazGNtULCgumqEiDUKylkKbq
+# ⚠️  CRITICAL: Generate a secure random key for production!
+# Use: openssl rand -base64 32
+# DO NOT use this example value in production!
+NEBULA_COMMANDER_JWT_SECRET_KEY=CHANGE_ME_GENERATE_RANDOM_32_CHARS_MIN
 
 # Alternative: Use a secret file (more secure)
 # NEBULA_COMMANDER_JWT_SECRET_FILE=/run/secrets/jwt-secret
@@ -50,8 +52,9 @@ NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL=http://192.168.3.200:8080/realms/master
 NEBULA_COMMANDER_OIDC_CLIENT_ID=nebula-commander
 
 # OIDC Client Secret (from Keycloak client credentials)
-# CHANGE THIS to match your Keycloak client secret!
-NEBULA_COMMANDER_OIDC_CLIENT_SECRET=JEWEwAgvDVVvBflaKLGLIIVPmaVGGD8I
+# ⚠️  CRITICAL: Replace with your actual Keycloak client secret!
+# DO NOT use this placeholder value!
+NEBULA_COMMANDER_OIDC_CLIENT_SECRET=YOUR_KEYCLOAK_CLIENT_SECRET_HERE
 
 # Alternative: Use a secret file (more secure)
 # NEBULA_COMMANDER_OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc-secret
@@ -67,8 +70,29 @@ NEBULA_COMMANDER_OIDC_SCOPES=openid profile email
 # CORS Configuration
 # =============================================================================
 
-# Allowed CORS origins (comma-separated or * for all)
-NEBULA_COMMANDER_CORS_ORIGINS=*
+# Allowed CORS origins (comma-separated)
+# ⚠️  SECURITY WARNING: Using '*' with credentials is insecure!
+# For production, specify exact origins: http://localhost:3000,https://yourdomain.com
+# For development, use: http://localhost:3000,http://localhost:5173,http://localhost:9090
+NEBULA_COMMANDER_CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:9090
+
+# =============================================================================
+# Session Security
+# =============================================================================
+
+# Set session cookie to HTTPS-only (recommended for production)
+# Set to true when using HTTPS, false for local development over HTTP
+NEBULA_COMMANDER_SESSION_HTTPS_ONLY=false
+
+# =============================================================================
+# Redirect Security
+# =============================================================================
+
+# Allowed hosts for OAuth/OIDC redirects (comma-separated)
+# Prevents open redirect vulnerabilities by validating redirect URLs
+# If empty, the frontend URL is derived from OIDC redirect URI
+# Example: localhost:9090,yourdomain.com,192.168.1.100:9090
+NEBULA_COMMANDER_ALLOWED_REDIRECT_HOSTS=
 
 # =============================================================================
 # Email / SMTP Configuration (Optional)

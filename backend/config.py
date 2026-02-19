@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # Server
-    host: str = "0.0.0.0"
+    host: str = "0.0.0.0"  # nosec B104 - containerized service, Docker handles network isolation
     port: int = 8081
 
     # Database (SQLite by default). Use four slashes for absolute path so DB is at /var/lib/... not CWD/var/lib/...
@@ -64,6 +64,13 @@ class Settings(BaseSettings):
         "http://localhost:8080",
     ]
 
+    # Session security
+    session_https_only: bool = False  # Set to True in production with HTTPS
+    
+    # Redirect security - allowed hosts for OAuth/OIDC redirects
+    # Prevents open redirect vulnerabilities by validating redirect URLs
+    allowed_redirect_hosts: str | list[str] = []  # Empty = derive from oidc_redirect_uri
+    
     # Email / SMTP
     smtp_enabled: bool = False
     smtp_host: str = "localhost"
@@ -79,6 +86,17 @@ class Settings(BaseSettings):
     @classmethod
     def normalize_cors_origins(cls, v: str | list[str]) -> list[str]:
         return _parse_cors_origins(v) if isinstance(v, str) else v
+    
+    @field_validator("allowed_redirect_hosts", mode="after")
+    @classmethod
+    def normalize_allowed_redirect_hosts(cls, v: str | list[str]) -> list[str]:
+        """Parse allowed redirect hosts from env."""
+        if isinstance(v, list):
+            return v
+        s = (v or "").strip()
+        if not s:
+            return []
+        return [x.strip() for x in s.split(",") if x.strip()]
 
     class Config:
         env_prefix = "NEBULA_COMMANDER_"

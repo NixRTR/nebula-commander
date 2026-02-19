@@ -202,6 +202,48 @@ export async function updateNetwork(
   });
 }
 
+export interface ReauthChallengeResponse {
+  challenge: string;
+  reauth_url: string;
+}
+
+export async function createReauthChallenge(): Promise<ReauthChallengeResponse> {
+  return apiFetch<ReauthChallengeResponse>("/auth/reauth/challenge", {
+    method: "POST",
+  });
+}
+
+export async function deleteNetwork(
+  id: number,
+  reauthToken: string,
+  confirmation: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/networks/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+    body: JSON.stringify({ reauth_token: reauthToken, confirmation }),
+  });
+  if (res.status === 401 && !localStorage.getItem(TOKEN_KEY)) {
+    const got = await tryDevToken();
+    if (got) {
+      const retry = await fetch(`${API_BASE}/networks/${id}`, {
+        method: "DELETE",
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ reauth_token: reauthToken, confirmation }),
+      });
+      if (!retry.ok && retry.status !== 204) {
+        const err = await retry.json().catch(() => ({ detail: retry.statusText }));
+        throw new Error((err as { detail?: string }).detail || retry.statusText);
+      }
+      return;
+    }
+  }
+  if (!res.ok && res.status !== 204) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error((err as { detail?: string }).detail || res.statusText);
+  }
+}
+
 export async function listGroupFirewall(networkId: number) {
   return apiFetch<import("../types/networks").GroupFirewallConfig[]>(
     `/networks/${networkId}/group-firewall`

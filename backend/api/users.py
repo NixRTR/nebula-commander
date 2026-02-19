@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import UserInfo
@@ -41,11 +41,12 @@ async def list_users(
     
     responses = []
     for user in users:
-        # Count networks
-        network_result = await session.execute(
-            select(NetworkPermission).where(NetworkPermission.user_id == user.id)
-        )
-        network_count = len(network_result.scalars().all())
+        # Count networks (server-side for performance)
+        network_count = await session.scalar(
+            select(func.count()).select_from(NetworkPermission).where(
+                NetworkPermission.user_id == user.id
+            )
+        ) or 0
         
         responses.append(UserResponse(
             id=user.id,
@@ -133,11 +134,12 @@ async def update_user(
     await session.flush()
     await session.refresh(user)
     
-    # Count networks
-    network_result = await session.execute(
-        select(NetworkPermission).where(NetworkPermission.user_id == user.id)
-    )
-    network_count = len(network_result.scalars().all())
+    # Count networks (server-side for performance)
+    network_count = await session.scalar(
+        select(func.count()).select_from(NetworkPermission).where(
+            NetworkPermission.user_id == user.id
+        )
+    ) or 0
     
     return UserResponse(
         id=user.id,
