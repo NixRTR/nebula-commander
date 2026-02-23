@@ -100,12 +100,37 @@ async def get_node_config(
     _user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Generate and return Nebula YAML config for this node."""
-    yaml_config = await generate_config_for_node(session, node_id)
-    if yaml_config is None:
-        raise HTTPException(status_code=404, detail="Node not found")
+    """Generate and return Nebula YAML config for this node (with inline PKI when key is stored)."""
     result = await session.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    if not node.ip_address:
+        raise HTTPException(
+            status_code=404,
+            detail="Node has no certificate. Create a certificate first.",
+        )
+    result = await session.execute(select(Network).where(Network.id == node.network_id))
+    network = result.scalar_one_or_none()
+    if not network or not network.ca_cert_path:
+        raise HTTPException(status_code=404, detail="Network or CA not found")
+    host_cert_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.crt"
+    if not host_cert_path.exists():
+        raise HTTPException(status_code=404, detail="Host certificate not found")
+    host_key_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.key"
+    ca_path = Path(network.ca_cert_path)
+    if not ca_path.exists():
+        raise HTTPException(status_code=404, detail="CA certificate not found")
+    ca_content = ca_path.read_text()
+    host_cert_content = host_cert_path.read_text()
+    if host_key_path.exists():
+        host_key_content = host_key_path.read_text()
+        inline_pki = (ca_content, host_cert_content, host_key_content)
+    else:
+        inline_pki = None
+    yaml_config = await generate_config_for_node(session, node_id, inline_pki=inline_pki)
+    if yaml_config is None:
+        raise HTTPException(status_code=404, detail="Node not found")
     filename = f"{node.hostname}.yaml" if node else "config.yaml"
     return Response(
         content=yaml_config,
