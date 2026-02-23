@@ -138,17 +138,6 @@ jobs:
           path: artifacts/${{ matrix.asset_name }}
           if-no-files-found: error
 
-      - name: Upload to Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/${{ matrix.asset_name }}
-          draft: false
-          prerelease: false
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
   # Build Windows tray app with bundled Nebula
   build-windows-tray:
     name: Build Windows Tray App
@@ -195,26 +184,56 @@ jobs:
           name: ncclient-tray-windows-amd64.exe
           path: artifacts/ncclient-tray-windows-amd64.exe
           if-no-files-found: error
-      
-      - name: Upload to Release (on tag)
-        if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/ncclient-tray-windows-amd64.exe
-          draft: false
-          prerelease: false
-          generate_release_notes: false
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # Generate checksums for all binaries
-  checksums:
-    name: Generate Checksums
+  # Upload all binaries and checksums to GitHub Release (single job to avoid concurrent finalization)
+  upload-release:
+    name: Upload to Release
     needs: [build, build-windows-tray]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
       contents: write
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Flatten and prepare release files
+        run: |
+          cd artifacts
+          for d in */; do
+            [ ! -d "$d" ] && continue
+            d="${d%/}"
+            f=$(find "$d" -maxdepth 1 -type f -print -quit)
+            [ -z "$f" ] && continue
+            mv "$f" "./.tmp_$d"
+            rmdir "$d" 2>/dev/null || true
+            mv "./.tmp_$d" "./$d"
+          done
+          sha256sum ncclient* > SHA256SUMS.txt
+          echo "=== Release files ==="
+          ls -la
+          echo "=== Checksums ==="
+          cat SHA256SUMS.txt
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          draft: false
+          prerelease: false
+          generate_release_notes: false
+          overwrite_files: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Generate checksums artifact (for Actions UI; release gets checksums from upload-release job)
+  checksums:
+    name: Generate Checksums
+    needs: [build, build-windows-tray]
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Download all artifacts
         uses: actions/download-artifact@v4
@@ -243,13 +262,6 @@ jobs:
         with:
           name: SHA256SUMS
           path: artifacts/SHA256SUMS.txt
-
-      - name: Add checksums to release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: artifacts/SHA256SUMS.txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Summary job to report build status
   summary:
