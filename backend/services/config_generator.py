@@ -233,10 +233,12 @@ def build_config(
     network: Network,
     peer_nodes: list[Node],
     group_firewalls: list[Any],
+    inline_pki: Optional[tuple[str, str, str]] = None,
 ) -> str:
     """
     Build Nebula YAML config for the given node.
     peer_nodes: all other nodes in the same network (for lighthouses list and static_host_map).
+    inline_pki: optional (ca_pem, cert_pem, key_pem) to embed certs in config (OS-independent; no file paths).
     """
     # Lighthouses and relays with public_endpoint (for static_host_map)
     hosts_with_endpoint = [
@@ -255,8 +257,18 @@ def build_config(
         if n.is_relay and n.ip_address and n.ip_address != node.ip_address
     ]
 
+    if inline_pki is not None:
+        ca_pem, cert_pem, key_pem = inline_pki
+        pki_section: dict[str, Any] = {
+            "ca": ca_pem.rstrip() + "\n",
+            "cert": cert_pem.rstrip() + "\n",
+            "key": key_pem.rstrip() + "\n",
+        }
+    else:
+        pki_section = _default_pki()
+
     config: dict[str, Any] = {
-        "pki": _default_pki(),
+        "pki": pki_section,
         "static_host_map": _default_static_host_map(hosts_with_endpoint) if hosts_with_endpoint else {},
         "lighthouse": _lighthouse_section(node, other_lighthouse_ips),
         "relay": _relay_section(node, other_relay_ips),
@@ -277,9 +289,11 @@ def build_config(
 async def generate_config_for_node(
     session: AsyncSession,
     node_id: int,
+    inline_pki: Optional[tuple[str, str, str]] = None,
 ) -> Optional[str]:
     """
     Load node + network + peers and return generated YAML config, or None if node not found.
+    inline_pki: optional (ca_pem, cert_pem, key_pem) to embed in config (no file paths).
     """
     result = await session.execute(
         select(Node).where(Node.id == node_id)
@@ -306,4 +320,4 @@ async def generate_config_for_node(
     )
     group_firewalls = list(result.scalars().all())
 
-    return build_config(node, network, peer_nodes, group_firewalls)
+    return build_config(node, network, peer_nodes, group_firewalls, inline_pki=inline_pki)

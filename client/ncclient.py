@@ -21,7 +21,8 @@ LICENSE file in this directory for the full text.
 """
 
 import argparse
-import atexit
+import hashlib
+import io
 import os
 import shutil
 import signal
@@ -30,7 +31,6 @@ import sys
 import threading
 import time
 import zipfile
-import io
 from typing import Callable
 
 # systemd unit template for ncclient install (ExecStart path is substituted)
@@ -108,10 +108,20 @@ def _config_path(output_dir: str) -> str:
     return os.path.join(output_dir, "config.yaml")
 
 
-def _rewrite_config_pki_for_windows(output_dir: str) -> None:
-    """On Windows, rewrite config.yaml pki paths to use output_dir (e.g. C:\\Users\\Willi\\.nebula)."""
-    config_path = _config_path(output_dir)
+def _config_has_inline_pki(config_path: str) -> bool:
+    """True if config uses inline PEM for pki (no file paths); no rewrite needed on Windows."""
     if not os.path.isfile(config_path):
+        return False
+    with open(config_path, "r", encoding="utf-8") as f:
+        content = f.read()
+    # Inline PKI uses YAML block (|) or multiline; path-based has "ca: /path" on one line
+    return "-----BEGIN" in content and ("pki:" in content or "ca: |" in content)
+
+
+def _rewrite_config_pki_for_windows(output_dir: str) -> None:
+    """On Windows, rewrite config.yaml pki file paths to output_dir. No-op if config has inline PKI."""
+    config_path = _config_path(output_dir)
+    if not os.path.isfile(config_path) or _config_has_inline_pki(config_path):
         return
     base = os.path.abspath(output_dir)
     pki_replacements = (
@@ -127,6 +137,9 @@ def _rewrite_config_pki_for_windows(output_dir: str) -> None:
         new_line = line
         for key_prefix, path in pki_replacements:
             if stripped.startswith(key_prefix):
+                rest = stripped[len(key_prefix) :].strip()
+                if rest == "|" or rest.startswith("|"):
+                    break  # inline PEM, keep line as-is
                 idx = line.find(":")
                 if idx != -1:
                     new_line = line[: idx + 1] + " " + path + "\n"
@@ -141,11 +154,13 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
     if not os.path.exists(config):
         return None
     try:
+        # Use output_dir as cwd so relative paths in config and TUN interface work (e.g. on Windows)
         proc = subprocess.Popen(
             [nebula_bin, "-config", config],
             stdout=subprocess.DEVNULL,
             stderr=None,  # inherit so user sees nebula errors (e.g. permission denied, missing host.key)
             start_new_session=True,
+            cwd=output_dir,
         )
         print(f"Started Nebula (PID {proc.pid})")
         return proc
@@ -382,13 +397,18 @@ def run_poll_loop(
                         print(msg, file=sys.stderr)
                     _sleep()
                     continue
-                etag = r.headers.get("ETag")
-                if last_etag is not None and etag == last_etag:
+                # Use ETag if present (strip optional quotes), else content hash; skip write/restart when unchanged
+                etag_raw = r.headers.get("ETag")
+                if etag_raw is not None:
+                    bundle_id = etag_raw.strip('"')
+                else:
+                    bundle_id = hashlib.sha256(r.content).hexdigest()
+                if last_etag is not None and bundle_id == last_etag:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
                         nebula_proc = _start_nebula(nebula_bin, output_dir)
                     _sleep()
                     continue
-                last_etag = etag
+                last_etag = bundle_id
                 z = zipfile.ZipFile(io.BytesIO(r.content), "r")
                 for name in z.namelist():
                     if name.endswith("/"):

@@ -23,7 +23,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         
         # Rate limits: {endpoint_pattern: (max_requests, window_seconds)}
         self.limits = {
-            "/api/device/enroll": (5, 900),  # 5 requests per 15 minutes
+            "/api/device/enroll": (100, 900),  # 100 requests per 15 minutes
             "/api/auth/dev-token": (10, 60),  # 10 requests per minute
             "/api/auth/login": (10, 60),  # 10 requests per minute
             "/api/auth/callback": (20, 60),  # 20 requests per minute
