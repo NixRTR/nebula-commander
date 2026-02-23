@@ -1,14 +1,11 @@
 /**
  * Sidebar navigation with Flowbite - Mobile responsive with hamburger menu
  */
-import { useState, useEffect } from 'react';
 import { Sidebar as FlowbiteSidebar } from 'flowbite-react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   HiHome,
   HiServer,
-  HiCog,
-  HiShieldCheck,
   HiLogout,
   HiGlobe,
   HiDownload,
@@ -19,29 +16,6 @@ import {
 import { FaGithub } from 'react-icons/fa';
 import { usePermissions } from '../../contexts/PermissionContext';
 
-const SIDEBAR_STORAGE_KEY = 'nebula-commander-sidebar-expanded';
-
-function loadSidebarExpanded(): { settings: boolean } {
-  try {
-    const s = localStorage.getItem(SIDEBAR_STORAGE_KEY);
-    if (s) {
-      const o = JSON.parse(s) as Record<string, boolean>;
-      return { settings: !!o.settings };
-    }
-  } catch {
-    // ignore
-  }
-  return { settings: false };
-}
-
-function saveSidebarExpanded(expanded: { settings: boolean }) {
-  try {
-    localStorage.setItem(SIDEBAR_STORAGE_KEY, JSON.stringify(expanded));
-  } catch {
-    // ignore
-  }
-}
-
 interface SidebarProps {
   onLogout: () => void;
   isOpen: boolean;
@@ -51,47 +25,11 @@ interface SidebarProps {
 export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   const location = useLocation();
   const { isSystemAdmin, isNetworkOwner } = usePermissions();
-  const [settingsExpanded, setSettingsExpanded] = useState(() => loadSidebarExpanded().settings);
 
   const handleItemClick = () => {
     if (window.innerWidth < 1650) {
       onClose();
     }
-  };
-
-  const isActive = (path: string) => location.pathname === path;
-  const isParentActive = (path: string, children?: Array<{ path: string }>) => {
-    if (isActive(path)) return true;
-    if (children) {
-      return children.some(child => location.pathname.startsWith(child.path) || location.pathname === child.path);
-    }
-    return false;
-  };
-
-  const settingsChildren = [
-    { path: '/settings/oidc', label: 'OIDC Config', icon: HiShieldCheck },
-    { path: '/settings/system', label: 'System', icon: HiCog },
-  ];
-
-  const isSettingsActive = isParentActive('/settings', settingsChildren);
-
-  // Auto-expand only the section for the current route (defer to avoid synchronous setState in effect)
-  useEffect(() => {
-    const id = setTimeout(() => {
-      if (isSettingsActive) {
-        setSettingsExpanded(true);
-        saveSidebarExpanded({ settings: true });
-      }
-    }, 0);
-    return () => clearTimeout(id);
-  }, [isSettingsActive]);
-
-  const toggleSettings = () => {
-    setSettingsExpanded((prev: boolean) => {
-      const next = !prev;
-      saveSidebarExpanded({ settings: next });
-      return next;
-    });
   };
 
   return (
@@ -194,45 +132,6 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                   Invitations
                 </FlowbiteSidebar.Item>
               )}
-
-              {/* Settings - collapsible */}
-              <li>
-                <button
-                  type="button"
-                  onClick={toggleSettings}
-                  className={`flex items-center w-full p-2 rounded-lg ${
-                    isSettingsActive
-                      ? 'text-purple-600 bg-purple-50 dark:text-purple-400 dark:bg-gray-700'
-                      : 'text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700'
-                  }`}
-                >
-                  <HiCog className="w-5 h-5 mr-3" />
-                  <span>Settings</span>
-                </button>
-                {settingsExpanded && (
-                  <ul className="ml-6 mt-2 space-y-1">
-                    {settingsChildren.map((child) => {
-                      const IconComponent = child.icon;
-                      return (
-                        <li key={child.path}>
-                          <Link
-                            to={child.path}
-                            onClick={handleItemClick}
-                            className={`flex items-center p-2 rounded-lg text-sm ${
-                              isActive(child.path)
-                                ? 'text-purple-600 bg-purple-50 dark:text-purple-400 dark:bg-gray-700'
-                                : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
-                            }`}
-                          >
-                            <IconComponent className="w-4 h-4 mr-2" />
-                            {child.label}
-                          </Link>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
-              </li>
             </FlowbiteSidebar.ItemGroup>
 
             <FlowbiteSidebar.ItemGroup>

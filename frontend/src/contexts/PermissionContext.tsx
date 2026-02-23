@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { apiClient } from '../api/client';
 import { useAuth } from './AuthContext';
 
@@ -22,6 +22,7 @@ interface PermissionContextType {
 
 const PermissionContext = createContext<PermissionContextType | undefined>(undefined);
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const usePermissions = () => {
   const context = useContext(PermissionContext);
   if (!context) {
@@ -39,7 +40,7 @@ export const PermissionProvider: React.FC<PermissionProviderProps> = ({ children
   const [networkPermissions, setNetworkPermissions] = useState<NetworkPermission[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const fetchPermissions = async () => {
+  const fetchPermissions = useCallback(async () => {
     if (!isAuthenticated || !user) {
       setNetworkPermissions([]);
       setLoading(false);
@@ -78,11 +79,11 @@ export const PermissionProvider: React.FC<PermissionProviderProps> = ({ children
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAuthenticated, user]);
 
   useEffect(() => {
     fetchPermissions();
-  }, [isAuthenticated, user?.sub]);
+  }, [fetchPermissions]);
 
   const isSystemAdmin = user?.system_role === 'system-admin';
   const isNetworkOwner = user?.system_role === 'network-owner' || 

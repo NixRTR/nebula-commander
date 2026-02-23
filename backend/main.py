@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
 
 
-VERSION = os.getenv("VERSION", "0.1.0")
+VERSION = os.getenv("VERSION", "0.1.8")
 
 app = FastAPI(
     title=settings.app_name,

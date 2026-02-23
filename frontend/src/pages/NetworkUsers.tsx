@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Table, Badge, Button, Modal, Label, Select, Checkbox } from 'flowbite-react';
 import { HiArrowLeft, HiPlus, HiPencil, HiTrash } from 'react-icons/hi';
@@ -45,13 +45,8 @@ export const NetworkUsers: React.FC = () => {
   const [editCanInviteUsers, setEditCanInviteUsers] = useState(false);
   const [editCanManageFirewall, setEditCanManageFirewall] = useState(false);
 
-  useEffect(() => {
-    if (networkId) {
-      fetchData();
-    }
-  }, [networkId]);
-
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
+    if (!networkId) return;
     try {
       setLoading(true);
       const [usersRes, allUsersRes, networkRes] = await Promise.all([
@@ -67,7 +62,13 @@ export const NetworkUsers: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [networkId]);
+
+  useEffect(() => {
+    if (networkId) {
+      fetchData();
+    }
+  }, [networkId, fetchData]);
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -54,4 +54,4 @@ packages = ["client"]
 # Version from git tag (e.g. v0.1.5 -> 0.1.5); fallback when no git
 version_scheme = "guess-next-dev"
 local_scheme = "no-local-version"
-fallback_version = "0.1.6"
+fallback_version = "0.1.8"

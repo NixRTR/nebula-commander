@@ -1,6 +1,6 @@
 {
   "name": "nebula-commander-frontend",
-  "version": "0.1.0",
+  "version": "0.1.8",
   "license": "MIT",
   "type": "module",
   "private": true,

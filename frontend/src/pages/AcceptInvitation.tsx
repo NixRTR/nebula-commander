@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Card, Badge, Button, Spinner } from 'flowbite-react';
 import { HiCheckCircle, HiXCircle } from 'react-icons/hi';
@@ -27,11 +27,7 @@ export const AcceptInvitation: React.FC = () => {
   const [accepting, setAccepting] = useState(false);
   const [accepted, setAccepted] = useState(false);
 
-  useEffect(() => {
-    fetchInvitation();
-  }, [token]);
-
-  const fetchInvitation = async () => {
+  const fetchInvitation = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -51,7 +47,11 @@ export const AcceptInvitation: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    fetchInvitation();
+  }, [fetchInvitation]);
 
   const handleAccept = async () => {
     if (!isAuthenticated) {

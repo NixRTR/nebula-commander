@@ -1,4 +1,11 @@
-import axios from 'axios';
+import axios, {
+  type InternalAxiosRequestConfig,
+  type AxiosResponse,
+  type AxiosError,
+} from "axios";
+
+/** Request config with optional retry flag used by the 401 interceptor */
+type RequestConfigWithRetry = InternalAxiosRequestConfig & { _retry?: boolean };
 
 const API_BASE = "/api";
 const TOKEN_KEY = "token"; // Changed to match AuthContext
@@ -116,7 +123,7 @@ export const apiClient = axios.create({
 
 // Request interceptor to add auth token
 apiClient.interceptors.request.use(
-  (config) => {
+  (config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem(TOKEN_KEY);
     console.log('Axios interceptor - token exists:', !!token, 'for URL:', config.url);
     if (token) {
@@ -125,19 +132,20 @@ apiClient.interceptors.request.use(
     }
     return config;
   },
-  (error) => Promise.reject(error)
+  (error: AxiosError) => Promise.reject(error)
 );
 
 // Response interceptor to handle 401 errors
 apiClient.interceptors.response.use(
-  (response) => response,
-  async (error) => {
-    const originalRequest = error.config;
-    
+  (response: AxiosResponse) => response,
+  async (error: AxiosError) => {
+    const originalRequest = error.config as RequestConfigWithRetry | undefined;
+    if (!originalRequest) return Promise.reject(error);
+
     // If 401 and no token, try to get dev token (only works in dev mode)
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
-      
+
       if (!localStorage.getItem(TOKEN_KEY)) {
         const got = await tryDevToken();
         if (got) {
@@ -148,7 +156,7 @@ apiClient.interceptors.response.use(
         }
       }
     }
-    
+
     return Promise.reject(error);
   }
 );
