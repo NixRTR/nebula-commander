@@ -74,10 +74,11 @@ def get_oauth_client():
     
     # Register OAuth client if not already registered
     if not hasattr(oauth, 'keycloak'):
-        # Construct the well-known URL - use the issuer URL as-is since it should be
-        # accessible from the backend container (using Docker service name)
-        well_known_url = f"{settings.oidc_issuer_url}/.well-known/openid-configuration"
-        
+        # Use public issuer URL for discovery when set so the browser redirect (login)
+        # goes to the correct host:port; otherwise use internal issuer URL.
+        issuer_for_discovery = settings.oidc_public_issuer_url or settings.oidc_issuer_url
+        well_known_url = f"{issuer_for_discovery.rstrip('/')}/.well-known/openid-configuration"
+
         oauth.register(
             name='keycloak',
             client_id=settings.oidc_client_id,

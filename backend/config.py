@@ -62,11 +62,11 @@ class Settings(BaseSettings):
     # Device token (issued on enroll) expiry in days; long-lived so client can poll
     device_token_expiration_days: int = 3650
 
-    # CORS: env accepts "*" or comma-separated list (avoids JSON parse of env)
+    # CORS: env accepts "*" or comma-separated list (avoids JSON parse of env).
+    # Set NEBULA_COMMANDER_CORS_ORIGINS in env (e.g. * or frontend URL); no service ports hardcoded.
     cors_origins: str | list[str] = [
         "http://localhost:3000",
         "http://localhost:5173",
-        "http://localhost:8080",
     ]
 
     # Session security

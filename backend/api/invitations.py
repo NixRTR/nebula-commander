@@ -158,10 +158,11 @@ async def create_invitation(
     
     # Queue email sending as background task
     if settings.smtp_enabled:
-        # Determine base URL for invitation link
-        # Remove /api/auth/callback or /auth/callback from the end
+        # Determine base URL for invitation link from env (oidc_redirect_uri or public_url)
         if settings.oidc_redirect_uri:
             base_url = settings.oidc_redirect_uri.rsplit('/api/auth/callback', 1)[0] if '/api/auth/callback' in settings.oidc_redirect_uri else settings.oidc_redirect_uri.rsplit('/auth/callback', 1)[0]
+        elif settings.public_url:
+            base_url = settings.public_url.rstrip("/")
         else:
             base_url = "http://localhost:9090"
         
@@ -483,10 +484,11 @@ async def resend_invitation_email(
     
     # Queue email
     if settings.smtp_enabled:
-        # Determine base URL for invitation link
-        # Remove /api/auth/callback or /auth/callback from the end
+        # Determine base URL for invitation link from env (oidc_redirect_uri or public_url)
         if settings.oidc_redirect_uri:
             base_url = settings.oidc_redirect_uri.rsplit('/api/auth/callback', 1)[0] if '/api/auth/callback' in settings.oidc_redirect_uri else settings.oidc_redirect_uri.rsplit('/auth/callback', 1)[0]
+        elif settings.public_url:
+            base_url = settings.public_url.rstrip("/")
         else:
             base_url = "http://localhost:9090"
         
