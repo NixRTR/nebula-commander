@@ -95,7 +95,7 @@ class UserInfo(BaseModel):
     sub: str
     email: Optional[str] = None
     role: str = "user"  # Legacy field
-    system_role: str = "user"  # system-admin, network-owner, user
+    system_role: str = "user"  # system-admin or user; network ownership is per-network in backend
 
 
 async def get_current_user_optional(

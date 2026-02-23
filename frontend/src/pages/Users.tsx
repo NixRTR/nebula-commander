@@ -98,8 +98,6 @@ export const Users: React.FC = () => {
     switch (role) {
       case 'system-admin':
         return 'failure';
-      case 'network-owner':
-        return 'info';
       default:
         return 'gray';
     }
@@ -259,7 +257,6 @@ export const Users: React.FC = () => {
                   onChange={(e) => setEditingRole(e.target.value)}
                 >
                   <option value="user">User</option>
-                  <option value="network-owner">Network Owner</option>
                   <option value="system-admin">System Admin</option>
                 </Select>
               </div>

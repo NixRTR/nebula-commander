@@ -124,10 +124,10 @@ async def update_user(
         raise HTTPException(status_code=404, detail="User not found")
     
     if body.system_role:
-        if body.system_role not in ("system-admin", "network-owner", "user"):
+        if body.system_role not in ("system-admin", "user"):
             raise HTTPException(
                 status_code=400,
-                detail="Invalid system_role. Must be: system-admin, network-owner, or user"
+                detail="Invalid system_role. Must be: system-admin or user"
             )
         user.system_role = body.system_role
     

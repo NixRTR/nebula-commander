@@ -25,18 +25,6 @@ async def require_system_admin(
     return user
 
 
-async def require_network_owner_or_admin(
-    user: Annotated[UserInfo, Depends(require_user)]
-) -> UserInfo:
-    """Dependency: require network-owner or system-admin role."""
-    if user.system_role not in ("system-admin", "network-owner"):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Network owner or system administrator access required"
-        )
-    return user
-
-
 async def check_network_permission(
     user_id: int,
     network_id: int,

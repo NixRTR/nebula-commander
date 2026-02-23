@@ -55,21 +55,17 @@ export const PermissionProvider: React.FC<PermissionProviderProps> = ({ children
       // Extract permissions from networks the user has access to
       const permissions: NetworkPermission[] = [];
       
-      // For now, we'll infer permissions from the networks endpoint
-      // In a full implementation, you might want a dedicated endpoint
+      // Permissions come from list networks (each network includes role and flags for current user)
       if (Array.isArray(response.data)) {
-        // System admins have implicit access to all networks
-        if (user.system_role === 'system-admin') {
-          response.data.forEach((network: any) => {
-            permissions.push({
-              network_id: network.id,
-              role: 'admin',
-              can_manage_nodes: true,
-              can_invite_users: true,
-              can_manage_firewall: true,
-            });
+        response.data.forEach((network: { id: number; role?: string; can_manage_nodes?: boolean; can_invite_users?: boolean; can_manage_firewall?: boolean }) => {
+          permissions.push({
+            network_id: network.id,
+            role: network.role ?? 'member',
+            can_manage_nodes: network.can_manage_nodes ?? false,
+            can_invite_users: network.can_invite_users ?? false,
+            can_manage_firewall: network.can_manage_firewall ?? false,
           });
-        }
+        });
       }
       
       setNetworkPermissions(permissions);
@@ -86,8 +82,7 @@ export const PermissionProvider: React.FC<PermissionProviderProps> = ({ children
   }, [fetchPermissions]);
 
   const isSystemAdmin = user?.system_role === 'system-admin';
-  const isNetworkOwner = user?.system_role === 'network-owner' || 
-                         networkPermissions.some(p => p.role === 'owner');
+  const isNetworkOwner = networkPermissions.some(p => p.role === 'owner');
 
   const hasNetworkPermission = (networkId: number, permission: string): boolean => {
     if (!user) return false;

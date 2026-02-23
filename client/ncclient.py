@@ -476,6 +476,9 @@ def main() -> None:
     p_run.add_argument("--nebula", "-n", metavar="PATH", help="Path to nebula binary if not in PATH (default: run 'nebula' from PATH)")
     p_run.add_argument("--restart-service", "-r", metavar="NAME", help="Restart this systemd service after config change instead of running nebula (e.g. nebula)")
 
+    p_web = sub.add_parser("web", help="Start config Web UI and open in browser (for Linux/macOS or when tray is not running)")
+    p_web.add_argument("--no-open", action="store_true", help="Do not open browser automatically")
+
     args = ap.parse_args()
     server = (args.server or "").strip() or None
     if args.cmd == "run" and not server:
@@ -509,6 +512,18 @@ def main() -> None:
             nebula_bin,
             restart_service,
         )
+    elif args.cmd == "web":
+        import webbrowser
+        from client.webui.server import run_server
+        server, base_url = run_server()
+        print("Config UI at", base_url)
+        if not getattr(args, "no_open", False):
+            webbrowser.open(base_url)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            server.shutdown()
+            print("\nStopped.")
 
 
 if __name__ == "__main__":

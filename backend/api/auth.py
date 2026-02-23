@@ -205,12 +205,10 @@ async def callback(request: Request):
         resource_access = user_info.get("resource_access", {})
         client_roles = resource_access.get(settings.oidc_client_id, {}).get("roles", [])
         
-        # Map to system role
+        # Map to system role (only system-admin is elevated; network ownership is per-network in backend)
         system_role = "user"  # default
         if "system-admin" in client_roles:
             system_role = "system-admin"
-        elif "network-owner" in client_roles:
-            system_role = "network-owner"
         
         # Create our own JWT for the frontend
         expires = datetime.utcnow() + timedelta(minutes=settings.jwt_expiration_minutes)

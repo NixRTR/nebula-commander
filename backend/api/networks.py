@@ -10,7 +10,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import require_user, UserInfo
 from ..auth.permissions import (
-    require_network_owner_or_admin,
     check_network_permission,
     check_access_grant,
     get_user_networks,
@@ -41,19 +40,28 @@ class NetworkResponse(BaseModel):
         from_attributes = True
 
 
+class NetworkListResponse(NetworkResponse):
+    """List response including current user's permission for the network."""
+    role: Optional[str] = None  # owner, member, or admin (for system-admin view)
+    can_manage_nodes: Optional[bool] = None
+    can_invite_users: Optional[bool] = None
+    can_manage_firewall: Optional[bool] = None
+
+
 class NetworkUpdate(BaseModel):
     """No network-level firewall (defined.net style: only per-group inbound rules)."""
     pass
 
 
-@router.get("", response_model=list[NetworkResponse])
+@router.get("", response_model=list[NetworkListResponse])
 async def list_networks(
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """
     List networks the user has access to.
-    System admins see all networks but with limited fields (no cert paths).
+    Includes current user's role and permission flags per network.
+    System admins see all networks (with limited data, role=admin).
     """
     # Get user's database record to check permissions
     user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
@@ -71,12 +79,16 @@ async def list_networks(
         result = await session.execute(select(Network).order_by(Network.id))
         networks = result.scalars().all()
         return [
-            NetworkResponse(
+            NetworkListResponse(
                 id=n.id,
                 name=n.name,
                 subnet_cidr=n.subnet_cidr,
                 ca_cert_path=None,  # Redacted for system admins
                 created_at=n.created_at.isoformat() if n.created_at else "",
+                role="admin",
+                can_manage_nodes=True,
+                can_invite_users=True,
+                can_manage_firewall=True,
             )
             for n in networks
         ]
@@ -92,13 +104,26 @@ async def list_networks(
     )
     networks = result.scalars().all()
     
+    # Load user's permission for each network
+    perm_result = await session.execute(
+        select(NetworkPermission).where(
+            NetworkPermission.user_id == db_user.id,
+            NetworkPermission.network_id.in_(network_ids),
+        )
+    )
+    perms = {p.network_id: p for p in perm_result.scalars().all()}
+    
     return [
-        NetworkResponse(
+        NetworkListResponse(
             id=n.id,
             name=n.name,
             subnet_cidr=n.subnet_cidr,
             ca_cert_path=n.ca_cert_path,
             created_at=n.created_at.isoformat() if n.created_at else "",
+            role=perms[n.id].role if n.id in perms else None,
+            can_manage_nodes=perms[n.id].can_manage_nodes if n.id in perms else None,
+            can_invite_users=perms[n.id].can_invite_users if n.id in perms else None,
+            can_manage_firewall=perms[n.id].can_manage_firewall if n.id in perms else None,
         )
         for n in networks
     ]
@@ -107,13 +132,12 @@ async def list_networks(
 @router.post("", response_model=NetworkResponse)
 async def create_network(
     body: NetworkCreate,
-    user: UserInfo = Depends(require_network_owner_or_admin),
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """
     Create a new Nebula network.
-    Requires network-owner or system-admin role.
-    Creator becomes the network owner.
+    Any authenticated user can create; creator becomes the network owner.
     """
     # Get or create user record
     user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))

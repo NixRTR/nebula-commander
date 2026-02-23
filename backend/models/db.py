@@ -133,7 +133,7 @@ class User(Base):
     oidc_sub: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     role: Mapped[str] = mapped_column(String(64), default="user")  # admin, user, viewer (legacy)
-    system_role: Mapped[str] = mapped_column(String(64), default="user")  # system-admin, network-owner, user
+    system_role: Mapped[str] = mapped_column(String(64), default="user")  # system-admin or user; network ownership is per-network
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     network_permissions: Mapped[list["NetworkPermission"]] = relationship(

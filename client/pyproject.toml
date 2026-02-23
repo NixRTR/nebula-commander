@@ -48,7 +48,9 @@ ncclient = "client.ncclient:main"
 [tool.setuptools.package-dir]
 "client" = "."
 [tool.setuptools]
-packages = ["client"]
+packages = ["client", "client.windows", "client.webui"]
+[tool.setuptools.package-data]
+"client.webui" = ["static/*"]
 
 [tool.setuptools_scm]
 # Version from git tag (e.g. v0.1.5 -> 0.1.5); fallback when no git

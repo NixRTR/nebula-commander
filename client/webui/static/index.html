@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ncclient – Nebula Commander</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="container">
+    <h1>ncclient – Nebula Commander</h1>
+
+    <section class="section" id="section-connection">
+      <h2>Connection / Enrollment</h2>
+      <div class="form-row">
+        <label class="label" for="server">Server URL</label>
+        <input type="url" id="server" placeholder="https://nebula-commander.example.com">
+      </div>
+      <div id="enrolled-badge" class="badge" style="display: none;">Enrolled</div>
+      <div id="enroll-form" class="form-row">
+        <label class="label" for="code">Enrollment code</label>
+        <input type="text" id="code" placeholder="XXXXXXXX" maxlength="32">
+      </div>
+      <div class="actions">
+        <button type="button" class="btn" id="btn-enroll">Enroll</button>
+        <a href="#" id="link-nebula-commander" style="display: none;">Open Nebula Commander</a>
+      </div>
+      <div id="enroll-msg" class="msg"></div>
+    </section>
+
+    <section class="section" id="section-polling">
+      <h2>Polling</h2>
+      <div class="form-row">
+        <label class="label" for="output_dir">Output directory (config/certs)</label>
+        <input type="text" id="output_dir" placeholder="e.g. ~/.nebula">
+      </div>
+      <div class="form-row">
+        <label class="label" for="interval">Poll interval (seconds)</label>
+        <input type="number" id="interval" min="10" max="3600" value="60">
+      </div>
+      <div class="status-line" id="poll-status">Status: –</div>
+      <div class="actions" style="margin-top: 0.5rem;">
+        <button type="button" class="btn" id="btn-save-settings">Save settings</button>
+      </div>
+      <div id="settings-msg" class="msg"></div>
+    </section>
+
+    <section class="section" id="section-paths">
+      <h2>Paths</h2>
+      <div class="form-row">
+        <label class="label" for="nebula_path">Nebula binary path</label>
+        <input type="text" id="nebula_path" placeholder="nebula or full path to nebula.exe">
+      </div>
+    </section>
+
+    <section class="section" id="section-startup">
+      <h2>Startup</h2>
+      <div class="toggle-wrap">
+        <input type="checkbox" id="autostart">
+        <label for="autostart">Start at login</label>
+      </div>
+      <div id="autostart-msg" class="msg"></div>
+    </section>
+
+    <section class="section" id="section-about">
+      <h2>About</h2>
+      <p class="text-muted" style="margin: 0;">Nebula Commander device client (ncclient). Configure and enroll from this page.</p>
+    </section>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

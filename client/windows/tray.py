@@ -12,6 +12,7 @@ import shutil
 import sys
 import threading
 import tkinter as tk
+import webbrowser
 import zipfile
 from tkinter import messagebox
 
@@ -33,13 +34,14 @@ def _ensure_path() -> None:
 
 _ensure_path()
 
+from client.config import load_settings, save_settings
 from client.ncclient import (
     run_poll_loop,
     cmd_enroll,
     _token_path,
     _default_output_dir,
 )
-
+from client.webui.server import run_server_thread
 from client.windows import autostart
 from client.windows import dialogs
 from client.windows import icons
@@ -51,31 +53,6 @@ try:
 except ImportError as e:
     print("Tray app requires pystray and Pillow. Install with: pip install pystray Pillow", file=sys.stderr)
     sys.exit(1)
-
-
-def _settings_path() -> str:
-    if sys.platform == "win32":
-        appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
-        return os.path.join(appdata, "nebula-commander", "settings.json")
-    return os.path.join(os.path.dirname(_token_path()), "settings.json")
-
-
-def _load_settings() -> dict:
-    path = _settings_path()
-    if not os.path.isfile(path):
-        return {}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {}
-
-
-def _save_settings(settings: dict) -> None:
-    path = _settings_path()
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2)
 
 
 def _nebula_download_dir() -> str:
@@ -168,7 +145,7 @@ def main() -> None:
 
     _log(f"main thread id={threading.current_thread().ident}")
 
-    settings = _load_settings()
+    settings = load_settings()
     server = (settings.get("server") or "").strip() or "https://"
     output_dir = (settings.get("output_dir") or "").strip() or _default_output_dir()
     interval = int(settings.get("interval") or 60)
@@ -202,7 +179,15 @@ def main() -> None:
                 pass
 
     def run_poll() -> None:
-        nonlocal poll_thread
+        nonlocal poll_thread, server, output_dir, interval, nebula_path
+        # Re-read settings so Web UI or tray menu has latest (e.g. when starting from API)
+        s = load_settings()
+        server = (s.get("server") or "").strip() or "https://"
+        output_dir = (s.get("output_dir") or "").strip() or _default_output_dir()
+        interval = int(s.get("interval") or 60)
+        interval = max(10, min(3600, interval))
+        nebula_path = (s.get("nebula_path") or "").strip() or _default_nebula_path()
+
         if not server or server == "https://":
             update_ui("error", "Set server URL in Settings")
             return
@@ -259,7 +244,7 @@ def main() -> None:
         _log("_do_settings: dialog closed, result=%s" % (result is not None))
         if result:
             server, output_dir, interval, nebula_path = result
-            _save_settings({
+            save_settings({
                 "server": server,
                 "output_dir": output_dir,
                 "interval": interval,
@@ -318,7 +303,7 @@ def main() -> None:
         if ok and exe_path:
             # Use downloaded path; if user had no custom path, this becomes the default
             nebula_path = exe_path
-            _save_settings({
+            save_settings({
                 "server": server,
                 "output_dir": output_dir,
                 "interval": interval,
@@ -341,26 +326,42 @@ def main() -> None:
         icon.stop()
         _log("on_exit: icon.stop() returned")
 
+    # Start config Web UI server (used by "Configure" and by ncclient web)
+    web_thread, config_url = run_server_thread(
+        get_status=lambda: (current_status, current_message),
+        set_polling=lambda start: (run_poll() if start else stop_poll()),
+    )
+
+    def on_configure(icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        webbrowser.open(config_url)
+
+    def on_nebula_commander(icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        if server and server != "https://":
+            webbrowser.open(server)
+
     def _nebula_found() -> bool:
         effective = (nebula_path or "").strip() or _default_nebula_path()
         return _resolve_nebula_bin(effective) is not None
 
     def make_menu() -> pystray.Menu:
+        nonlocal server, output_dir, interval, nebula_path
+        # Re-read settings so Web UI changes are reflected (e.g. server URL for Nebula Commander link)
+        s = load_settings()
+        server = (s.get("server") or "").strip() or "https://"
+        output_dir = (s.get("output_dir") or "").strip() or _default_output_dir()
+        interval = int(s.get("interval") or 60)
+        interval = max(10, min(3600, interval))
+        nebula_path = (s.get("nebula_path") or "").strip() or _default_nebula_path()
+
         polling = poll_thread is not None and poll_thread.is_alive()
         start_stop_label = "Stop polling" if polling else "Start polling"
-        autostart_checked = autostart.is_autostart_enabled()
         items = [
-            Item("Enroll...", on_enroll, default=True),
-            Item("Settings...", on_settings),
+            Item("Configure", on_configure, default=True),
             Item(start_stop_label, on_start_stop),
-            Item("Open config folder", on_open_folder),
         ]
-        if not _nebula_found():
-            items.append(Item("Download Nebula...", on_download_nebula))
-        items.extend([
-            Item("Start at login", on_autostart, checked=lambda _: autostart_checked),
-            Item("Exit", on_exit),
-        ])
+        if os.path.isfile(token_path) and server and server != "https://":
+            items.append(Item("Nebula Commander", on_nebula_commander))
+        items.append(Item("Exit", on_exit))
         return pystray.Menu(*items)
 
     # Hidden tk root for dialogs. Tray runs in background thread; main thread drains ui_queue
@@ -388,18 +389,8 @@ def main() -> None:
             _log("process_ui_queue: calling tk_root.quit()")
             tk_root.quit()
             return
-        try:
-            if msg == "settings":
-                _do_settings(tk_root)
-            elif msg == "enroll":
-                _do_enroll(tk_root)
-            elif msg == "download_nebula":
-                _do_download_nebula(tk_root)
-        finally:
-            # Single mainloop: dialogs must use wait_window (Toplevel), not a second mainloop (Tk), so this after() keeps firing.
-            if tk_root:
-                _log("process_ui_queue: rescheduling in 100ms")
-                tk_root.after(100, process_ui_queue)
+        if tk_root:
+            tk_root.after(100, process_ui_queue)
 
     def run_icon() -> None:
         _log(f"icon thread started (id={threading.current_thread().ident})")

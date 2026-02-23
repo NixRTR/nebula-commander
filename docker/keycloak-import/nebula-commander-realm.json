@@ -128,10 +128,6 @@
           "description": "Full system administration access"
         },
         {
-          "name": "network-owner",
-          "description": "Can create and manage networks"
-        },
-        {
           "name": "user",
           "description": "Basic user access (default)"
         }
