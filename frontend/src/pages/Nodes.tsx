@@ -625,7 +625,7 @@ export function Nodes() {
                 ))}
               </Select>
               <Button
-                color={showCreateNodeForm ? "gray" : "blue"}
+                color={showCreateNodeForm ? "gray" : "purple"}
                 onClick={() => {
                   setShowCreateNodeForm((v) => !v);
                   setNodeNameError(null);
@@ -837,7 +837,7 @@ export function Nodes() {
                   )}
                   <Button
                     type="submit"
-                    color="blue"
+                    color="purple"
                     isProcessing={createSubmitting}
                     disabled={createSubmitting || !!nodeNameError || !!suggestedIpError}
                   >
@@ -979,7 +979,7 @@ export function Nodes() {
                           <button
                             type="button"
                             onClick={() => toggleDeviceDetails(n)}
-                            className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 cursor-pointer underline font-medium text-left"
+                            className="text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300 cursor-pointer underline font-medium text-left"
                           >
                             {n.hostname}
                           </button>
@@ -1448,7 +1448,7 @@ export function Nodes() {
                                         ) : (
                                           <Button
                                             type="submit"
-                                            color="blue"
+                                            color="purple"
                                             isProcessing={saving}
                                             disabled={saving}
                                           >

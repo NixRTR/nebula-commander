@@ -50,15 +50,11 @@ export function Navbar({ username, connectionStatus, onMenuClick }: NavbarProps)
 
         <FlowbiteNavbar.Brand>
           <span className="flex items-center gap-2 self-center whitespace-nowrap text-xl font-semibold text-gray-900 dark:text-white">
-            {/* Nebula Logo (simplified icon) */}
-            <svg
-              xmlns="http://www.w3.org/2000/svg"
-              viewBox="0 0 24 24"
-              className="w-6 h-6 dark:opacity-90 flex-shrink-0"
-              fill="currentColor"
-            >
-              <path d="M12 2L2 7v10l10 5 10-5V7L12 2zm0 2.18L19.82 8 12 11.82 4.18 8 12 4.18zM4 9.47l7 3.5v7.85l-7-3.5V9.47zm9 11.35v-7.85l7-3.5v7.85l-7 3.5z"/>
-            </svg>
+            <img
+              src="/logo.svg"
+              alt="Nebula Commander"
+              className="h-12 w-auto object-contain dark:opacity-95"
+            />
             <span>Nebula Commander</span>
           </span>
         </FlowbiteNavbar.Brand>

@@ -167,7 +167,7 @@ export const NetworkUsers: React.FC = () => {
         </div>
 
         <div className="mb-4">
-          <Button color="blue" onClick={() => setShowAddModal(true)}>
+          <Button color="purple" onClick={() => setShowAddModal(true)}>
             <HiPlus className="mr-2 h-5 w-5" />
             Add Existing User
           </Button>
@@ -219,7 +219,7 @@ export const NetworkUsers: React.FC = () => {
                         <div className="flex gap-2">
                           <Button
                             size="xs"
-                            color="blue"
+                            color="purple"
                             onClick={() => handleEditUser(user)}
                           >
                             <HiPencil className="mr-1 h-4 w-4" />

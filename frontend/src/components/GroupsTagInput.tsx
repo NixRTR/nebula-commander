@@ -72,7 +72,7 @@ export function GroupsTagInput({
   return (
     <div className="relative min-w-0 w-full" ref={containerRef}>
       <div
-        className={`flex flex-wrap gap-2 items-center p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-blue-500 ${
+        className={`flex flex-wrap gap-2 items-center p-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 focus-within:ring-2 focus-within:ring-purple-500 focus-within:border-purple-500 ${
           disabled ? "opacity-60 cursor-not-allowed" : ""
         }`}
         onClick={() => !disabled && inputRef.current?.focus()}
@@ -80,7 +80,7 @@ export function GroupsTagInput({
         {value.map((tag, idx) => (
           <span
             key={`${tag}-${idx}`}
-            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-sm bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200"
+            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-sm bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200"
           >
             {tag}
             {!disabled && (
@@ -90,7 +90,7 @@ export function GroupsTagInput({
                   e.stopPropagation();
                   removeTag(idx);
                 }}
-                className="hover:bg-blue-200 dark:hover:bg-blue-800 rounded p-0.5"
+                className="hover:bg-purple-200 dark:hover:bg-purple-800 rounded p-0.5"
                 aria-label={`Remove ${tag}`}
               >
                 <HiX className="w-4 h-4" />

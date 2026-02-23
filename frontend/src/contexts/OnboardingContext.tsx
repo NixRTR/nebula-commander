@@ -1,7 +1,7 @@
 import { createContext, useCallback, useContext, useState } from "react";
 
 const ONBOARDING_STORAGE_KEY = "nebula_commander_onboarding_completed";
-const TOKEN_KEY = "nebula_commander_token";
+const TOKEN_KEY = "token";
 
 export type OnboardingStep =
   | 1 // welcome

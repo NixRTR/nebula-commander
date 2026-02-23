@@ -194,7 +194,7 @@ export const AcceptInvitation: React.FC = () => {
         <div className="space-y-3">
           {isAuthenticated ? (
             <Button
-              color="blue"
+              color="purple"
               onClick={handleAccept}
               disabled={accepting}
               className="w-full"
@@ -211,7 +211,7 @@ export const AcceptInvitation: React.FC = () => {
           ) : (
             <>
               <Button
-                color="blue"
+                color="purple"
                 onClick={handleAccept}
                 className="w-full"
               >

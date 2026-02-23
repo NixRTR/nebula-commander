@@ -3,8 +3,9 @@ Application configuration for Nebula Commander
 """
 import os
 from typing import Optional
+from urllib.parse import urlparse
 
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -36,13 +37,17 @@ class Settings(BaseSettings):
     # Certificate store
     cert_store_path: str = "/var/lib/nebula-commander/certs"
 
+    # Public URL (app as reached by users: FQDN or host:port, e.g. https://nebula.example.com or http://192.168.1.1:9091)
+    # Used to derive OIDC redirect URI and for redirect validation when set
+    public_url: Optional[str] = None
+
     # OIDC
     oidc_issuer_url: Optional[str] = None
     oidc_public_issuer_url: Optional[str] = None  # Public URL for browser redirects (logout, etc.)
     oidc_client_id: Optional[str] = None
     oidc_client_secret: Optional[str] = None
     oidc_client_secret_file: Optional[str] = None
-    oidc_redirect_uri: Optional[str] = None
+    oidc_redirect_uri: Optional[str] = None  # If unset and public_url is set, derived as public_url + /api/auth/callback
     oidc_scopes: str = "openid profile email"
 
     # JWT (for API / session after OIDC)
@@ -97,6 +102,20 @@ class Settings(BaseSettings):
         if not s:
             return []
         return [x.strip() for x in s.split(",") if x.strip()]
+
+    @model_validator(mode="after")
+    def derive_oidc_redirect_uri_from_public_url(self):
+        """When public_url is set: derive oidc_redirect_uri and allowed_redirect_hosts when unset."""
+        if not self.public_url:
+            return self
+        base = self.public_url.rstrip("/")
+        if not self.oidc_redirect_uri:
+            self.oidc_redirect_uri = f"{base}/api/auth/callback"
+        if not self.allowed_redirect_hosts:
+            netloc = urlparse(self.public_url).netloc
+            if netloc:
+                self.allowed_redirect_hosts = [netloc]
+        return self
 
     class Config:
         env_prefix = "NEBULA_COMMANDER_"

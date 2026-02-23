@@ -78,7 +78,7 @@ export function OnboardingOverlay() {
             <Button color="gray" onClick={skip}>
               Skip
             </Button>
-            <Button color="blue" onClick={completeStep}>
+            <Button color="purple" onClick={completeStep}>
               Start
             </Button>
           </div>
@@ -101,7 +101,7 @@ export function OnboardingOverlay() {
             Install ncclient on your device using the instructions for your OS (Linux, Windows, or Mac) on the Client Download page. Then run enroll with your code, then run the daemon.
           </p>
           <div className="flex gap-2 justify-end">
-            <Button color="blue" onClick={handleDone}>
+            <Button color="purple" onClick={handleDone}>
               Go to Client Download
             </Button>
           </div>

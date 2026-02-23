@@ -71,31 +71,31 @@ export function Dashboard() {
       {networkCount != null && (
         <div className="space-y-4 mb-6">
           {!hasNetworks && (
-            <Card className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-gray-800/50">
+            <Card className="border-2 border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-gray-800/50">
               <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold">1</span>
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-brand-gold-500 text-purple-900 text-sm font-bold">1</span>
                 Create your first network
               </h2>
               <p className="text-gray-700 dark:text-gray-300 mb-4">
                 A network defines the overlay (e.g. subnet). Create one to get started.
               </p>
-              <Button as={Link} to="/networks" color="blue" size="lg">
+              <Button as={Link} to="/networks" color="purple" size="lg">
                 Go to Networks
               </Button>
             </Card>
           )}
 
           {hasNetworks && !hasNodes && (
-            <Card className="border-2 border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-gray-800/50">
+            <Card className="border-2 border-purple-200 dark:border-purple-800 bg-purple-50/50 dark:bg-gray-800/50">
               <h2 className="text-xl font-bold mb-2 flex items-center gap-2">
-                <HiKey className="w-6 h-6 text-blue-600 dark:text-blue-400" />
-                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-600 text-white text-sm font-bold">2</span>
+                <HiKey className="w-6 h-6 text-purple-600 dark:text-purple-400" />
+                <span className="flex items-center justify-center w-8 h-8 rounded-full bg-brand-gold-500 text-purple-900 text-sm font-bold">2</span>
                 Create and enroll a node
               </h2>
               <p className="text-gray-700 dark:text-gray-300 mb-4">
                 On the Nodes page, create a node and use the enrollment code with <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> on the device to join.
               </p>
-              <Button as={Link} to="/nodes" color="blue" size="lg">
+              <Button as={Link} to="/nodes" color="purple" size="lg">
                 Go to Nodes
               </Button>
             </Card>
@@ -108,7 +108,7 @@ export function Dashboard() {
                 You&apos;re all set
               </h2>
               <p className="text-gray-700 dark:text-gray-300">
-                You have networks and enrolled nodes. Use <Link to="/nodes" className="text-blue-600 dark:text-blue-400 hover:underline">Nodes</Link> to manage devices and download configs.
+                You have networks and enrolled nodes. Use <Link to="/nodes" className="text-purple-600 dark:text-purple-400 hover:underline">Nodes</Link> to manage devices and download configs.
               </p>
             </Card>
           )}
@@ -126,8 +126,8 @@ export function Dashboard() {
             <strong>Getting started:</strong>
           </p>
           <ul className="list-disc list-inside space-y-1 text-sm text-gray-600 dark:text-gray-400">
-            <li><Link to="/networks" className="text-blue-600 dark:text-blue-400 hover:underline">Create a network</Link> to define your overlay</li>
-            <li><Link to="/nodes" className="text-blue-600 dark:text-blue-400 hover:underline">Create and enroll nodes</Link> with <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> and monitor status</li>
+            <li><Link to="/networks" className="text-purple-600 dark:text-purple-400 hover:underline">Create a network</Link> to define your overlay</li>
+            <li><Link to="/nodes" className="text-purple-600 dark:text-purple-400 hover:underline">Create and enroll nodes</Link> with <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> and monitor status</li>
           </ul>
         </div>
       </Card>

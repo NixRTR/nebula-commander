@@ -43,7 +43,7 @@ export const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
       case 'warning':
         return 'bg-yellow-100 text-yellow-500 dark:bg-yellow-800 dark:text-yellow-200';
       case 'loading':
-        return 'bg-blue-100 text-blue-500 dark:bg-blue-800 dark:text-blue-200';
+        return 'bg-purple-100 text-purple-600 dark:bg-purple-800 dark:text-purple-200';
       default:
         return 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-200';
     }

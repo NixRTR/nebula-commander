@@ -74,7 +74,7 @@ export function Networks() {
         <h1 className="text-3xl font-bold">Networks</h1>
         <Button
           onClick={() => setShowForm(!showForm)}
-          color={showForm ? "gray" : "blue"}
+          color={showForm ? "gray" : "purple"}
           data-onboarding-target="networks-create-button"
         >
           <HiPlus className="mr-2 h-5 w-5" />
@@ -114,7 +114,7 @@ export function Networks() {
                 required
               />
             </div>
-            <Button type="submit" color="blue">
+            <Button type="submit" color="purple">
               Create Network
             </Button>
           </form>
@@ -165,7 +165,7 @@ export function Networks() {
                 <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
                   Create a network to define your overlay subnet. Configure per-group firewall rules on the Groups page.
                 </p>
-                <Button color="blue" onClick={() => setShowForm(true)} data-onboarding-target="networks-create-button">
+                <Button color="purple" onClick={() => setShowForm(true)} data-onboarding-target="networks-create-button">
                   <HiPlus className="mr-2 h-5 w-5" />
                   Add your first network
                 </Button>

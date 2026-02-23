@@ -11,9 +11,9 @@
     @apply text-gray-900 bg-gray-50 dark:text-gray-100 dark:bg-gray-900;
   }
 
-  /* Links */
+  /* Links – logo purple */
   a {
-    @apply text-blue-600 dark:text-blue-400;
+    @apply text-purple-600 dark:text-purple-400;
   }
 
   /* Tables and subtle text */

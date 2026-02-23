@@ -355,7 +355,7 @@ export const Invitations: React.FC = () => {
                                 {(invitation.email_status === 'failed' || invitation.email_status === 'not_sent') && (
                                   <Button
                                     size="xs"
-                                    color="blue"
+                                    color="purple"
                                     onClick={() => handleResendEmail(invitation.id)}
                                   >
                                     <HiMail className="mr-1 h-4 w-4" />
@@ -468,7 +468,7 @@ export const Invitations: React.FC = () => {
                   />
                 </div>
 
-                <Button type="submit" color="blue">
+                <Button type="submit" color="purple">
                   Send Invitation
                 </Button>
               </form>

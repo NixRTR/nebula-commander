@@ -202,7 +202,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                   onClick={toggleSettings}
                   className={`flex items-center w-full p-2 rounded-lg ${
                     isSettingsActive
-                      ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
+                      ? 'text-purple-600 bg-purple-50 dark:text-purple-400 dark:bg-gray-700'
                       : 'text-gray-900 hover:bg-gray-100 dark:text-white dark:hover:bg-gray-700'
                   }`}
                 >
@@ -220,7 +220,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                             onClick={handleItemClick}
                             className={`flex items-center p-2 rounded-lg text-sm ${
                               isActive(child.path)
-                                ? 'text-blue-600 bg-blue-50 dark:text-blue-500 dark:bg-gray-700'
+                                ? 'text-purple-600 bg-purple-50 dark:text-purple-400 dark:bg-gray-700'
                                 : 'text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700'
                             }`}
                           >

@@ -15,12 +15,10 @@ KC_DB_PASSWORD=keycloak_db_password
 KC_BOOTSTRAP_ADMIN_USERNAME=admin
 KC_BOOTSTRAP_ADMIN_PASSWORD=admin
 
-# Hostname Configuration
-# For development: just hostname
+# Hostname Configuration (as seen by the browser)
+# Use FQDN or host:port so Keycloak redirects and discovery work from the public interface.
+# Examples: localhost  |  auth.example.com  |  192.168.1.1:8082
 KC_HOSTNAME=localhost
-
-# For production: use full URL
-# KC_HOSTNAME=https://auth.example.com
 
 # Hostname strict mode (disable dynamic hostname resolution from request headers)
 # Set to true in production
@@ -40,6 +38,25 @@ KC_METRICS_ENABLED=true
 
 # Logging
 KC_LOG_LEVEL=info
+
+# =============================================================================
+# Realm import (zero-touch setup)
+# =============================================================================
+# When using realm import (start-dev --import-realm), the nebula-commander
+# realm is created from keycloak-import/nebula-commander-realm.json.
+# Placeholders in that file are resolved from the Keycloak container env.
+#
+# You can set these here, or pass env.d/backend so the same values used by
+# the Nebula Commander backend are available for the import (docker-compose
+# already adds env.d/backend for the keycloak service):
+#
+# NEBULA_COMMANDER_OIDC_CLIENT_SECRET=<same as backend>
+# NEBULA_COMMANDER_OIDC_REDIRECT_URI=http://localhost/api/auth/callback
+# NEBULA_COMMANDER_PUBLIC_URL=http://localhost
+#
+# Optional: use different theme names (default is nebula):
+# KC_LOGIN_THEME=nebula
+# KC_ACCOUNT_THEME=nebula
 
 # =============================================================================
 # Production Notes

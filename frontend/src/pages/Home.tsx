@@ -41,7 +41,7 @@ export function Home() {
             <button
               type="button"
               onClick={handleRestartOnboarding}
-              className="text-sm text-blue-600 dark:text-blue-400 hover:underline"
+              className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
             >
               Restart onboarding
             </button>
@@ -74,19 +74,19 @@ export function Home() {
           <h2 className="text-2xl font-bold mb-4">Getting Started</h2>
           <ul className="list-disc list-inside space-y-2 text-gray-700 dark:text-gray-300">
             <li>
-              <Link to="/networks" className="text-blue-600 dark:text-blue-400 hover:underline">
+              <Link to="/networks" className="text-purple-600 dark:text-purple-400 hover:underline">
                 Create a network
               </Link>{" "}
               to define your overlay subnet.
             </li>
             <li>
-              <Link to="/nodes" className="text-blue-600 dark:text-blue-400 hover:underline">
+              <Link to="/nodes" className="text-purple-600 dark:text-purple-400 hover:underline">
                 Create and enroll a node
               </Link>{" "}
               to get an enrollment code.
             </li>
             <li>
-              <Link to="/client-download" className="text-blue-600 dark:text-blue-400 hover:underline">
+              <Link to="/client-download" className="text-purple-600 dark:text-purple-400 hover:underline">
                 Install ncclient
               </Link>{" "}
               on your device (Linux, Windows, or Mac) and run enroll, then run.

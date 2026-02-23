@@ -1,0 +1,141 @@
+{
+  "realm": "nebula-commander",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": true,
+  "registrationEmailAsUsername": true,
+  "loginTheme": "nebula",
+  "accountTheme": "nebula",
+  "clients": [
+    {
+      "clientId": "nebula-commander",
+      "name": "Nebula Commander",
+      "enabled": true,
+      "publicClient": false,
+      "secret": "JEWEwAgvDVVvBflaKLGLIIVPmaVGGD8I",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "redirectUris": [
+        "${NEBULA_COMMANDER_PUBLIC_URL}/api/auth/callback"
+      ],
+      "webOrigins": [
+        "${NEBULA_COMMANDER_PUBLIC_URL}"
+      ],
+      "attributes": {
+        "post.logout.redirect.uris": "${NEBULA_COMMANDER_PUBLIC_URL}/*"
+      },
+      "defaultClientScopes": [
+        "openid",
+        "profile",
+        "email",
+        "nebula-commander-dedicated"
+      ],
+      "protocol": "openid-connect"
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "openid",
+      "description": "OpenID Connect scope for id_token",
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "name": "sub",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "id",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "sub",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "profile",
+      "description": "Profile scope (name, preferred_username)",
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "name": "preferred_username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "username",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "email",
+      "description": "Email scope",
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "name": "email",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "userinfo.token.claim": "true",
+            "user.attribute": "email",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "email",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    },
+    {
+      "name": "nebula-commander-dedicated",
+      "description": "Dedicated scope for Nebula Commander client roles",
+      "protocol": "openid-connect",
+      "protocolMappers": [
+        {
+          "name": "client-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-client-role-mapper",
+          "consentRequired": false,
+          "config": {
+            "multivalued": "true",
+            "userinfo.token.claim": "true",
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "claim.name": "resource_access.nebula-commander.roles",
+            "jsonType.label": "String"
+          }
+        }
+      ]
+    }
+  ],
+  "roles": {
+    "client": {
+      "nebula-commander": [
+        {
+          "name": "system-admin",
+          "description": "Full system administration access"
+        },
+        {
+          "name": "network-owner",
+          "description": "Can create and manage networks"
+        },
+        {
+          "name": "user",
+          "description": "Basic user access (default)"
+        }
+      ]
+    }
+  }
+}

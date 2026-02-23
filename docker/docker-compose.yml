@@ -1,9 +1,10 @@
+name: nebulacdr
+
 include:
   - path: ./docker-compose-keycloak.yml
+
 services:
-  # =============================================================================
-  # Backend - FastAPI application
-  # =============================================================================
+
   backend:
     build:
       context: ..
@@ -34,9 +35,6 @@ services:
     networks:
       - nebula-commander
 
-  # =============================================================================
-  # Frontend - Nginx serving React SPA
-  # =============================================================================
   frontend:
     build:
       context: ..

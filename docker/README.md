@@ -107,11 +107,13 @@ Edit `docker/env.d/backend` for all backend-specific settings:
 | `NEBULA_COMMANDER_JWT_SECRET_KEY` | JWT secret for signing tokens | (required) |
 | `NEBULA_COMMANDER_JWT_ALGORITHM` | JWT algorithm | `HS256` |
 | `NEBULA_COMMANDER_JWT_EXPIRATION_HOURS` | JWT expiration time | `24` |
-| `NEBULA_COMMANDER_OIDC_ISSUER_URL` | OIDC provider URL (optional) | — |
+| `NEBULA_COMMANDER_PUBLIC_URL` | Public app URL (FQDN or host:port); auth uses this | — |
+| `NEBULA_COMMANDER_OIDC_ISSUER_URL` | OIDC internal URL (backend→Keycloak, use container port 8080) | — |
+| `NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL` | OIDC public URL (browser; FQDN or host:port) | — |
 | `NEBULA_COMMANDER_OIDC_CLIENT_ID` | OIDC client ID | — |
 | `NEBULA_COMMANDER_OIDC_CLIENT_SECRET` | OIDC client secret | — |
-| `NEBULA_COMMANDER_OIDC_REDIRECT_URI` | OIDC redirect URI | — |
-| `NEBULA_COMMANDER_CORS_ORIGINS` | Allowed CORS origins | `*` |
+| `NEBULA_COMMANDER_OIDC_REDIRECT_URI` | OIDC callback (optional; derived from PUBLIC_URL if unset) | — |
+| `NEBULA_COMMANDER_CORS_ORIGINS` | Allowed CORS origins (include public URL) | — |
 | `NEBULA_COMMANDER_DEBUG` | Enable debug mode | `false` |
 
 **Quick Start:**
@@ -153,9 +155,31 @@ docker compose -f docker-compose.yml -f docker-compose-keycloak.yml up -d
 docker compose -f docker-compose.yml -f docker-compose-keycloak.yml logs -f
 ```
 
-### Keycloak Initial Setup
+### Zero-touch Keycloak setup (recommended)
 
-After starting Keycloak, configure it for Nebula Commander:
+Keycloak can create the **nebula-commander** realm, client, roles, and theme at startup with **no Admin UI steps**.
+
+1. **Set backend OIDC variables** in `env.d/backend` (same file the backend uses):
+   - **`NEBULA_COMMANDER_PUBLIC_URL`** — URL where users reach the app (FQDN or host:port), e.g. `https://nebula.example.com` or `http://192.168.1.1:9091`. Redirect URI is derived from this; all auth flows use the public interface (frontend and backend can be on different hosts).
+   - `NEBULA_COMMANDER_OIDC_ISSUER_URL=http://keycloak:8080/realms/nebula-commander` (internal; use container port 8080)
+   - `NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL` — Keycloak as seen by the browser (FQDN or host:port), e.g. `https://auth.example.com/realms/nebula-commander` or `http://host:8082/realms/nebula-commander`
+   - `NEBULA_COMMANDER_OIDC_CLIENT_ID=nebula-commander`
+   - `NEBULA_COMMANDER_OIDC_CLIENT_SECRET=<choose a secret>`
+   - `NEBULA_COMMANDER_OIDC_REDIRECT_URI` is optional when `NEBULA_COMMANDER_PUBLIC_URL` is set (derived as PUBLIC_URL + `/api/auth/callback`). The realm import uses `NEBULA_COMMANDER_PUBLIC_URL` for web origins and post-logout redirects.
+
+2. **Start Keycloak** with the compose file:
+   ```bash
+   docker compose -f docker-compose.yml -f docker-compose-keycloak.yml up -d
+   ```
+   On first start, Keycloak imports the realm from `keycloak-import/nebula-commander-realm.json` (placeholders are filled from `env.d/backend`). The realm uses the **nebula** login/account theme (background + logo) automatically. If the realm already exists, import is skipped.
+
+3. **Create a user** in Keycloak Admin (e.g. `http://localhost:8080`) and assign client roles under the `nebula-commander` client (`system-admin`, `network-owner`, or `user`). No other Keycloak configuration is required.
+
+See [keycloak-import/README.md](keycloak-import/README.md) and [keycloak-theme/README.md](keycloak-theme/README.md) for details.
+
+### Keycloak manual setup (optional)
+
+If you prefer not to use realm import, or need a different realm name, configure Keycloak manually:
 
 1. **Access Keycloak Admin Console**
    - URL: `http://localhost:8080` (or your configured `KEYCLOAK_PORT`)
@@ -179,9 +203,9 @@ After starting Keycloak, configure it for Nebula Commander:
      - Authentication flow: Enable "Standard flow"
    - Click "Next"
    - **Login settings:**
-     - Valid redirect URIs: `http://localhost/auth/callback` (adjust for your domain)
-     - Valid post logout redirect URIs: `http://localhost/*`
-     - Web origins: `http://localhost`
+     - Valid redirect URIs: your public app URL + `/api/auth/callback` (e.g. `https://nebula.example.com/api/auth/callback` or `http://192.168.1.1:9091/api/auth/callback`)
+     - Valid post logout redirect URIs: your public app URL + `/*`
+     - Web origins: your public app URL (FQDN or host:port)
    - Click "Save"
 
 4. **Get Client Secret**
@@ -227,21 +251,32 @@ After starting Keycloak, configure it for Nebula Commander:
 6. **Update Backend Configuration**
    - Edit `env.d/backend`:
      ```bash
-     # For master realm
-     NEBULA_COMMANDER_OIDC_ISSUER_URL=http://keycloak:8080/realms/master
+     # Public URL (FQDN or host:port) — redirect URI is derived from this if unset
+     NEBULA_COMMANDER_PUBLIC_URL=https://nebula.example.com
      
-     # Or for custom realm
+     # Internal (backend→Keycloak); use container port 8080
      NEBULA_COMMANDER_OIDC_ISSUER_URL=http://keycloak:8080/realms/nebula-commander
+     
+     # Keycloak as seen by browser (FQDN or host:port)
+     NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL=https://auth.example.com/realms/nebula-commander
      
      NEBULA_COMMANDER_OIDC_CLIENT_ID=nebula-commander
      NEBULA_COMMANDER_OIDC_CLIENT_SECRET=your-client-secret
-     NEBULA_COMMANDER_OIDC_REDIRECT_URI=http://localhost/api/auth/callback
      ```
 
 7. **Restart Backend**
    ```bash
    docker compose -f docker-compose.yml -f docker-compose-keycloak.yml restart backend
    ```
+
+#### Backend can't reach Keycloak ("All connection attempts failed")
+
+The backend talks to Keycloak from inside the Docker network. Use the **container** port in `NEBULA_COMMANDER_OIDC_ISSUER_URL`, not the host-mapped port:
+
+- **Correct:** `NEBULA_COMMANDER_OIDC_ISSUER_URL=http://keycloak:8080/realms/nebula-commander` (Keycloak listens on 8080 inside the container)
+- **Wrong:** `http://keycloak:8082/...` if you only mapped host port 8082→8080; from the backend container, nothing listens on 8082
+
+Use the host port (e.g. 8082) or FQDN only in `NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL` and in `NEBULA_COMMANDER_PUBLIC_URL`, so the browser can reach Keycloak and the app.
 
 ### User Roles and Permissions
 
@@ -388,6 +423,23 @@ The Keycloak setup uses environment files for configuration:
 
 **Note**: Example files are in `env.d.example/`. Copy the entire directory to `env.d/` to get started.
 
+#### Custom login/logout background and logo
+
+To use the same background image as the Nebula Commander login screen on Keycloak’s login and logout pages:
+
+1. **Use the provided theme** (recommended):  
+   See [keycloak-theme/README.md](keycloak-theme/README.md). The `keycloak-theme` folder contains a minimal theme that extends Keycloak’s default and sets the background. Copy `nebula-bg.webp` from the frontend (`frontend/public/nebula-bg.webp`) into `keycloak-theme/login/resources/img/`, then mount the theme into the Keycloak container and select the theme in the admin console.
+
+2. **Manual theme steps** (if you prefer to build your own):
+   - Create a theme that extends the default (e.g. `parent=keycloak` in `theme.properties`).
+   - In the login theme’s CSS (e.g. `login/resources/css/login.css`), add:
+     ```css
+     body { background-image: url(../img/nebula-bg.webp); background-size: cover; background-position: center; }
+     ```
+   - Place your background image in `login/resources/img/`.
+   - Mount the theme directory into the container at `/opt/keycloak/themes/<your-theme-name>` (see Keycloak docs for your version), or package as a JAR and add to `/opt/keycloak/providers/`.
+   - In Keycloak Admin: **Realm** → **Realm settings** → **Themes** → set **Login theme** and **Account theme** (for logout) to your theme name, then save.
+
 ### Production Deployment
 
 For production use:
@@ -428,17 +480,19 @@ The backend will use the `/api/auth/dev-token` endpoint when OIDC is not configu
 To use an external OIDC provider (Authentik, Auth0, etc.) instead of the bundled Keycloak:
 
 1. Configure your OIDC provider with:
-   - Redirect URI: `http://your-domain/api/auth/callback`
+   - Redirect URI: your public app URL + `/api/auth/callback` (e.g. `https://nebula.example.com/api/auth/callback`)
    - Client type: Confidential
    - Grant type: Authorization Code
 
 2. Update `env.d/backend`:
    ```bash
+   NEBULA_COMMANDER_PUBLIC_URL=https://nebula.example.com
    NEBULA_COMMANDER_OIDC_ISSUER_URL=https://your-oidc-provider.com
+   NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL=https://your-oidc-provider.com
    NEBULA_COMMANDER_OIDC_CLIENT_ID=your-client-id
    NEBULA_COMMANDER_OIDC_CLIENT_SECRET=your-client-secret
-   NEBULA_COMMANDER_OIDC_REDIRECT_URI=http://your-domain/api/auth/callback
    ```
+   (Redirect URI is derived from `NEBULA_COMMANDER_PUBLIC_URL` when unset.)
 
 3. Run without Keycloak:
    ```bash

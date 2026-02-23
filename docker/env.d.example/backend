@@ -34,19 +34,28 @@ NEBULA_COMMANDER_JWT_ALGORITHM=HS256
 NEBULA_COMMANDER_JWT_EXPIRATION_MINUTES=1440
 
 # =============================================================================
+# Public URL (required for OIDC and redirects)
+# =============================================================================
+# Base URL where users reach the app (browser). All auth redirects and callbacks
+# use this. Supports FQDN or host:port. Backend and frontend may be on different hosts.
+# Examples: https://nebula.example.com  |  http://192.168.1.1:9091
+# If set, OIDC redirect URI is derived as PUBLIC_URL + /api/auth/callback.
+NEBULA_COMMANDER_PUBLIC_URL=https://nebula.example.com
+
+# =============================================================================
 # OIDC Configuration (Optional)
 # =============================================================================
-# Uncomment and configure to use OIDC authentication with Keycloak or other providers
+# Uncomment and configure to use OIDC authentication with Keycloak or other providers.
+# All user-facing auth (login redirect, callback, logout) goes through the public URL above.
 
-# OIDC Issuer URL (internal - for backend to backend communication)
-# For Keycloak in Docker: http://keycloak:8080/realms/{realm-name}
-# Use 'keycloak' as hostname when running in Docker Compose
-NEBULA_COMMANDER_OIDC_ISSUER_URL=http://keycloak:8080/realms/master
+# OIDC Issuer URL (internal - backend→Keycloak, same Docker network only)
+# Use CONTAINER port (8080). If Keycloak host port is 8082, still use 8080 here.
+NEBULA_COMMANDER_OIDC_ISSUER_URL=http://keycloak:8080/realms/nebula-commander
 
-# OIDC Public Issuer URL (external - for browser redirects like logout)
-# This should be the URL accessible from the user's browser
-# For local Keycloak: http://192.168.3.200:8080/realms/master
-NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL=http://192.168.3.200:8080/realms/master
+# OIDC Public Issuer URL (external - for browser: logout, discovery)
+# Keycloak as seen by the user's browser: FQDN or host:port.
+# Examples: https://auth.example.com/realms/nebula-commander  |  http://host:8082/realms/nebula-commander
+NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL=https://auth.example.com/realms/nebula-commander
 
 # OIDC Client ID (configured in Keycloak)
 NEBULA_COMMANDER_OIDC_CLIENT_ID=nebula-commander
@@ -59,9 +68,9 @@ NEBULA_COMMANDER_OIDC_CLIENT_SECRET=YOUR_KEYCLOAK_CLIENT_SECRET_HERE
 # Alternative: Use a secret file (more secure)
 # NEBULA_COMMANDER_OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc-secret
 
-# Redirect URI (where Keycloak sends the user after login)
-# This should match your frontend URL + /api/auth/callback
-NEBULA_COMMANDER_OIDC_REDIRECT_URI=http://192.168.3.200:9090/api/auth/callback
+# Redirect URI: derived from NEBULA_COMMANDER_PUBLIC_URL when unset (PUBLIC_URL + /api/auth/callback).
+# Override only if you need a different callback URL.
+# NEBULA_COMMANDER_OIDC_REDIRECT_URI=
 
 # OIDC Scopes (space-separated)
 NEBULA_COMMANDER_OIDC_SCOPES=openid profile email
@@ -70,11 +79,10 @@ NEBULA_COMMANDER_OIDC_SCOPES=openid profile email
 # CORS Configuration
 # =============================================================================
 
-# Allowed CORS origins (comma-separated)
+# Allowed CORS origins (comma-separated). Include your public app URL (FQDN or host:port).
 # ⚠️  SECURITY WARNING: Using '*' with credentials is insecure!
-# For production, specify exact origins: http://localhost:3000,https://yourdomain.com
-# For development, use: http://localhost:3000,http://localhost:5173,http://localhost:9090
-NEBULA_COMMANDER_CORS_ORIGINS=http://localhost:3000,http://localhost:5173,http://localhost:9090
+# Example: https://nebula.example.com  or  http://192.168.1.1:9091
+NEBULA_COMMANDER_CORS_ORIGINS=https://nebula.example.com
 
 # =============================================================================
 # Session Security
@@ -89,9 +97,8 @@ NEBULA_COMMANDER_SESSION_HTTPS_ONLY=false
 # =============================================================================
 
 # Allowed hosts for OAuth/OIDC redirects (comma-separated)
-# Prevents open redirect vulnerabilities by validating redirect URLs
-# If empty, the frontend URL is derived from OIDC redirect URI
-# Example: localhost:9090,yourdomain.com,192.168.1.100:9090
+# When empty and NEBULA_COMMANDER_PUBLIC_URL is set, derived from PUBLIC_URL (recommended).
+# Override only for multiple frontend hosts: nebula.example.com,192.168.1.1:9091
 NEBULA_COMMANDER_ALLOWED_REDIRECT_HOSTS=
 
 # =============================================================================
@@ -135,16 +142,15 @@ NEBULA_COMMANDER_DEBUG=true
 # =============================================================================
 # Notes
 # =============================================================================
-# 1. For OIDC with Keycloak, uncomment the OIDC settings above and configure:
-#    - Create a client in Keycloak with these settings:
-#      * Client ID: nebula-commander
-#      * Client authentication: ON (confidential)
-#      * Valid redirect URIs: http://localhost/api/auth/callback
-#      * Valid post logout redirect URIs: http://localhost
-#    - Copy the client secret from Keycloak and set it above
+# 1. Set NEBULA_COMMANDER_PUBLIC_URL to the URL users use (FQDN or host:port).
+#    Redirect URI and redirect validation are derived from it when possible.
 #
-# 2. For production:
+# 2. OIDC: Use internal issuer (keycloak:8080) for backend→Keycloak; use public
+#    issuer (FQDN or host:port) for browser-facing URLs. Frontend and backend
+#    can be on different hosts; auth flows use the public interface.
+#
+# 3. For production:
 #    - Change JWT_SECRET_KEY to a strong random value
-#    - Use HTTPS URLs for OIDC
+#    - Use HTTPS for PUBLIC_URL and OIDC public URLs
 #    - Set DEBUG=false
-#    - Configure appropriate CORS origins
+#    - CORS_ORIGINS should include your public URL

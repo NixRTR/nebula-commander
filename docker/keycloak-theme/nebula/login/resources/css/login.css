@@ -1,0 +1,214 @@
+/* Nebula theme – same as frontend: nebula bg + overlay, header, and login card */
+body {
+  position: relative;
+  background-color: #0f0f14;
+  background-image: url(../img/nebula-bg.webp);
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  min-height: 100vh;
+}
+/* Same overlay as frontend (bg-black/50) – behind all content so it never blocks clicks */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: -1 !important;
+  pointer-events: none !important;
+}
+/* Login area above overlay and interactive */
+#kc-content,
+.pf-v5-c-login,
+.pf-v5-c-login__container,
+.pf-v5-c-login__main,
+[data-pf5-c-login] {
+  position: relative;
+  z-index: 1;
+}
+#kc-header-wrapper {
+  display: none !important;
+}
+/* Center the login card on the page (fullscreen and otherwise) */
+.pf-v5-c-login,
+#kc-content-wrapper,
+[data-pf5-c-login] {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  min-height: 100vh;
+  width: 100%;
+}
+/* Container is full width; center its content; card is wider on large displays */
+.pf-v5-c-login__container {
+  display: flex !important;
+  justify-content: center !important;
+  align-items: center !important;
+  width: 100%;
+  max-width: 100%;
+}
+.pf-v5-c-login__main,
+#kc-content-wrapper .card-pf,
+#kc-form-wrapper {
+  min-width: 22rem;
+  max-width: 32rem;
+  width: 100%;
+}
+#kc-register-form.pf-v5-c-form,
+#kc-form-login {
+  width: 100%;
+  max-width: 100%;
+}
+
+/* Custom header: logo + "Nebula Commander" (match frontend Login.tsx) */
+.nebula-commander-header {
+  text-align: center;
+}
+.nebula-commander-logo {
+  height: 8rem;
+  width: auto;
+  margin: 0 auto;
+  display: block;
+}
+.nebula-commander-title {
+  margin-top: 1.5rem;
+  font-size: 1.875rem;
+  font-weight: 800;
+  color: #fff !important;
+  line-height: 1.2;
+  text-shadow: 0 0 8px rgba(0, 0, 0, 0.5);
+}
+.nebula-commander-subtitle {
+  margin-top: 0.5rem;
+  font-size: 0.875rem;
+  color: rgba(156, 163, 175, 1) !important;
+}
+/* Hide Keycloak’s default realm name (the “nebula-commander” label on the side) */
+#kc-header-wrapper,
+#kc-header {
+  display: none !important;
+}
+/* Remove vertical spacing: main header and body */
+.pf-v5-c-login__main .pf-v5-c-login__main-header,
+.pf-v5-c-login__main .pf-v5-c-login__main-body,
+.pf-v5-c-login__main-body {
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0 !important;
+}
+.pf-v5-c-login__main .pf-v5-c-login__main-header + .pf-v5-c-login__main-body,
+.pf-v5-c-login__main-footer {
+  margin-top: 0 !important;
+  padding-top: 0 !important;
+}
+
+/* Login and register card – dark panel, no border, no shadow */
+.pf-v5-c-login__main,
+#kc-content-wrapper .card-pf,
+#kc-form-wrapper,
+#kc-register-form,
+[class*="login__main"] {
+  background: rgba(17, 24, 39, 0.9) !important;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: 0.5rem;
+  border: none !important;
+  box-shadow: none !important;
+}
+/* Padding only on the outer card (main), not on inner form wrappers – avoids stacked padding and excess bottom space */
+.pf-v5-c-login__main,
+#kc-content-wrapper .card-pf {
+  padding: 2rem !important;
+}
+#kc-form-wrapper,
+#kc-register-form {
+  padding: 0 !important;
+}
+/* Remove all vertical spacing between form elements (login and register) */
+.pf-v5-c-login__main .pf-v5-c-form__group,
+#kc-form-wrapper .pf-v5-c-form__group,
+.pf-v5-c-form__group,
+.pf-v5-c-login__main .pf-v5-c-form__group-control,
+#kc-form-wrapper .pf-v5-c-form__group-control {
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.pf-v5-c-login__main .pf-v5-c-form__group + .pf-v5-c-form__group,
+#kc-form-wrapper .pf-v5-c-form__group + .pf-v5-c-form__group {
+  margin-top: 0 !important;
+}
+.pf-v5-c-login__main .pf-v5-u-flex-wrap,
+#kc-form-wrapper .pf-v5-u-flex-wrap,
+.pf-v5-c-login__main .pf-v5-c-form__group,
+#kc-form-wrapper .pf-v5-c-form__group {
+  gap: 0 !important;
+}
+.pf-v5-c-login__main .pf-v5-c-form__label,
+#kc-form-wrapper .pf-v5-c-form__label {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+/* Form text and labels – high contrast on dark card */
+.pf-v5-c-login__main .pf-v5-c-form__label,
+.pf-v5-c-login__main .pf-v5-c-title,
+#kc-form-wrapper .pf-v5-c-form__label,
+#kc-form-wrapper .pf-v5-c-title {
+  color: #e5e7eb !important;
+}
+/* Inputs – no padding, no vertical margin */
+.pf-v5-c-login__main .pf-v5-c-form-control,
+#kc-form-wrapper input,
+.pf-v5-c-form-control,
+#kc-register-form .pf-v5-c-form-control,
+#kc-register-form input {
+  background: rgba(31, 41, 55, 0.95) !important;
+  border: 1px solid rgba(75, 85, 99, 0.8) !important;
+  border-radius: 0.375rem;
+  color: #fff !important;
+  min-height: 2rem;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+.pf-v5-c-login__main .pf-v5-c-form-control::placeholder,
+.pf-v5-c-form-control::placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+/* Show password button – no vertical margin */
+.pf-v5-c-login__main .pf-v5-c-form-control__toggle-password,
+.pf-v5-c-login__main button[aria-label*="assword"],
+.pf-v5-c-input-group__button,
+.pf-v5-c-form-control + button {
+  margin: 0 0 0 0.5em !important;
+}
+/* Primary button – no extra margin */
+.pf-v5-c-login__main button[type="submit"],
+#kc-form-wrapper button[type="submit"],
+#kc-register-form button[type="submit"],
+.pf-v5-c-button.pf-m-primary,
+.pf-v5-c-login__main .pf-v5-c-button {
+  background-color: rgb(147, 51, 234) !important;
+  border-color: transparent !important;
+  color: #fff !important;
+  border-radius: 0.375rem;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  margin: 0 !important;
+}
+.pf-v5-c-login__main button[type="submit"]:hover,
+#kc-form-wrapper button[type="submit"]:hover,
+#kc-register-form button[type="submit"]:hover,
+.pf-v5-c-button.pf-m-primary:hover {
+  background-color: rgb(126, 34, 206) !important;
+}
+/* Register / links – purple accent, no extra spacing */
+.pf-v5-c-login__main a,
+#kc-form-wrapper a,
+#kc-register-form a,
+#kc-info a {
+  color: #a78bfa !important;
+  margin: 0 !important;
+}
+.pf-v5-c-login__main a:hover,
+#kc-form-wrapper a:hover {
+  color: #c4b5fd !important;
+}

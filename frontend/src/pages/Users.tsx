@@ -155,7 +155,7 @@ export const Users: React.FC = () => {
                           </Button>
                           <Button
                             size="xs"
-                            color="blue"
+                            color="purple"
                             onClick={() => handleEditRole(user)}
                           >
                             <HiPencil className="mr-1 h-4 w-4" />
