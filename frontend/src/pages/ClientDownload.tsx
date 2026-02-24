@@ -22,7 +22,7 @@ export function ClientDownload() {
       </p>
 
       <Card className="mb-6">
-        <h2 className="text-xl font-bold mb-2">Download ncclient (command-line)</h2>
+        <h2 className="text-xl font-bold mb-2">Raw binaries — ncclient (command-line)</h2>
         <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
           Pre-built command-line executables — no Python required. Served from this server so no internet access is needed after deployment.
         </p>
@@ -74,9 +74,24 @@ export function ClientDownload() {
             <li>Bundled Nebula binary (official Windows release)</li>
           </ul>
           <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-            Simply download and run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient-tray-windows-amd64.exe</code> — no installation needed.
+            Simply download and run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient-tray-windows-amd64.exe</code> — no installation needed. Or use the <a href="/downloads/NebulaCommander-windows-amd64.msi" className="text-purple-600 dark:text-purple-400 hover:underline">MSI installer</a> to install both ncclient and the tray app and add them to PATH.
           </p>
         </div>
+      </Card>
+
+      <Card className="mb-6">
+        <h2 className="text-xl font-bold mb-2">Windows MSI installer</h2>
+        <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
+          Single installer that installs both ncclient (CLI) and ncclient-tray, adds the install directory to PATH (optional), creates Start Menu shortcuts, and registers in Add or Remove Programs for clean uninstall.
+        </p>
+        <a
+          href="/downloads/NebulaCommander-windows-amd64.msi"
+          download="NebulaCommander-windows-amd64.msi"
+          className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 text-gray-900 dark:text-white transition-colors"
+        >
+          <HiDownload className="w-5 h-5 shrink-0" />
+          <span>Download NebulaCommander-windows-amd64.msi</span>
+        </a>
       </Card>
 
       <h2 className="text-xl font-bold mb-4">Alternative: install via Python (PyPI)</h2>

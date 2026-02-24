@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <?define Version = "0.0.0" ?>
+  <Package Name="Nebula Commander"
+           Manufacturer="NixRTR"
+           Version="$(var.Version)"
+           UpgradeCode="A7B8C9D0-E1F2-4A5B-8C9D-0E1F2A3B4C5D"
+           Language="1033"
+           Codepage="1252"
+           InstallerVersion="500"
+           Compressed="yes"
+           Scope="perMachine"
+           SummaryCodepage="1252">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Nebula Commander is already installed." />
+    <Media Id="1" Cabinet="NebulaCommander.cab" EmbedCab="yes" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/NixRTR/nebula-commander" />
+    <Property Id="ARPPRODUCTICON" Value="NcclientExe" />
+    <Icon Id="NcclientExe" SourceFile="redist\ncclient.exe" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLDIR" Name="Nebula Commander" />
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ProgramMenuDir" Name="Nebula Commander" />
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="Nebula Commander" Level="1" ConfigurableDirectory="INSTALLDIR">
+      <ComponentGroupRef Id="MainComponents" />
+    </Feature>
+
+    <Feature Id="AddToPath"
+             Title="Add install directory to PATH"
+             Description="Allows running ncclient from any command prompt."
+             Level="2">
+      <ComponentRef Id="PathEnvironment" />
+    </Feature>
+
+    <ComponentGroup Id="MainComponents" Directory="INSTALLDIR">
+      <Component Id="NcclientExe" Guid="B1C2D3E4-F5A6-4B7C-8D9E-0F1A2B3C4D5E">
+        <File Id="NcclientExe"
+              Source="redist\ncclient.exe"
+              KeyPath="yes">
+          <Shortcut Id="NcclientStartMenuShortcut"
+                    Name="Nebula Commander (CLI)"
+                    Description="Nebula Commander command-line client"
+                    Directory="ProgramMenuDir"
+                    WorkingDirectory="INSTALLDIR" />
+        </File>
+      </Component>
+      <Component Id="NcclientTrayExe" Guid="C2D3E4F5-A6B7-4C8D-9E0F-1A2B3C4D5E6F">
+        <File Id="NcclientTrayExe"
+              Source="redist\ncclient-tray.exe"
+              KeyPath="yes">
+          <Shortcut Id="TrayStartMenuShortcut"
+                    Name="Nebula Commander Tray"
+                    Description="Nebula Commander system tray application"
+                    Directory="ProgramMenuDir"
+                    WorkingDirectory="INSTALLDIR" />
+        </File>
+      </Component>
+    </ComponentGroup>
+
+    <DirectoryRef Id="INSTALLDIR">
+      <Component Id="PathEnvironment" Guid="D3E4F5A6-B7C8-4D9E-0F1A-2B3C4D5E6F7A">
+        <util:Environment Id="PathEnv"
+                          Name="PATH"
+                          Action="set"
+                          Part="last"
+                          Permanent="no"
+                          System="yes"
+                          Value="[INSTALLDIR]" />
+      </Component>
+    </DirectoryRef>
+  </Package>
+</Wix>

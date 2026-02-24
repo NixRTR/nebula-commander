@@ -9,6 +9,7 @@ on:
       - 'client/binaries/**'
       - 'client/windows/**'
       - 'client/ncclient.py'
+      - 'installer/windows/**'
       - '.github/workflows/build-ncclient-binaries.yml'
   workflow_dispatch:  # Allow manual trigger from Actions tab
 
@@ -185,10 +186,49 @@ jobs:
           path: artifacts/ncclient-tray-windows-amd64.exe
           if-no-files-found: error
 
+  # Build Windows MSI installer (ncclient + ncclient-tray)
+  build-msi:
+    name: Build Windows MSI
+    runs-on: windows-latest
+    needs: [build, build-windows-tray]
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts-in
+
+      - name: Prepare redist folder
+        run: |
+          New-Item -ItemType Directory -Force -Path installer\windows\redist
+          Copy-Item "artifacts-in\ncclient-windows-amd64.exe\ncclient-windows-amd64.exe" "installer\windows\redist\ncclient.exe"
+          Copy-Item "artifacts-in\ncclient-tray-windows-amd64.exe\ncclient-tray-windows-amd64.exe" "installer\windows\redist\ncclient-tray.exe"
+
+      - name: Install WiX v4
+        run: dotnet tool install --global wix
+
+      - name: Build MSI
+        id: build-msi
+        working-directory: installer/windows
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          wix build Product.wxs -ext WixToolset.Util.wixext -o NebulaCommander-windows-amd64.msi -d "Version=$version" -arch x64
+          if (-not (Test-Path NebulaCommander-windows-amd64.msi)) { exit 1 }
+          (Get-Item NebulaCommander-windows-amd64.msi).Length
+
+      - name: Upload MSI artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NebulaCommander-windows-amd64.msi
+          path: installer/windows/NebulaCommander-windows-amd64.msi
+
   # Upload all binaries and checksums to GitHub Release (single job to avoid concurrent finalization)
   upload-release:
     name: Upload to Release
-    needs: [build, build-windows-tray]
+    needs: [build, build-windows-tray, build-msi]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -211,7 +251,7 @@ jobs:
             rmdir "$d" 2>/dev/null || true
             mv "./.tmp_$d" "./$d"
           done
-          sha256sum ncclient* > SHA256SUMS.txt
+          sha256sum ncclient* NebulaCommander* > SHA256SUMS.txt
           echo "=== Release files ==="
           ls -la
           echo "=== Checksums ==="
