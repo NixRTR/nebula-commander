@@ -31,6 +31,21 @@ import threading
 import time
 from typing import Callable
 
+# Env vars that can make a child load the PyInstaller-extracted libs instead of system libs.
+# When we run systemctl (or any system binary), clear these so it uses system libraries only.
+_SYSTEM_LIBRARY_ENV_STRIP = ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LIBPATH")
+
+
+def _env_for_system_binaries() -> dict[str, str]:
+    """Return environment for running system binaries (e.g. systemctl) without PyInstaller lib path.
+    Use this so systemctl loads system OpenSSL instead of the bundled libcrypto (avoids
+    OPENSSL_3.4.0 not found on openSUSE and similar)."""
+    env = os.environ.copy()
+    for key in _SYSTEM_LIBRARY_ENV_STRIP:
+        env.pop(key, None)
+    return env
+
+
 # systemd unit template for ncclient install (ExecStart path is substituted)
 _SYSTEMD_UNIT_TEMPLATE = """[Unit]
 Description=Nebula Commander device client (ncclient)
@@ -154,6 +169,7 @@ def _restart_systemd_service(service_name: str) -> bool:
             check=True,
             capture_output=True,
             timeout=30,
+            env=_env_for_system_binaries(),
         )
         print(f"Restarted systemd service: {service_name}")
         return True
@@ -265,8 +281,9 @@ def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
         sys.exit(1)
 
     try:
-        subprocess.run(["systemctl", "daemon-reload"], check=True, capture_output=True, timeout=30)
-        subprocess.run(["systemctl", "enable", "ncclient"], check=True, capture_output=True, timeout=30)
+        _sysenv = _env_for_system_binaries()
+        subprocess.run(["systemctl", "daemon-reload"], check=True, capture_output=True, timeout=30, env=_sysenv)
+        subprocess.run(["systemctl", "enable", "ncclient"], check=True, capture_output=True, timeout=30, env=_sysenv)
         print("Enabled ncclient service.")
     except subprocess.CalledProcessError as e:
         print(f"systemctl failed: {e.stderr.decode() if e.stderr else e}", file=sys.stderr)
@@ -282,7 +299,7 @@ def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
             ans = _prompt("Start ncclient service now?", "Y").strip().upper()
             if ans in ("", "Y", "YES"):
                 try:
-                    subprocess.run(["systemctl", "start", "ncclient"], check=True, capture_output=True, timeout=30)
+                    subprocess.run(["systemctl", "start", "ncclient"], check=True, capture_output=True, timeout=30, env=_env_for_system_binaries())
                     print("Started ncclient service.")
                 except subprocess.CalledProcessError as e:
                     print(f"systemctl start failed: {e.stderr.decode() if e.stderr else e}", file=sys.stderr)
