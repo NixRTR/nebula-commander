@@ -20,8 +20,8 @@ import {
   getNode,
   updateNode,
   getNodeConfigBlob,
-  getNodeCertsBlob,
   createEnrollmentCode,
+  listGroupFirewall,
   createCertificate,
   checkIpAvailable,
   deleteNode,
@@ -153,6 +153,8 @@ export function Nodes() {
   const [nodeNameError, setNodeNameError] = useState<string | null>(null);
   const [suggestedIpError, setSuggestedIpError] = useState<string | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [createGroupOptions, setCreateGroupOptions] = useState<string[]>([]);
+  const [editGroupOptions, setEditGroupOptions] = useState<string[]>([]);
 
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
@@ -190,6 +192,49 @@ export function Nodes() {
     const id = setTimeout(loadNodes, 0);
     return () => clearTimeout(id);
   }, [loadNodes]);
+
+  useEffect(() => {
+    const nid = createNodeForm.network_id;
+    if (!nid) {
+      queueMicrotask(() => setCreateGroupOptions([]));
+      return;
+    }
+    let cancelled = false;
+    listGroupFirewall(nid)
+      .then((list) => {
+        if (cancelled) return;
+        const names = list.map((g) => g.group_name);
+        setCreateGroupOptions(names);
+        setCreateNodeForm((prev) =>
+          prev.network_id === nid && prev.group && !names.includes(prev.group) ? { ...prev, group: "" } : prev
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setCreateGroupOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [createNodeForm.network_id]);
+
+  useEffect(() => {
+    const networkId = deviceDetailsModal.node?.network_id;
+    if (!networkId) {
+      queueMicrotask(() => setEditGroupOptions([]));
+      return;
+    }
+    let cancelled = false;
+    listGroupFirewall(networkId)
+      .then((list) => {
+        if (!cancelled) setEditGroupOptions(list.map((g) => g.group_name));
+      })
+      .catch(() => {
+        if (!cancelled) setEditGroupOptions([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [deviceDetailsModal.node?.network_id]);
 
   const handleCreateNodeNameBlur = useCallback(() => {
     const name = createNodeForm.name.trim();
@@ -491,16 +536,6 @@ export function Nodes() {
     }
   };
 
-  const handleDownloadCerts = async (node: Node) => {
-    setDownloadError(null);
-    try {
-      const blob = await getNodeCertsBlob(node.id);
-      downloadBlob(blob, `node-${node.hostname}-certs.zip`);
-    } catch (e) {
-      setDownloadError(e instanceof Error ? e.message : "Download failed");
-    }
-  };
-
   const openEnrollmentCodeModal = (node: Node) => {
     setEnrollmentCodeModal({
       open: true,
@@ -694,25 +729,35 @@ export function Nodes() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <Label htmlFor="create_node_group" value="Group (one role, e.g. servers)" />
-                      <TextInput
-                        id="create_node_group"
-                        type="text"
-                        value={createNodeForm.group}
-                        onChange={(e) => setCreateNodeForm((f) => ({ ...f, group: e.target.value }))}
-                        placeholder="e.g. servers"
-                        list="create_node_group_list"
-                      />
-                      <datalist id="create_node_group_list">
-                        {[
-                          ...new Set(
-                            nodes
-                              .filter((n) => n.network_id === createNodeForm.network_id)
-                              .flatMap((n) => n.groups ?? [])
-                          ),
-                        ].map((g) => (
-                          <option key={g} value={g} />
-                        ))}
-                      </datalist>
+                      {createGroupOptions.length === 0 ? (
+                        <>
+                          <Select
+                            id="create_node_group"
+                            value=""
+                            disabled
+                            className="w-full"
+                          >
+                            <option value="">No groups configured</option>
+                          </Select>
+                          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                            In order to use groups, please add one first.
+                          </p>
+                        </>
+                      ) : (
+                        <Select
+                          id="create_node_group"
+                          value={createNodeForm.group}
+                          onChange={(e) => setCreateNodeForm((f) => ({ ...f, group: e.target.value }))}
+                          className="w-full"
+                        >
+                          <option value="">No group</option>
+                          {createGroupOptions.map((g) => (
+                            <option key={g} value={g}>
+                              {g}
+                            </option>
+                          ))}
+                        </Select>
+                      )}
                     </div>
                     <div>
                       <Label htmlFor="create_node_suggested_ip" value="Suggested IP (optional)" />
@@ -1044,14 +1089,6 @@ export function Nodes() {
                             <HiDownload className="w-4 h-4 mr-1" />
                             Config
                           </Button>
-                          {n.ip_address ? (
-                            <Button size="xs" color="gray" onClick={() => handleDownloadCerts(n)}>
-                              <HiDownload className="w-4 h-4 mr-1" />
-                              Certs
-                            </Button>
-                          ) : (
-                            <span className="text-gray-400 text-xs">No cert</span>
-                          )}
                           <Button size="xs" color="failure" onClick={() => openDeleteModal(n)}>
                             <HiTrash className="w-4 h-4 mr-1" />
                             Delete
@@ -1120,29 +1157,41 @@ export function Nodes() {
                                   <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
                                     <div className="min-w-0">
                                       <Label htmlFor="dd_group" value="Group (one role)" className="text-gray-500 dark:text-gray-400" />
-                                      <TextInput
-                                        id="dd_group"
-                                        type="text"
-                                        value={deviceDetailsForm.group}
-                                        onChange={(e) => setDeviceDetailsForm((f) => ({ ...f, group: e.target.value }))}
-                                        placeholder="e.g. servers"
-                                        disabled={!deviceDetailsModal.isEditing}
-                                        list="dd_group_list"
-                                        className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                      />
-                                      <datalist id="dd_group_list">
-                                        {(
-                                          deviceDetailsModal.node
-                                            ? [...new Set(
-                                                nodes
-                                                  .filter((n) => n.network_id === deviceDetailsModal.node!.network_id)
-                                                  .flatMap((n) => n.groups ?? [])
-                                              )]
-                                            : []
-                                        ).map((g) => (
-                                          <option key={g} value={g} />
-                                        ))}
-                                      </datalist>
+                                      {editGroupOptions.length === 0 ? (
+                                        <>
+                                          <Select
+                                            id="dd_group"
+                                            value=""
+                                            disabled
+                                            className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 cursor-default" : ""}`}
+                                          >
+                                            <option value="">No groups configured</option>
+                                          </Select>
+                                          <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                            In order to use groups, please add one first.
+                                          </p>
+                                        </>
+                                      ) : (
+                                        <Select
+                                          id="dd_group"
+                                          value={deviceDetailsForm.group}
+                                          onChange={(e) => setDeviceDetailsForm((f) => ({ ...f, group: e.target.value }))}
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 cursor-default" : ""}`}
+                                        >
+                                          <option value="">No group</option>
+                                          {[
+                                            ...(deviceDetailsForm.group && !editGroupOptions.includes(deviceDetailsForm.group)
+                                              ? [deviceDetailsForm.group]
+                                              : []),
+                                            ...editGroupOptions,
+                                          ].map((g) => (
+                                            <option key={g} value={g}>
+                                              {g}
+                                            </option>
+                                          ))}
+                                        </Select>
+                                      )}
                                     </div>
                                     <div className="flex flex-wrap items-center gap-4">
                                       <div className="flex items-center gap-2">

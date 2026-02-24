@@ -386,6 +386,11 @@ async def reenroll_node(
         node.cert_fingerprint = None
         await session.flush()
 
+    # Device is not enrolled until it polls with the new code
+    node.first_polled_at = None
+    node.last_seen = None
+    await session.flush()
+
     # Load network and create new certificate for existing node
     net_result = await session.execute(select(Network).where(Network.id == node.network_id))
     network = net_result.scalar_one_or_none()

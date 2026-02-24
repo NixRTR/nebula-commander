@@ -135,23 +135,61 @@ async def enroll(
 
 @router.get("/config")
 async def device_config(
+    request: Request,
     node_id: int = Depends(require_device_token),
     session: AsyncSession = Depends(get_session),
 ):
-    """Return Nebula YAML config for this device. Use Authorization: Bearer <device_token>."""
-    yaml_config = await generate_config_for_node(session, node_id)
-    if yaml_config is None:
-        raise HTTPException(status_code=404, detail="Node not found")
+    """
+    Return Nebula YAML config for this device (inline PKI). Use Authorization: Bearer <device_token>.
+    Send If-None-Match: <etag> to get 304 when config unchanged.
+    """
     result = await session.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
-    if node and node.first_polled_at is None:
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    if node.first_polled_at is None:
         node.first_polled_at = datetime.utcnow()
         await session.flush()
+    if not node.ip_address:
+        raise HTTPException(
+            status_code=404,
+            detail="Node has no certificate. Create a certificate in the UI first.",
+        )
+    result = await session.execute(select(Network).where(Network.id == node.network_id))
+    network = result.scalar_one_or_none()
+    if not network or not network.ca_cert_path:
+        raise HTTPException(status_code=404, detail="Network or CA not found")
+    host_cert_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.crt"
+    if not host_cert_path.exists():
+        raise HTTPException(status_code=404, detail="Host certificate not found")
+    host_key_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.key"
+    if not host_key_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Host key not stored. Create the certificate in the UI so the key is stored for inline config.",
+        )
+    ca_path = Path(network.ca_cert_path)
+    if not ca_path.exists():
+        raise HTTPException(status_code=404, detail="CA certificate not found")
+    ca_content = ca_path.read_text()
+    host_cert_content = host_cert_path.read_text()
+    host_key_content = host_key_path.read_text()
+    inline_pki = (ca_content, host_cert_content, host_key_content)
+    yaml_config = await generate_config_for_node(session, node_id, inline_pki=inline_pki)
+    if yaml_config is None:
+        raise HTTPException(status_code=404, detail="Node not found")
+    etag = hashlib.sha256(yaml_config.encode("utf-8")).hexdigest()
+    if_none_match = (request.headers.get("If-None-Match") or "").strip().strip('"')
+    if if_none_match and if_none_match == etag:
+        return Response(status_code=304)
     filename = f"{node.hostname}.yaml" if node else "config.yaml"
     return Response(
         content=yaml_config,
         media_type="application/yaml",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "ETag": etag,
+        },
     )
 
 
@@ -208,68 +246,3 @@ async def device_certs(
     )
 
 
-@router.get("/bundle")
-async def device_bundle(
-    node_id: int = Depends(require_device_token),
-    session: AsyncSession = Depends(get_session),
-):
-    """
-    Return a single ZIP with config.yaml, ca.crt, host.crt, README.txt.
-    Client can poll this once per minute and extract all files (dnclient-style).
-    """
-    result = await session.execute(select(Node).where(Node.id == node_id))
-    node = result.scalar_one_or_none()
-    if not node:
-        raise HTTPException(status_code=404, detail="Node not found")
-    if node.first_polled_at is None:
-        node.first_polled_at = datetime.utcnow()
-        await session.flush()
-    if not node.ip_address:
-        raise HTTPException(
-            status_code=404,
-            detail="Node has no certificate. Create a certificate in the UI first.",
-        )
-    result = await session.execute(select(Network).where(Network.id == node.network_id))
-    network = result.scalar_one_or_none()
-    if not network or not network.ca_cert_path:
-        raise HTTPException(status_code=404, detail="Network or CA not found")
-    host_cert_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.crt"
-    if not host_cert_path.exists():
-        raise HTTPException(status_code=404, detail="Host certificate file not found")
-    host_key_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.key"
-    ca_path = Path(network.ca_cert_path)
-    if not ca_path.exists():
-        raise HTTPException(status_code=404, detail="CA certificate file not found")
-    ca_content = ca_path.read_text()
-    host_cert_content = host_cert_path.read_text()
-    if host_key_path.exists():
-        host_key_content = host_key_path.read_text()
-        readme = "config.yaml has CA, cert, and key embedded. Optional: ca.crt, host.crt, host.key are also included.\n"
-        inline_pki = (ca_content, host_cert_content, host_key_content)
-    else:
-        host_key_content = None
-        readme = "Place host.key (saved when you created the certificate) in the same directory. config.yaml uses file paths.\n"
-        inline_pki = None
-    yaml_config = await generate_config_for_node(session, node_id, inline_pki=inline_pki)
-    if yaml_config is None:
-        raise HTTPException(status_code=404, detail="Node not found")
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("config.yaml", yaml_config)
-        zf.writestr("ca.crt", ca_content)
-        zf.writestr("host.crt", host_cert_content)
-        if host_key_content is not None:
-            zf.writestr("host.key", host_key_content)
-        zf.writestr("README.txt", readme)
-    buf.seek(0)
-    zip_bytes = buf.getvalue()
-    etag = hashlib.sha256(zip_bytes).hexdigest()
-    filename = f"nebula-{node.hostname}.zip"
-    return Response(
-        content=zip_bytes,
-        media_type="application/zip",
-        headers={
-            "Content-Disposition": f'attachment; filename="{filename}"',
-            "ETag": etag,
-        },
-    )
