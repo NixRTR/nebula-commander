@@ -210,6 +210,9 @@ jobs:
       - name: Install WiX v4
         run: dotnet tool install --global wix
 
+      - name: Add WiX Util extension
+        run: wix extension add -g WixToolset.Util.wixext
+
       - name: Build MSI
         id: build-msi
         working-directory: installer/windows

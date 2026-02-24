@@ -14,7 +14,11 @@ WiX v4 installer that installs **ncclient** (CLI) and **ncclient-tray** (system 
 1. Copy or build the two exes into `installer/windows/redist/`:
    - `ncclient.exe` (from `client/binaries/dist/ncclient.exe` after PyInstaller build)
    - `ncclient-tray.exe` (from `client/windows/dist/ncclient-tray.exe` after tray build)
-2. From `installer/windows/` run:
+2. If you installed WiX via `dotnet tool install -g wix`, add the Util extension once:
+   ```powershell
+   wix extension add -g WixToolset.Util.wixext
+   ```
+3. From `installer/windows/` run:
 
    ```powershell
    wix build Product.wxs -ext WixToolset.Util.wixext -o NebulaCommander-windows-amd64.msi -d Version=0.1.12 -arch x64
