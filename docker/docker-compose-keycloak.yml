@@ -33,7 +33,7 @@ services:
     build:
       context: ..
       dockerfile: docker/keycloak/Dockerfile
-    image: nebula-commander-keycloak:latest
+    image: ghcr.io/nixrtr/nebula-commander-keycloak:latest
     container_name: keycloak
     restart: unless-stopped
     env_file:

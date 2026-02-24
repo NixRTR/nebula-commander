@@ -11,6 +11,7 @@ env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE_NAME: nixrtr/nebula-commander-backend
   FRONTEND_IMAGE_NAME: nixrtr/nebula-commander-frontend
+  KEYCLOAK_IMAGE_NAME: nixrtr/nebula-commander-keycloak
 
 jobs:
   get-version:
@@ -139,10 +140,54 @@ jobs:
           cache-to: type=gha,mode=max
           platforms: linux/amd64,linux/arm64
 
+  build-keycloak:
+    name: Build Keycloak Image
+    needs: get-version
+    if: needs.get-version.outputs.version != ''
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.KEYCLOAK_IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ needs.get-version.outputs.version }}
+            type=raw,value=latest
+
+      - name: Build and push keycloak image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/keycloak/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          platforms: linux/amd64,linux/arm64
+
   # Summary job
   summary:
     name: Build Summary
-    needs: [get-version, build-backend, build-frontend]
+    needs: [get-version, build-backend, build-frontend, build-keycloak]
     runs-on: ubuntu-latest
     if: always() && needs.get-version.outputs.version != ''
     steps:
@@ -154,3 +199,4 @@ jobs:
           echo "Available at:"
           echo "  - ghcr.io/nixrtr/nebula-commander-backend:${{ needs.get-version.outputs.version }}"
           echo "  - ghcr.io/nixrtr/nebula-commander-frontend:${{ needs.get-version.outputs.version }}"
+          echo "  - ghcr.io/nixrtr/nebula-commander-keycloak:${{ needs.get-version.outputs.version }}"
