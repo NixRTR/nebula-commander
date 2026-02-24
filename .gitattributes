@@ -1,0 +1,2 @@
+# Ensure shell scripts use LF so exec works in containers (no "no such file or directory" from CRLF shebang)
+docker/keycloak/*.sh text eol=lf

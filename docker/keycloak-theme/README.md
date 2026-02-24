@@ -8,7 +8,7 @@ When using **realm import** (see [keycloak-import/README.md](keycloak-import/REA
 
 - **Background**: Same as frontend — `nebula/login/resources/img/nebula-bg.webp` (copy from `frontend/public/nebula-bg.webp` if you add it there). A dark overlay is applied in CSS to match the frontend.
 - **Header**: Logo (`logo.svg`) and “Nebula Commander” in large text, plus subtitle “Sign in to manage your Nebula network”.
-- The theme is mounted in `docker-compose-keycloak.yml`. Start Keycloak with the Keycloak compose file; the imported realm will use this theme automatically.
+When using the **custom Keycloak image** (see docker/README.md), this theme is baked into the image; no host mount is needed. Before building that image, ensure `nebula-bg.webp` is in `nebula/login/resources/img/` (or copy from `frontend/public/nebula-bg.webp`). Start Keycloak with the Keycloak compose file; the imported realm will use this theme automatically.
 
 ## Manual setup (if not using realm import)
 

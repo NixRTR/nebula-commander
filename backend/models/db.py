@@ -35,21 +35,23 @@ class Network(Base):
     firewall_inbound_rules: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
-    nodes: Mapped[list["Node"]] = relationship("Node", back_populates="network")
+    nodes: Mapped[list["Node"]] = relationship(
+        "Node", back_populates="network", cascade="all, delete-orphan"
+    )
     allocated_ips: Mapped[list["AllocatedIP"]] = relationship(
-        "AllocatedIP", back_populates="network"
+        "AllocatedIP", back_populates="network", cascade="all, delete-orphan"
     )
     group_firewalls: Mapped[list["NetworkGroupFirewall"]] = relationship(
         "NetworkGroupFirewall", back_populates="network", cascade="all, delete-orphan"
     )
     permissions: Mapped[list["NetworkPermission"]] = relationship(
-        "NetworkPermission", back_populates="network"
+        "NetworkPermission", back_populates="network", cascade="all, delete-orphan"
     )
     settings: Mapped[Optional["NetworkSettings"]] = relationship(
-        "NetworkSettings", back_populates="network", uselist=False
+        "NetworkSettings", back_populates="network", uselist=False, cascade="all, delete-orphan"
     )
     node_requests: Mapped[list["NodeRequest"]] = relationship(
-        "NodeRequest", back_populates="network"
+        "NodeRequest", back_populates="network", cascade="all, delete-orphan"
     )
 
 
@@ -96,16 +98,16 @@ class Node(Base):
 
     network: Mapped["Network"] = relationship("Network", back_populates="nodes")
     certificates: Mapped[list["Certificate"]] = relationship(
-        "Certificate", back_populates="node"
+        "Certificate", back_populates="node", cascade="all, delete-orphan"
     )
     configs: Mapped[list["NetworkConfig"]] = relationship(
-        "NetworkConfig", back_populates="node"
+        "NetworkConfig", back_populates="node", cascade="all, delete-orphan"
     )
     enrollment_codes: Mapped[list["EnrollmentCode"]] = relationship(
-        "EnrollmentCode", back_populates="node"
+        "EnrollmentCode", back_populates="node", cascade="all, delete-orphan"
     )
     permissions: Mapped[list["NodePermission"]] = relationship(
-        "NodePermission", back_populates="node"
+        "NodePermission", back_populates="node", cascade="all, delete-orphan"
     )
 
 

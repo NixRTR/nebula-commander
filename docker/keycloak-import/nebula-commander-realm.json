@@ -17,7 +17,8 @@
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
       "redirectUris": [
-        "${NEBULA_COMMANDER_PUBLIC_URL}/api/auth/callback"
+        "${NEBULA_COMMANDER_PUBLIC_URL}/api/auth/callback",
+        "${NEBULA_COMMANDER_PUBLIC_URL}/api/auth/reauth/callback"
       ],
       "webOrigins": [
         "${NEBULA_COMMANDER_PUBLIC_URL}"

@@ -1,9 +1,12 @@
 """Auth API: login and dev token for development."""
+import base64
+import json
+import logging
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import urlencode, urlparse
-import logging
 
+import httpx
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
@@ -298,15 +301,13 @@ async def create_reauth(
             reauth_url=reauth_url
         )
     
-    # Construct Keycloak login URL with prompt=login to force reauthentication
-    host = request.headers.get("host", request.url.netloc)
-    callback_url = f"{request.url.scheme}://{host}/auth/reauth/callback?challenge={challenge}"
-    
-    # Use Keycloak authorize endpoint with prompt=login
+    reauth_redirect_uri = _get_reauth_redirect_uri(request)
+
+    # Use Keycloak authorize endpoint with prompt=login; challenge is passed as state (not in redirect_uri)
     issuer_url = settings.oidc_public_issuer_url or settings.oidc_issuer_url
     auth_params = urlencode({
         'client_id': settings.oidc_client_id,
-        'redirect_uri': callback_url,
+        'redirect_uri': reauth_redirect_uri,
         'response_type': 'code',
         'scope': settings.oidc_scopes,
         'prompt': 'login',  # Force reauthentication
@@ -320,53 +321,93 @@ async def create_reauth(
     )
 
 
+def _get_reauth_redirect_uri(request: Request) -> str:
+    """Same redirect_uri as used when building the reauth auth URL (must match for token exchange)."""
+    if settings.oidc_redirect_uri:
+        return (
+            settings.oidc_redirect_uri.rstrip("/").removesuffix("/api/auth/callback")
+            + "/api/auth/reauth/callback"
+        )
+    return str(request.url_for("reauth_callback"))
+
+
 @router.get("/reauth/callback")
-async def reauth_callback(request: Request, challenge: str):
+async def reauth_callback(request: Request):
     """
-    Reauthentication callback endpoint. Validates that user reauthenticated
-    and returns a reauth token to the frontend.
+    Reauthentication callback endpoint. Keycloak redirects here with code and state (our challenge).
+    We exchange the code for tokens manually (no authlib session) and validate state ourselves.
     """
+    challenge = request.query_params.get("state") or ""
+    if not challenge:
+        frontend_url = get_safe_redirect_url(request)
+        return RedirectResponse(url=f"{frontend_url}/reauth/complete?error=missing_state")
+
     if not settings.oidc_issuer_url:
         # Dev mode: just mark as completed
-        # In production, this should validate the user actually reauthenticated
         mark_reauth_completed("dev", challenge)
         token = create_reauth_token("dev", challenge)
         frontend_url = get_safe_redirect_url(request)
         return RedirectResponse(url=f"{frontend_url}/reauth/complete?token={token}")
-    
-    client = get_oauth_client()
-    if not client:
-        raise HTTPException(status_code=500, detail="OAuth client not initialized")
-    
-    try:
-        # Exchange authorization code for tokens
-        token = await client.authorize_access_token(request)
-        
-        # Get user info
-        user_info = token.get('userinfo')
-        if not user_info:
-            id_token = token.get('id_token')
-            if id_token:
-                user_info = id_token
-            else:
-                user_info = await client.userinfo(token=token)
-        
-        user_sub = user_info.get("sub")
-        
-        # Mark reauthentication as completed
-        if mark_reauth_completed(user_sub, challenge):
-            # Create reauth token
-            reauth_token = create_reauth_token(user_sub, challenge)
-            
-            # Redirect to frontend with reauth token
-            frontend_url = get_safe_redirect_url(request)
-            return RedirectResponse(url=f"{frontend_url}/reauth/complete?token={reauth_token}")
-        else:
-            raise HTTPException(status_code=400, detail="Invalid or expired challenge")
-            
-    except Exception as e:
-        print(f"Reauth callback error: {e}")
-        import traceback
-        traceback.print_exc()
+
+    code = request.query_params.get("code")
+    if not code:
         frontend_url = get_safe_redirect_url(request)
-        return RedirectResponse(url=f"{frontend_url}?error=reauth_failed")
+        return RedirectResponse(url=f"{frontend_url}/reauth/complete?error=missing_code")
+
+    redirect_uri = _get_reauth_redirect_uri(request)
+    issuer_base = (settings.oidc_public_issuer_url or settings.oidc_issuer_url or "").rstrip("/")
+    token_url = f"{issuer_base}/protocol/openid-connect/token"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as http_client:
+            token_response = await http_client.post(
+                token_url,
+                data={
+                    "grant_type": "authorization_code",
+                    "code": code,
+                    "redirect_uri": redirect_uri,
+                    "client_id": settings.oidc_client_id,
+                    "client_secret": settings.oidc_client_secret,
+                },
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+            )
+            token_response.raise_for_status()
+            token_data = token_response.json()
+    except Exception as e:
+        logger.exception("Reauth token exchange failed: %s", e)
+        frontend_url = get_safe_redirect_url(request)
+        return RedirectResponse(url=f"{frontend_url}/reauth/complete?error=reauth_failed")
+
+    # Get user sub from id_token (decode payload only; we only need sub to tie to challenge)
+    user_sub = None
+    id_token = token_data.get("id_token")
+    if id_token:
+        try:
+            parts = id_token.split(".")
+            if len(parts) >= 2:
+                payload_b64 = parts[1]
+                payload_b64 += "=" * (4 - len(payload_b64) % 4)
+                payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+                user_sub = payload.get("sub")
+        except Exception:
+            pass
+    if not user_sub and token_data.get("access_token"):
+        # Fallback: userinfo endpoint
+        client = get_oauth_client()
+        if client:
+            try:
+                user_info = await client.userinfo(token=token_data)
+                user_sub = user_info.get("sub") if user_info else None
+            except Exception:
+                pass
+    if not user_sub:
+        frontend_url = get_safe_redirect_url(request)
+        return RedirectResponse(url=f"{frontend_url}/reauth/complete?error=reauth_failed")
+
+    if not mark_reauth_completed(user_sub, challenge):
+        frontend_url = get_safe_redirect_url(request)
+        return RedirectResponse(url=f"{frontend_url}/reauth/complete?error=invalid_challenge")
+
+    reauth_token = create_reauth_token(user_sub, challenge)
+    frontend_url = get_safe_redirect_url(request)
+    return RedirectResponse(url=f"{frontend_url}/reauth/complete?token={reauth_token}")
