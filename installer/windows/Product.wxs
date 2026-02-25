@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
-     xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <?define Version = "0.0.0" ?>
   <Package Name="Nebula Commander"
            Manufacturer="NixRTR"
@@ -10,8 +9,8 @@
            Codepage="1252"
            InstallerVersion="500"
            Compressed="yes"
-           Scope="perMachine"
-           SummaryCodepage="1252">
+           Scope="perMachine">
+    <SummaryInformation Codepage="1252" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of Nebula Commander is already installed." />
     <Media Id="1" Cabinet="NebulaCommander.cab" EmbedCab="yes" />
     <Property Id="ARPHELPLINK" Value="https://github.com/NixRTR/nebula-commander" />
@@ -64,13 +63,13 @@
 
     <DirectoryRef Id="INSTALLDIR">
       <Component Id="PathEnvironment" Guid="D3E4F5A6-B7C8-4D9E-0F1A-2B3C4D5E6F7A">
-        <util:Environment Id="PathEnv"
-                          Name="PATH"
-                          Action="set"
-                          Part="last"
-                          Permanent="no"
-                          System="yes"
-                          Value="[INSTALLDIR]" />
+        <Environment Id="PathEnv"
+                     Name="PATH"
+                     Action="set"
+                     Part="last"
+                     Permanent="no"
+                     System="yes"
+                     Value="[INSTALLDIR]" />
       </Component>
     </DirectoryRef>
   </Package>

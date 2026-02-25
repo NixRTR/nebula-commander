@@ -207,11 +207,11 @@ jobs:
           Copy-Item "artifacts-in\ncclient-windows-amd64.exe\ncclient-windows-amd64.exe" "installer\windows\redist\ncclient.exe"
           Copy-Item "artifacts-in\ncclient-tray-windows-amd64.exe\ncclient-tray-windows-amd64.exe" "installer\windows\redist\ncclient-tray.exe"
 
-      - name: Install WiX v4
-        run: dotnet tool install --global wix
+      - name: Install WiX 5
+        run: dotnet tool install --global wix --version 5.0.2
 
       - name: Add WiX Util extension
-        run: wix extension add -g WixToolset.Util.wixext
+        run: wix extension add -g WixToolset.Util.wixext/5.0.0
 
       - name: Build MSI
         id: build-msi

@@ -1,5 +1,5 @@
 # Build Nebula Commander MSI. Run from installer/windows/.
-# Requires: WiX v4, and redist/ncclient.exe + redist/ncclient-tray.exe
+# Requires: WiX 5, and redist/ncclient.exe + redist/ncclient-tray.exe
 # Usage: .\build-msi.ps1 [-Version "0.1.12"]
 
 param(

@@ -31,6 +31,9 @@ import threading
 import time
 from typing import Callable
 
+if sys.platform == "win32":
+    import ctypes
+
 # Env vars that can make a child load the PyInstaller-extracted libs instead of system libs.
 # When we run systemctl (or any system binary), clear these so it uses system libraries only.
 _SYSTEM_LIBRARY_ENV_STRIP = ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LIBPATH")
@@ -125,6 +128,37 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
     config = _config_path(output_dir)
     if not os.path.exists(config):
         return None
+    config_abs = os.path.abspath(config)
+    if sys.platform == "win32":
+        nebula_abs = os.path.abspath(nebula_bin) if os.path.dirname(nebula_bin) else (shutil.which(nebula_bin) or nebula_bin)
+    else:
+        nebula_abs = nebula_bin
+
+    if sys.platform == "win32":
+        # Nebula needs admin (TAP device, etc.). Start it elevated via UAC so
+        # ncclient/tray can stay normal user; we don't get a process handle back.
+        try:
+            shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+            SW_HIDE = 0
+            # ShellExecuteW(hwnd, lpVerb, lpFile, lpParameters, lpDirectory, nShowCmd)
+            result = shell32.ShellExecuteW(
+                None,
+                "runas",
+                nebula_abs,
+                f'-config "{config_abs}"',
+                output_dir,
+                SW_HIDE,
+            )
+            # ShellExecute returns value > 32 on success
+            if result <= 32:
+                print(f"Failed to start Nebula elevated (ShellExecute returned {result}).", file=sys.stderr)
+                return None
+            print("Started Nebula (elevated). UAC may have prompted.")
+            return None  # no handle when using runas
+        except Exception as e:
+            print(f"Failed to start Nebula: {e}", file=sys.stderr)
+            return None
+
     try:
         kwargs = {
             "stdout": subprocess.DEVNULL,
@@ -132,8 +166,6 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
             "start_new_session": True,
             "cwd": output_dir,
         }
-        if sys.platform == "win32":
-            kwargs["creationflags"] = 0x08000000  # CREATE_NO_WINDOW
         proc = subprocess.Popen(
             [nebula_bin, "-config", config],
             **kwargs,
@@ -149,17 +181,28 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
 
 
 def _stop_nebula(proc: subprocess.Popen | None) -> None:
-    if proc is None:
+    if proc is not None:
+        try:
+            proc.terminate()
+            proc.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+        except Exception:
+            pass
+        print("Stopped Nebula")
         return
-    try:
-        proc.terminate()
-        proc.wait(timeout=10)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
-    except Exception:
-        pass
-    print("Stopped Nebula")
+    if sys.platform == "win32":
+        # We started Nebula elevated (runas) so we have no handle; try to stop by name.
+        try:
+            subprocess.run(
+                ["taskkill", "/IM", "nebula.exe", "/F"],
+                capture_output=True,
+                timeout=10,
+            )
+            print("Stopped Nebula")
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
+            pass
 
 
 def _restart_systemd_service(service_name: str) -> bool:

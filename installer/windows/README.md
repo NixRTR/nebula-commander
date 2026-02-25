@@ -1,10 +1,11 @@
 # Nebula Commander Windows MSI Installer
 
-WiX v4 installer that installs **ncclient** (CLI) and **ncclient-tray** (system tray) to `%ProgramFiles%\Nebula Commander\`, with optional PATH and Start Menu shortcuts.
+WiX 5 installer that installs **ncclient** (CLI) and **ncclient-tray** (system tray) to `%ProgramFiles%\Nebula Commander\`, with optional PATH and Start Menu shortcuts.
 
 ## Prerequisites
 
-- [WiX Toolset v4](https://wixtoolset.org/docs/intro/) (e.g. `winget install WiXToolset.WiX` or install from [releases](https://github.com/wixtoolset/wix4/releases))
+- [.NET SDK](https://dotnet.microsoft.com/download) (required for the WiX dotnet tool)
+- [WiX Toolset 5](https://wixtoolset.org/docs/intro/) (e.g. `dotnet tool install --global wix --version 5.0.2` or install from [releases](https://github.com/wixtoolset/wix/releases))
 - The two executables in `redist/`:
   - `redist/ncclient.exe`
   - `redist/ncclient-tray.exe`
@@ -14,9 +15,9 @@ WiX v4 installer that installs **ncclient** (CLI) and **ncclient-tray** (system 
 1. Copy or build the two exes into `installer/windows/redist/`:
    - `ncclient.exe` (from `client/binaries/dist/ncclient.exe` after PyInstaller build)
    - `ncclient-tray.exe` (from `client/windows/dist/ncclient-tray.exe` after tray build)
-2. If you installed WiX via `dotnet tool install -g wix`, add the Util extension once:
+2. If you installed WiX 5 via `dotnet tool install -g wix --version 5.0.2`, add the Util extension once (use version 5.0.0 so it matches WiX 5; the default pulls 7.x which is incompatible):
    ```powershell
-   wix extension add -g WixToolset.Util.wixext
+   wix extension add -g WixToolset.Util.wixext/5.0.0
    ```
 3. From `installer/windows/` run:
 
