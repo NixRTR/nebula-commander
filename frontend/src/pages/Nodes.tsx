@@ -996,8 +996,6 @@ export function Nodes() {
                 <Table.HeadCell>Network</Table.HeadCell>
                 <Table.HeadCell>IP Address</Table.HeadCell>
                 <Table.HeadCell>Type</Table.HeadCell>
-                <Table.HeadCell>Status</Table.HeadCell>
-                <Table.HeadCell>Details</Table.HeadCell>
                 <Table.HeadCell>Enrollment</Table.HeadCell>
                 <Table.HeadCell>Actions</Table.HeadCell>
               </Table.Head>
@@ -1049,12 +1047,6 @@ export function Nodes() {
                           )}
                         </div>
                       </Table.Cell>
-                      <Table.Cell>{getStatusBadge(n.status)}</Table.Cell>
-                      <Table.Cell>
-                        <Button size="xs" color="gray" onClick={() => toggleDeviceDetails(n)}>
-                          Details
-                        </Button>
-                      </Table.Cell>
                       <Table.Cell>
                         {enrollState.type === "enroll" && (
                           <Button size="xs" color="purple" onClick={() => openEnrollmentCodeModal(n)}>
@@ -1098,7 +1090,7 @@ export function Nodes() {
                     </Table.Row>
                     {deviceDetailsModal.node?.id === n.id && (
                       <Table.Row key={`${n.id}-details`} className="bg-gray-50 dark:bg-gray-800/80">
-                        <Table.Cell colSpan={8} className="p-0 align-top">
+                        <Table.Cell colSpan={6} className="p-0 align-top">
                           <div className="p-4 border-t border-gray-200 dark:border-gray-700">
                             <form onSubmit={handleSaveDeviceDetails} className="space-y-6">
                               {deviceDetailsModal.node && (
