@@ -8,6 +8,7 @@ from pathlib import Path
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.types import TypeDecorator, Text
 
 from .config import settings
 
@@ -43,6 +44,25 @@ AsyncSessionLocal = async_sessionmaker(
     autocommit=False,
     autoflush=False,
 )
+
+
+class EncryptedText(TypeDecorator):
+    """Stores encrypted string in DB (base64 of magic+Fernet token). Transparent encrypt on bind, decrypt on result."""
+
+    impl = Text
+    cache_ok = True
+
+    def process_bind_parameter(self, value, dialect):
+        if value is None:
+            return None
+        from .services.encryption import encrypt_to_str
+        return encrypt_to_str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        from .services.encryption import decrypt_to_str
+        return decrypt_to_str(value)
 
 
 class Base(DeclarativeBase):

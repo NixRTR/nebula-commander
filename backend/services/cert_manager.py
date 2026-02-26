@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..models import Network, Node, Certificate, AllocatedIP
 from ..utils.nebula_cert import ca_generate, cert_sign, keygen
+from .cert_store import read_cert_store_file, write_cert_store_file
 from .ip_allocator import IPAllocator
 
 logger = logging.getLogger(__name__)
@@ -41,6 +42,9 @@ class CertManager:
             await self.session.flush()
             return
         ca_generate(network.name, ca_crt, ca_key)
+        # Overwrite with encrypted storage
+        write_cert_store_file(ca_crt, ca_crt.read_text())
+        write_cert_store_file(ca_key, ca_key.read_text())
         network.ca_cert_path = str(ca_crt)
         network.ca_key_path = str(ca_key)
         await self.session.flush()
@@ -76,21 +80,28 @@ class CertManager:
             f.write(public_key_pem)
             pub_path = Path(f.name)
         try:
-            cert_sign(
-                Path(network.ca_cert_path),
-                Path(network.ca_key_path),
-                name=name,
-                ip=ip,
-                out_crt=out_crt,
-                groups=groups or [],
-                duration_hours=duration_hours,
-                in_pub=pub_path,
-                subnet_cidr=network.subnet_cidr,
-            )
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir)
+                ca_crt_tmp = tmp / "ca.crt"
+                ca_key_tmp = tmp / "ca.key"
+                ca_crt_tmp.write_text(read_cert_store_file(Path(network.ca_cert_path)))
+                ca_key_tmp.write_text(read_cert_store_file(Path(network.ca_key_path)))
+                cert_sign(
+                    ca_crt_tmp,
+                    ca_key_tmp,
+                    name=name,
+                    ip=ip,
+                    out_crt=out_crt,
+                    groups=groups or [],
+                    duration_hours=duration_hours,
+                    in_pub=pub_path,
+                    subnet_cidr=network.subnet_cidr,
+                )
+            cert_pem = out_crt.read_text()
+            write_cert_store_file(out_crt, cert_pem)
         finally:
             pub_path.unlink(missing_ok=True)
 
-        cert_pem = out_crt.read_text()
         return ip, cert_pem
 
     async def create_host_certificate(
@@ -123,10 +134,14 @@ class CertManager:
             pub_path = tmp / "host.pub"
             key_path = tmp / "host.key"
             out_crt_tmp = tmp / "host.crt"
+            ca_crt_tmp = tmp / "ca.crt"
+            ca_key_tmp = tmp / "ca.key"
+            ca_crt_tmp.write_text(read_cert_store_file(Path(network.ca_cert_path)))
+            ca_key_tmp.write_text(read_cert_store_file(Path(network.ca_key_path)))
             keygen(out_pub=pub_path, out_key=key_path)
             cert_sign(
-                Path(network.ca_cert_path),
-                Path(network.ca_key_path),
+                ca_crt_tmp,
+                ca_key_tmp,
                 name=name,
                 ip=ip,
                 out_crt=out_crt_tmp,
@@ -139,17 +154,15 @@ class CertManager:
             private_key_pem = key_path.read_text()
             public_key_pem = pub_path.read_text()
 
-        # Persist cert to store (overwrite if exists; nebula-cert refuses to overwrite, so we write ourselves)
-        (base / f"{name}.crt").write_text(cert_pem)
-        # Persist private key so device bundle and node certs zip can serve it
+        # Persist encrypted
+        write_cert_store_file(base / f"{name}.crt", cert_pem)
         key_file = base / f"{name}.key"
-        key_file.write_text(private_key_pem)
-        key_file.chmod(0o600)
+        write_cert_store_file(key_file, private_key_pem)
 
         ca_pem = ""
         if network.ca_cert_path:
             try:
-                ca_pem = Path(network.ca_cert_path).read_text()
+                ca_pem = read_cert_store_file(Path(network.ca_cert_path))
             except FileNotFoundError:
                 logger.warning("CA cert file not found: %s", network.ca_cert_path)
             except PermissionError:
@@ -188,10 +201,14 @@ class CertManager:
             pub_path = tmp / "host.pub"
             key_path = tmp / "host.key"
             out_crt_tmp = tmp / "host.crt"
+            ca_crt_tmp = tmp / "ca.crt"
+            ca_key_tmp = tmp / "ca.key"
+            ca_crt_tmp.write_text(read_cert_store_file(Path(network.ca_cert_path)))
+            ca_key_tmp.write_text(read_cert_store_file(Path(network.ca_key_path)))
             keygen(out_pub=pub_path, out_key=key_path)
             cert_sign(
-                Path(network.ca_cert_path),
-                Path(network.ca_key_path),
+                ca_crt_tmp,
+                ca_key_tmp,
                 name=name,
                 ip=ip,
                 out_crt=out_crt_tmp,
@@ -204,10 +221,9 @@ class CertManager:
             private_key_pem = key_path.read_text()
             public_key_pem = pub_path.read_text()
 
-        (base / f"{name}.crt").write_text(cert_pem)
+        write_cert_store_file(base / f"{name}.crt", cert_pem)
         key_file = base / f"{name}.key"
-        key_file.write_text(private_key_pem)
-        key_file.chmod(0o600)
+        write_cert_store_file(key_file, private_key_pem)
 
         node.ip_address = ip
         node.public_key = public_key_pem
@@ -227,7 +243,7 @@ class CertManager:
         ca_pem = ""
         if network.ca_cert_path:
             try:
-                ca_pem = Path(network.ca_cert_path).read_text()
+                ca_pem = read_cert_store_file(Path(network.ca_cert_path))
             except FileNotFoundError:
                 logger.warning("CA cert file not found: %s", network.ca_cert_path)
             except PermissionError:

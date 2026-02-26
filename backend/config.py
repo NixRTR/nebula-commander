@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     # Certificate store
     cert_store_path: str = "/var/lib/nebula-commander/certs"
 
+    # Encryption at rest (required). Fernet key for encrypting sensitive DB columns and cert store files.
+    encryption_key: Optional[str] = None
+    encryption_key_file: Optional[str] = None
+
     # Public URL (app as reached by users: FQDN or host:port, e.g. https://nebula.example.com or http://192.168.1.1:9091)
     # Used to derive OIDC redirect URI and for redirect validation when set
     public_url: Optional[str] = None
@@ -161,8 +165,37 @@ def load_smtp_password(settings_obj: Settings) -> Optional[str]:
     return settings_obj.smtp_password
 
 
+def load_encryption_key(settings_obj: Settings) -> str:
+    """Load encryption key from file or env. Required for startup; raises if missing or invalid."""
+    key: Optional[str] = None
+    if settings_obj.encryption_key_file and os.path.exists(settings_obj.encryption_key_file):
+        try:
+            with open(settings_obj.encryption_key_file, "r") as f:
+                key = f.read().strip()
+        except Exception as e:
+            raise SystemExit(
+                f"NEBULA_COMMANDER_ENCRYPTION_KEY_FILE is set but could not read key: {e}"
+            ) from e
+    if not key and settings_obj.encryption_key:
+        key = settings_obj.encryption_key.strip()
+    if not key:
+        raise SystemExit(
+            "Encryption at rest is required. Set NEBULA_COMMANDER_ENCRYPTION_KEY or "
+            "NEBULA_COMMANDER_ENCRYPTION_KEY_FILE (Fernet key). "
+            "Generate with: python -c \"from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())\""
+        )
+    # Validate key by constructing Fernet
+    try:
+        from cryptography.fernet import Fernet
+        Fernet(key.encode() if isinstance(key, str) else key)
+    except Exception as e:
+        raise SystemExit(f"Invalid encryption key: {e}") from e
+    return key
+
+
 settings = Settings()
 if not getattr(settings, "_jwt_loaded", False):
     settings.jwt_secret_key = load_jwt_secret(settings)
     settings.oidc_client_secret = load_oidc_secret(settings)
     settings.smtp_password = load_smtp_password(settings)
+    settings._encryption_key = load_encryption_key(settings)

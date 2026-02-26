@@ -13,6 +13,7 @@ from ..database import get_session
 from pathlib import Path
 from ..models import Network, Node, Certificate, User
 from ..services.audit import get_client_ip, log_audit
+from ..services.cert_store import read_cert_store_file
 from ..services.cert_manager import CertManager
 from ..services.ip_allocator import IPAllocator
 
@@ -152,7 +153,7 @@ async def sign_certificate(
     ca_pem = None
     if network.ca_cert_path:
         try:
-            ca_pem = Path(network.ca_cert_path).read_text()
+            ca_pem = read_cert_store_file(Path(network.ca_cert_path))
         except FileNotFoundError:
             logger.warning("CA cert file not found: %s", network.ca_cert_path)
         except PermissionError:

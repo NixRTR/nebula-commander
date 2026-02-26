@@ -34,6 +34,17 @@ NEBULA_COMMANDER_JWT_ALGORITHM=HS256
 NEBULA_COMMANDER_JWT_EXPIRATION_MINUTES=1440
 
 # =============================================================================
+# Encryption at rest (required)
+# =============================================================================
+# Fernet key for encrypting sensitive DB columns and cert store files.
+# Generate: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+# ⚠️  Required at startup. Existing deployments: run migrate_encrypt first (see README).
+NEBULA_COMMANDER_ENCRYPTION_KEY=your-fernet-key-here
+
+# Alternative: key from file
+# NEBULA_COMMANDER_ENCRYPTION_KEY_FILE=/run/secrets/encryption-key
+
+# =============================================================================
 # Public URL (required for OIDC and redirects)
 # =============================================================================
 # Base URL where users reach the app (browser). All auth redirects and callbacks

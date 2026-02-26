@@ -17,7 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from ..database import Base
+from ..database import Base, EncryptedText
 
 
 class Network(Base):
@@ -83,7 +83,7 @@ class Node(Base):
     network_id: Mapped[int] = mapped_column(ForeignKey("networks.id"), nullable=False)
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
-    public_key: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    public_key: Mapped[Optional[str]] = mapped_column(EncryptedText(), nullable=True)
     cert_fingerprint: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     groups: Mapped[Optional[list]] = mapped_column(JSON, default=list)  # ["group1", "group2"]
     is_lighthouse: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -160,7 +160,7 @@ class NetworkConfig(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     node_id: Mapped[int] = mapped_column(ForeignKey("nodes.id"), nullable=False)
-    config_yaml: Mapped[str] = mapped_column(Text, nullable=False)
+    config_yaml: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
     version: Mapped[int] = mapped_column(Integer, default=1)
     deployed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
@@ -174,7 +174,7 @@ class EnrollmentCode(Base):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     node_id: Mapped[int] = mapped_column(ForeignKey("nodes.id"), nullable=False)
-    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    code: Mapped[str] = mapped_column(EncryptedText(), unique=True, nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
@@ -310,7 +310,7 @@ class Invitation(Base):
     email: Mapped[str] = mapped_column(String(255), nullable=False)
     network_id: Mapped[int] = mapped_column(ForeignKey("networks.id"), nullable=False)
     invited_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    token: Mapped[str] = mapped_column(String(128), unique=True, nullable=False)
+    token: Mapped[str] = mapped_column(EncryptedText(), unique=True, nullable=False)
     role: Mapped[str] = mapped_column(String(32), nullable=False)  # owner, member
     can_manage_nodes: Mapped[bool] = mapped_column(Boolean, default=False)
     can_invite_users: Mapped[bool] = mapped_column(Boolean, default=False)

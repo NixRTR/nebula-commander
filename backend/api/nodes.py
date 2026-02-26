@@ -17,6 +17,7 @@ from ..config import settings
 from ..database import get_session
 from ..models import Certificate, EnrollmentCode, Network, NetworkConfig, Node, User
 from ..services.audit import get_client_ip, log_audit
+from ..services.cert_store import read_cert_store_file
 from ..services.config_generator import generate_config_for_node
 from ..services.ip_allocator import IPAllocator
 from ..services.cert_manager import CertManager
@@ -123,10 +124,10 @@ async def get_node_config(
     ca_path = Path(network.ca_cert_path)
     if not ca_path.exists():
         raise HTTPException(status_code=404, detail="CA certificate not found")
-    ca_content = ca_path.read_text()
-    host_cert_content = host_cert_path.read_text()
+    ca_content = read_cert_store_file(ca_path)
+    host_cert_content = read_cert_store_file(host_cert_path)
     if host_key_path.exists():
-        host_key_content = host_key_path.read_text()
+        host_key_content = read_cert_store_file(host_key_path)
         inline_pki = (ca_content, host_cert_content, host_key_content)
     else:
         inline_pki = None
@@ -180,10 +181,10 @@ async def get_node_certs(
     ca_path = Path(network.ca_cert_path)
     if not ca_path.exists():
         raise HTTPException(status_code=404, detail="CA certificate file not found")
-    ca_content = ca_path.read_text()
-    host_cert_content = host_cert_path.read_text()
+    ca_content = read_cert_store_file(ca_path)
+    host_cert_content = read_cert_store_file(host_cert_path)
     if host_key_path.exists():
-        host_key_content = host_key_path.read_text()
+        host_key_content = read_cert_store_file(host_key_path)
         readme = "host.key is included in this zip.\n"
     else:
         host_key_content = None
