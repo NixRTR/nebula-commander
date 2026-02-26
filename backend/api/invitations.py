@@ -3,7 +3,7 @@ import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Request, status, BackgroundTasks
 from pydantic import BaseModel, EmailStr
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -12,6 +12,7 @@ from ..auth.oidc import require_user, UserInfo, get_current_user_optional
 from ..auth.permissions import check_network_permission
 from ..database import get_session
 from ..models import Invitation, User, Network, NetworkPermission
+from ..services.audit import get_client_ip, log_audit
 from ..services.email import send_invitation_email
 from ..config import settings
 
@@ -68,6 +69,7 @@ class InvitationPublicResponse(BaseModel):
 @router.post("", response_model=InvitationResponse)
 async def create_invitation(
     body: InvitationCreate,
+    request: Request,
     background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
@@ -155,6 +157,16 @@ async def create_invitation(
     session.add(invitation)
     await session.flush()
     await session.refresh(invitation)
+    await log_audit(
+        session,
+        "invitation_created",
+        resource_type="invitation",
+        resource_id=invitation.id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+        details={"email": body.email, "network_id": body.network_id},
+    )
     
     # Queue email sending as background task
     if settings.smtp_enabled:
@@ -347,6 +359,7 @@ async def get_invitation_public(
 @router.post("/{token}/accept", status_code=status.HTTP_200_OK)
 async def accept_invitation(
     token: str,
+    request: Request,
     user_info: Optional[UserInfo] = Depends(get_current_user_optional),
     session: AsyncSession = Depends(get_session),
 ):
@@ -435,6 +448,15 @@ async def accept_invitation(
     invitation.accepted_at = datetime.utcnow()
     
     await session.flush()
+    await log_audit(
+        session,
+        "invitation_accepted",
+        resource_type="invitation",
+        resource_id=invitation.id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user_info.sub,
+        client_ip=get_client_ip(request),
+    )
     
     return {"message": "Invitation accepted successfully"}
 
@@ -442,6 +464,7 @@ async def accept_invitation(
 @router.post("/{invitation_id}/resend", response_model=InvitationResponse)
 async def resend_invitation_email(
     invitation_id: int,
+    request: Request,
     background_tasks: BackgroundTasks,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
@@ -509,6 +532,16 @@ async def resend_invitation_email(
             base_url=base_url,
         )
     
+    await log_audit(
+        session,
+        "invitation_resend",
+        resource_type="invitation",
+        resource_id=invitation_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
+    
     return InvitationResponse(
         id=invitation.id,
         email=invitation.email,
@@ -534,6 +567,7 @@ async def resend_invitation_email(
 @router.delete("/{invitation_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_invitation(
     invitation_id: int,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -571,5 +605,14 @@ async def revoke_invitation(
     # Revoke invitation
     invitation.status = "revoked"
     await session.flush()
+    await log_audit(
+        session,
+        "invitation_deleted",
+        resource_type="invitation",
+        resource_id=invitation_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
     
     return None

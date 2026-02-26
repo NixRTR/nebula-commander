@@ -270,6 +270,30 @@ def _run_sqlite_migrations() -> None:
                 cur.execute(sql)
                 logger.info("Migration: added column invitations.%s", col)
         
+        # Create audit_log table
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='audit_log'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE audit_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    occurred_at DATETIME NOT NULL,
+                    action VARCHAR(64) NOT NULL,
+                    actor_user_id INTEGER REFERENCES users(id),
+                    actor_identifier VARCHAR(255),
+                    resource_type VARCHAR(32),
+                    resource_id INTEGER,
+                    result VARCHAR(16) NOT NULL DEFAULT 'success',
+                    details TEXT,
+                    client_ip VARCHAR(64)
+                )
+            """)
+            cur.execute(
+                "CREATE INDEX ix_audit_log_occurred_at ON audit_log (occurred_at DESC)"
+            )
+            logger.info("Migration: created table audit_log")
+        
         conn.commit()
     finally:
         conn.close()

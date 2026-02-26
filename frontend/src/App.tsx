@@ -17,6 +17,7 @@ const Groups = lazy(() => import("./pages/Groups").then(m => ({ default: m.Group
 const Nodes = lazy(() => import("./pages/Nodes").then(m => ({ default: m.Nodes })));
 const ClientDownload = lazy(() => import("./pages/ClientDownload").then(m => ({ default: m.ClientDownload })));
 const Users = lazy(() => import("./pages/Users").then(m => ({ default: m.Users })));
+const Audit = lazy(() => import("./pages/Audit").then(m => ({ default: m.Audit })));
 const Invitations = lazy(() => import("./pages/Invitations").then(m => ({ default: m.Invitations })));
 const NetworkUsers = lazy(() => import("./pages/NetworkUsers").then(m => ({ default: m.NetworkUsers })));
 const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation").then(m => ({ default: m.AcceptInvitation })));
@@ -73,6 +74,7 @@ function AppContent() {
                   <Route path="/nodes" element={<Nodes />} />
                   <Route path="/client-download" element={<ClientDownload />} />
                   <Route path="/users" element={<Users />} />
+                  <Route path="/audit" element={<Audit />} />
                   <Route path="/invitations" element={<Invitations />} />
                   <Route path="/reauth/complete" element={<ReauthComplete />} />
                   <Route path="/auth/reauth/complete" element={<ReauthComplete />} />

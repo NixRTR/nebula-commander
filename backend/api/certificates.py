@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,7 +11,8 @@ from ..auth.oidc import require_user, UserInfo
 from ..config import settings
 from ..database import get_session
 from pathlib import Path
-from ..models import Network, Node, Certificate
+from ..models import Network, Node, Certificate, User
+from ..services.audit import get_client_ip, log_audit
 from ..services.cert_manager import CertManager
 from ..services.ip_allocator import IPAllocator
 
@@ -76,7 +77,8 @@ class CertificateListItem(BaseModel):
 @router.post("/sign", response_model=SignResponse)
 async def sign_certificate(
     body: SignRequest,
-    _user: UserInfo = Depends(require_user),
+    request: Request,
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -135,6 +137,17 @@ async def sign_certificate(
     )
     session.add(cert_record)
     await session.flush()
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
+    await log_audit(
+        session,
+        "cert_signed",
+        resource_type="node",
+        resource_id=node.id,
+        actor_user_id=db_user.id if db_user else None,
+        actor_identifier=user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
 
     ca_pem = None
     if network.ca_cert_path:
@@ -157,7 +170,8 @@ async def sign_certificate(
 @router.post("/create", response_model=CreateResponse)
 async def create_certificate(
     body: CreateRequest,
-    _user: UserInfo = Depends(require_user),
+    request: Request,
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """
@@ -246,6 +260,17 @@ async def create_certificate(
     )
     session.add(cert_record)
     await session.flush()
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
+    await log_audit(
+        session,
+        "node_created",
+        resource_type="node",
+        resource_id=node.id,
+        actor_user_id=db_user.id if db_user else None,
+        actor_identifier=user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
 
     return CreateResponse(
         node_id=node.id,

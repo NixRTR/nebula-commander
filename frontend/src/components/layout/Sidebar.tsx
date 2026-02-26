@@ -12,6 +12,7 @@ import {
   HiUserGroup,
   HiUsers,
   HiMail,
+  HiClipboardList,
 } from 'react-icons/hi';
 import { FaGithub } from 'react-icons/fa';
 import { usePermissions } from '../../contexts/PermissionContext';
@@ -109,15 +110,26 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
 
               {/* System Admin Only */}
               {isSystemAdmin && (
-                <FlowbiteSidebar.Item
-                  as={Link}
-                  to="/users"
-                  icon={HiUsers}
-                  active={location.pathname === '/users'}
-                  onClick={handleItemClick}
-                >
-                  Users
-                </FlowbiteSidebar.Item>
+                <>
+                  <FlowbiteSidebar.Item
+                    as={Link}
+                    to="/users"
+                    icon={HiUsers}
+                    active={location.pathname === '/users'}
+                    onClick={handleItemClick}
+                  >
+                    Users
+                  </FlowbiteSidebar.Item>
+                  <FlowbiteSidebar.Item
+                    as={Link}
+                    to="/audit"
+                    icon={HiClipboardList}
+                    active={location.pathname === '/audit'}
+                    onClick={handleItemClick}
+                  >
+                    Audit
+                  </FlowbiteSidebar.Item>
+                </>
               )}
 
               {/* Network Owners and System Admins */}

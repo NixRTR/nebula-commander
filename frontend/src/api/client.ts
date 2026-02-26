@@ -488,3 +488,39 @@ export async function listCertificates(networkId?: number) {
   const q = networkId != null ? `?network_id=${networkId}` : "";
   return apiFetch<CertificateListItem[]>(`/certificates${q}`);
 }
+
+/** Audit log entry (system admin only). */
+export interface AuditEntry {
+  id: number;
+  occurred_at: string;
+  action: string;
+  actor_user_id: number | null;
+  actor_identifier: string | null;
+  actor_email: string | null;
+  resource_type: string | null;
+  resource_id: number | null;
+  result: string;
+  details: string | null;
+  client_ip: string | null;
+}
+
+export interface AuditLogParams {
+  limit?: number;
+  offset?: number;
+  action?: string;
+  resource_type?: string;
+  from_date?: string;
+  to_date?: string;
+}
+
+export async function listAuditLogs(params: AuditLogParams = {}): Promise<AuditEntry[]> {
+  const sp = new URLSearchParams();
+  if (params.limit != null) sp.set("limit", String(params.limit));
+  if (params.offset != null) sp.set("offset", String(params.offset));
+  if (params.action) sp.set("action", params.action);
+  if (params.resource_type) sp.set("resource_type", params.resource_type);
+  if (params.from_date) sp.set("from_date", params.from_date);
+  if (params.to_date) sp.set("to_date", params.to_date);
+  const qs = sp.toString();
+  return apiFetch<AuditEntry[]>(`/audit${qs ? `?${qs}` : ""}`);
+}

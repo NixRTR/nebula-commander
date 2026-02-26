@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     String,
     Text,
@@ -324,3 +325,23 @@ class Invitation(Base):
 
     network: Mapped["Network"] = relationship("Network")
     invited_by_user: Mapped["User"] = relationship("User", foreign_keys=[invited_by_user_id])
+
+
+class AuditLog(Base):
+    """Structured audit log for sensitive actions. Visible to system admins only."""
+
+    __tablename__ = "audit_log"
+    __table_args__ = (Index("ix_audit_log_occurred_at", "occurred_at"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    occurred_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    action: Mapped[str] = mapped_column(String(64), nullable=False)
+    actor_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    actor_identifier: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    resource_type: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    resource_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    result: Mapped[str] = mapped_column(String(16), default="success", nullable=False)
+    details: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    client_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
+
+    actor_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[actor_user_id])

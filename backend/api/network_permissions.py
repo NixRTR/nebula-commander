@@ -1,7 +1,7 @@
 """Network Permissions API: manage users and their permissions within networks."""
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from ..auth.oidc import require_user, UserInfo
 from ..auth.permissions import check_network_permission
 from ..database import get_session
 from ..models import NetworkPermission, User, Network
+from ..services.audit import get_client_ip, log_audit
 
 router = APIRouter(prefix="/api/networks", tags=["network-permissions"])
 
@@ -116,6 +117,7 @@ async def list_network_users(
 async def add_user_to_network(
     network_id: int,
     body: NetworkUserAddRequest,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -185,6 +187,16 @@ async def add_user_to_network(
     session.add(permission)
     await session.flush()
     await session.refresh(permission)
+    await log_audit(
+        session,
+        "network_permission_added",
+        resource_type="network",
+        resource_id=network_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+        details={"target_user_id": body.user_id},
+    )
     
     return NetworkUserResponse(
         user_id=permission.user_id,
@@ -204,6 +216,7 @@ async def update_network_user(
     network_id: int,
     target_user_id: int,
     body: NetworkUserUpdateRequest,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -280,6 +293,16 @@ async def update_network_user(
     
     await session.flush()
     await session.refresh(permission)
+    await log_audit(
+        session,
+        "network_permission_updated",
+        resource_type="network",
+        resource_id=network_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+        details={"target_user_id": target_user_id},
+    )
     
     # Get target user
     target_user_result = await session.execute(select(User).where(User.id == target_user_id))
@@ -308,6 +331,7 @@ async def update_network_user(
 async def remove_user_from_network(
     network_id: int,
     target_user_id: int,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -372,5 +396,15 @@ async def remove_user_from_network(
     # Delete permission
     await session.delete(permission)
     await session.flush()
+    await log_audit(
+        session,
+        "network_permission_removed",
+        resource_type="network",
+        resource_id=network_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+        details={"target_user_id": target_user_id},
+    )
     
     return None

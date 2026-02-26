@@ -3,7 +3,7 @@ import ipaddress
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,6 +17,7 @@ from ..auth.permissions import (
 from ..auth.reauth import verify_reauth, clear_reauth_challenge
 from ..database import get_session
 from ..models import Network, NetworkGroupFirewall, NetworkPermission, NetworkSettings, User
+from ..services.audit import get_client_ip, log_audit
 from ..services.ip_allocator import IPAllocator
 
 logger = logging.getLogger(__name__)
@@ -132,6 +133,7 @@ async def list_networks(
 @router.post("", response_model=NetworkResponse)
 async def create_network(
     body: NetworkCreate,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -186,6 +188,15 @@ async def create_network(
     session.add(settings)
     
     await session.flush()
+    await log_audit(
+        session,
+        "network_created",
+        resource_type="network",
+        resource_id=network.id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
     
     return NetworkResponse(
         id=network.id,
@@ -251,6 +262,7 @@ async def get_network(
 async def update_network(
     network_id: int,
     body: NetworkUpdate,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -281,6 +293,15 @@ async def update_network(
         )
     
     await session.refresh(network)
+    await log_audit(
+        session,
+        "network_updated",
+        resource_type="network",
+        resource_id=network_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
     return NetworkResponse(
         id=network.id,
         name=network.name,
@@ -299,6 +320,7 @@ class NetworkDeleteRequest(BaseModel):
 async def delete_network(
     network_id: int,
     body: NetworkDeleteRequest,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -355,6 +377,15 @@ async def delete_network(
     # Delete network (cascade will handle related records)
     await session.delete(network)
     await session.flush()
+    await log_audit(
+        session,
+        "network_deleted",
+        resource_type="network",
+        resource_id=network_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
     
     # Clear reauth challenge
     clear_reauth_challenge(user.sub)
@@ -440,6 +471,7 @@ async def update_group_firewall(
     network_id: int,
     group_name: str,
     body: GroupFirewallUpdate,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -489,6 +521,16 @@ async def update_group_firewall(
         session.add(gf)
     await session.flush()
     await session.refresh(gf)
+    await log_audit(
+        session,
+        "network_group_firewall_updated",
+        resource_type="network",
+        resource_id=network_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+        details={"group_name": group_name},
+    )
     return GroupFirewallResponse(
         group_name=gf.group_name,
         inbound_rules=gf.inbound_rules or [],
@@ -499,6 +541,7 @@ async def update_group_firewall(
 async def delete_group_firewall(
     network_id: int,
     group_name: str,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -530,6 +573,16 @@ async def delete_group_firewall(
     if gf:
         await session.delete(gf)
         await session.flush()
+        await log_audit(
+            session,
+            "network_group_firewall_deleted",
+            resource_type="network",
+            resource_id=network_id,
+            actor_user_id=db_user.id,
+            actor_identifier=db_user.email or user.sub,
+            client_ip=get_client_ip(request),
+            details={"group_name": group_name},
+        )
     return None
 
 

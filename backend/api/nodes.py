@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select, update
@@ -15,7 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.oidc import require_user, UserInfo
 from ..config import settings
 from ..database import get_session
-from ..models import Certificate, EnrollmentCode, Network, NetworkConfig, Node
+from ..models import Certificate, EnrollmentCode, Network, NetworkConfig, Node, User
+from ..services.audit import get_client_ip, log_audit
 from ..services.config_generator import generate_config_for_node
 from ..services.ip_allocator import IPAllocator
 from ..services.cert_manager import CertManager
@@ -97,7 +98,8 @@ async def list_nodes(
 @router.get("/{node_id}/config")
 async def get_node_config(
     node_id: int,
-    _user: UserInfo = Depends(require_user),
+    request: Request,
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Generate and return Nebula YAML config for this node (with inline PKI when key is stored)."""
@@ -131,6 +133,17 @@ async def get_node_config(
     yaml_config = await generate_config_for_node(session, node_id, inline_pki=inline_pki)
     if yaml_config is None:
         raise HTTPException(status_code=404, detail="Node not found")
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
+    await log_audit(
+        session,
+        "node_config_downloaded",
+        resource_type="node",
+        resource_id=node_id,
+        actor_user_id=db_user.id if db_user else None,
+        actor_identifier=user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
     filename = f"{node.hostname}.yaml" if node else "config.yaml"
     return Response(
         content=yaml_config,
@@ -142,7 +155,8 @@ async def get_node_config(
 @router.get("/{node_id}/certs")
 async def get_node_certs(
     node_id: int,
-    _user: UserInfo = Depends(require_user),
+    request: Request,
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Return a ZIP with ca.crt, host.crt, and README for this node."""
@@ -181,6 +195,17 @@ async def get_node_certs(
         if host_key_content is not None:
             zf.writestr("host.key", host_key_content)
         zf.writestr("README.txt", readme)
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
+    await log_audit(
+        session,
+        "node_certs_downloaded",
+        resource_type="node",
+        resource_id=node_id,
+        actor_user_id=db_user.id if db_user else None,
+        actor_identifier=user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
     buf.seek(0)
     filename = f"node-{node.hostname}-certs.zip"
     return Response(
@@ -268,7 +293,8 @@ async def update_node(
 @router.delete("/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_node(
     node_id: int,
-    _user: UserInfo = Depends(require_user),
+    request: Request,
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Delete a node: release IP, remove host cert/key files, delete related records and node."""
@@ -311,15 +337,27 @@ async def delete_node(
     await session.execute(delete(EnrollmentCode).where(EnrollmentCode.node_id == node_id))
 
     # 4. Delete the node
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
     await session.delete(node)
     await session.flush()
+    await log_audit(
+        session,
+        "node_deleted",
+        resource_type="node",
+        resource_id=node_id,
+        actor_user_id=db_user.id if db_user else None,
+        actor_identifier=user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
     return None
 
 
 @router.post("/{node_id}/revoke-certificate")
 async def revoke_node_certificate(
     node_id: int,
-    _user: UserInfo = Depends(require_user),
+    request: Request,
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Revoke the node's certificate and take it offline. Node record is kept; can re-enroll later."""
@@ -351,13 +389,25 @@ async def revoke_node_certificate(
     node.cert_fingerprint = None
     node.status = "revoked"
     await session.flush()
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
+    await log_audit(
+        session,
+        "cert_revoked",
+        resource_type="node",
+        resource_id=node_id,
+        actor_user_id=db_user.id if db_user else None,
+        actor_identifier=user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
     return {"ok": True}
 
 
 @router.post("/{node_id}/re-enroll")
 async def reenroll_node(
     node_id: int,
-    _user: UserInfo = Depends(require_user),
+    request: Request,
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Revoke existing certificate (if any) and issue a new one for this node. Returns success; frontend creates enrollment code."""
@@ -400,4 +450,15 @@ async def reenroll_node(
     cert_manager = CertManager(session)
     await cert_manager.create_host_certificate_for_existing_node(node, network)
     await session.flush()
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
+    await log_audit(
+        session,
+        "node_reenrolled",
+        resource_type="node",
+        resource_id=node.id,
+        actor_user_id=db_user.id if db_user else None,
+        actor_identifier=user.email or user.sub,
+        client_ip=get_client_ip(request),
+    )
     return {"ok": True, "node_id": node.id}

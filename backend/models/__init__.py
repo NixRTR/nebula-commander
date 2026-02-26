@@ -16,6 +16,7 @@ from .db import (
     AccessGrant,
     NetworkSettings,
     Invitation,
+    AuditLog,
 )
 
 __all__ = [
@@ -34,4 +35,5 @@ __all__ = [
     "AccessGrant",
     "NetworkSettings",
     "Invitation",
+    "AuditLog",
 ]

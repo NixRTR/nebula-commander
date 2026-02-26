@@ -1,7 +1,7 @@
 """Users API: system admin user management."""
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -10,6 +10,7 @@ from ..auth.oidc import UserInfo
 from ..auth.permissions import require_system_admin
 from ..database import get_session
 from ..models import User, NetworkPermission
+from ..services.audit import get_client_ip, log_audit
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
@@ -113,7 +114,8 @@ class UserUpdateRequest(BaseModel):
 async def update_user(
     user_id: int,
     body: UserUpdateRequest,
-    _admin: UserInfo = Depends(require_system_admin),
+    request: Request,
+    admin: UserInfo = Depends(require_system_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Update user (system admins only)."""
@@ -133,6 +135,17 @@ async def update_user(
     
     await session.flush()
     await session.refresh(user)
+    admin_db = await session.scalar(select(User).where(User.oidc_sub == admin.sub))
+    await log_audit(
+        session,
+        "user_role_updated",
+        resource_type="user",
+        resource_id=user_id,
+        actor_user_id=admin_db.id if admin_db else None,
+        actor_identifier=admin.email or admin.sub,
+        client_ip=get_client_ip(request),
+        details={"system_role": user.system_role},
+    )
     
     # Count networks (server-side for performance)
     network_count = await session.scalar(
@@ -154,7 +167,8 @@ async def update_user(
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
-    _admin: UserInfo = Depends(require_system_admin),
+    request: Request,
+    admin: UserInfo = Depends(require_system_admin),
     session: AsyncSession = Depends(get_session),
 ):
     """Delete user (system admins only). This will remove all their permissions."""
@@ -166,5 +180,15 @@ async def delete_user(
     
     await session.delete(user)
     await session.flush()
+    admin_db = await session.scalar(select(User).where(User.oidc_sub == admin.sub))
+    await log_audit(
+        session,
+        "user_deleted",
+        resource_type="user",
+        resource_id=user_id,
+        actor_user_id=admin_db.id if admin_db else None,
+        actor_identifier=admin.email or admin.sub,
+        client_ip=get_client_ip(request),
+    )
     
     return None

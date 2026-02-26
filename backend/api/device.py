@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.oidc import require_user, require_device_token, UserInfo, create_device_token
 from ..config import settings
 from ..database import get_session
-from ..models import Network, Node, EnrollmentCode
+from ..models import Network, Node, EnrollmentCode, User
+from ..services.audit import get_client_ip, log_audit
 from ..services.config_generator import generate_config_for_node
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ class CreateEnrollmentCodeResponse(BaseModel):
 @router.post("/enrollment-codes", response_model=CreateEnrollmentCodeResponse)
 async def create_enrollment_code(
     body: CreateEnrollmentCodeRequest,
-    _user: UserInfo = Depends(require_user),
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Create a one-time enrollment code for a node. Client uses this with POST /device/enroll."""
@@ -63,6 +64,8 @@ async def create_enrollment_code(
             status_code=400,
             detail="Node has no certificate yet. Create a certificate first.",
         )
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
     code = _random_code().upper()
     expires_at = datetime.utcnow() + timedelta(hours=body.expires_in_hours)
     rec = EnrollmentCode(
@@ -72,6 +75,14 @@ async def create_enrollment_code(
     )
     session.add(rec)
     await session.flush()
+    await log_audit(
+        session,
+        "enrollment_code_created",
+        resource_type="node",
+        resource_id=node.id,
+        actor_user_id=db_user.id if db_user else None,
+        actor_identifier=user.email or user.sub,
+    )
     return CreateEnrollmentCodeResponse(
         code=code,
         expires_at=expires_at.isoformat() + "Z",
@@ -104,6 +115,7 @@ async def enroll(
     
     Rate limited to 5 attempts per 15 minutes per IP to prevent brute-force attacks.
     """
+    client_ip = get_client_ip(request)
     code = (body.code or "").strip().upper()
     if not code:
         raise HTTPException(status_code=400, detail="Code is required")
@@ -112,10 +124,37 @@ async def enroll(
     )
     rec = result.scalar_one_or_none()
     if not rec:
+        await log_audit(
+            session,
+            "device_enroll_failure",
+            result="failure",
+            actor_identifier="device",
+            details={"reason": "invalid_or_expired_code"},
+            client_ip=client_ip,
+        )
+        await session.commit()
         raise HTTPException(status_code=404, detail="Invalid or expired code")
     if rec.used_at:
+        await log_audit(
+            session,
+            "device_enroll_failure",
+            result="failure",
+            actor_identifier="device",
+            details={"reason": "code_already_used"},
+            client_ip=client_ip,
+        )
+        await session.commit()
         raise HTTPException(status_code=400, detail="Code already used")
     if datetime.utcnow() > rec.expires_at:
+        await log_audit(
+            session,
+            "device_enroll_failure",
+            result="failure",
+            actor_identifier="device",
+            details={"reason": "code_expired"},
+            client_ip=client_ip,
+        )
+        await session.commit()
         raise HTTPException(status_code=400, detail="Code expired")
     rec.used_at = datetime.utcnow()
     await session.flush()
@@ -123,6 +162,14 @@ async def enroll(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    await log_audit(
+        session,
+        "device_enroll_success",
+        resource_type="node",
+        resource_id=node.id,
+        actor_identifier=node.hostname or "device",
+        client_ip=client_ip,
+    )
     device_token = create_device_token(node.id)
     return EnrollResponse(
         device_token=device_token,

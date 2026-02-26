@@ -16,7 +16,12 @@ from starlette.config import Config
 from ..config import settings
 from ..auth.oidc import get_current_user_optional, require_user, UserInfo
 from ..auth.reauth import create_reauth_challenge, mark_reauth_completed, create_reauth_token
+from ..database import get_session
+from ..models.db import User
+from ..services.audit import get_client_ip, log_audit
 from jose import jwt
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +108,7 @@ class DevTokenResponse(BaseModel):
 async def dev_token(
     request: Request,
     user: Optional[UserInfo] = Depends(get_current_user_optional),
+    session: AsyncSession = Depends(get_session),
 ):
     """
     Return a JWT for development when debug is enabled or when OIDC is not configured.
@@ -136,6 +142,13 @@ async def dev_token(
         settings.jwt_secret_key,
         algorithm=settings.jwt_algorithm,
     )
+    await log_audit(
+        session,
+        "auth_dev_token",
+        actor_identifier="dev",
+        client_ip=get_client_ip(request),
+    )
+    await session.commit()
     return DevTokenResponse(
         token=token,
         expires_in=settings.jwt_expiration_minutes * 60,
@@ -177,7 +190,7 @@ async def login(request: Request):
 
 
 @router.get("/callback")
-async def callback(request: Request):
+async def callback(request: Request, session: AsyncSession = Depends(get_session)):
     """
     OAuth callback endpoint. Exchange authorization code for tokens,
     validate the ID token, and create a JWT for the frontend.
@@ -189,6 +202,7 @@ async def callback(request: Request):
     if not client:
         raise HTTPException(status_code=500, detail="OAuth client not initialized")
     
+    client_ip = get_client_ip(request)
     try:
         # Exchange authorization code for tokens
         token = await client.authorize_access_token(request)
@@ -230,6 +244,26 @@ async def callback(request: Request):
             algorithm=settings.jwt_algorithm,
         )
         
+        # Get or create user and log login success
+        oidc_sub = user_info.get("sub")
+        email = user_info.get("email") or user_info.get("preferred_username") or "unknown"
+        user_result = await session.execute(select(User).where(User.oidc_sub == oidc_sub))
+        db_user = user_result.scalar_one_or_none()
+        if not db_user:
+            db_user = User(oidc_sub=oidc_sub, email=email, system_role=system_role)
+            session.add(db_user)
+            await session.flush()
+        await log_audit(
+            session,
+            "auth_login_success",
+            resource_type="user",
+            resource_id=db_user.id,
+            actor_user_id=db_user.id,
+            actor_identifier=email,
+            client_ip=client_ip,
+        )
+        await session.commit()
+        
         # Redirect to frontend with token in URL query params
         # Use validated redirect URL to prevent open redirect attacks
         frontend_url = get_safe_redirect_url(request)
@@ -242,6 +276,15 @@ async def callback(request: Request):
         print(f"OAuth callback error: {e}")
         import traceback
         traceback.print_exc()
+        await log_audit(
+            session,
+            "auth_login_failure",
+            result="failure",
+            actor_identifier="unknown",
+            details={"reason": "oauth_error"},
+            client_ip=client_ip,
+        )
+        await session.commit()
         # Use validated redirect URL to prevent open redirect attacks
         frontend_url = get_safe_redirect_url(request)
         error_url = f"{frontend_url}/login?error=auth_failed"
@@ -249,11 +292,18 @@ async def callback(request: Request):
 
 
 @router.get("/logout")
-async def logout(request: Request):
+async def logout(request: Request, session: AsyncSession = Depends(get_session)):
     """
     Logout from OIDC provider (Keycloak) and clear session.
     Redirects to Keycloak logout endpoint.
     """
+    await log_audit(
+        session,
+        "auth_logout",
+        actor_identifier="unknown",
+        client_ip=get_client_ip(request),
+    )
+    await session.commit()
     if not settings.oidc_issuer_url:
         # No OIDC, just redirect to frontend
         frontend_url = get_safe_redirect_url(request)

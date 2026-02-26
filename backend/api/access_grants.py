@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from ..auth.oidc import require_user, UserInfo
 from ..auth.permissions import check_network_permission, require_system_admin
 from ..database import get_session
 from ..models import AccessGrant, User, Network, Node
+from ..services.audit import get_client_ip, log_audit
 
 router = APIRouter(prefix="/api/access-grants", tags=["access-grants"])
 
@@ -44,6 +45,7 @@ class AccessGrantResponse(BaseModel):
 @router.post("", response_model=AccessGrantResponse)
 async def create_access_grant(
     body: AccessGrantCreate,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -122,6 +124,16 @@ async def create_access_grant(
     session.add(grant)
     await session.flush()
     await session.refresh(grant)
+    await log_audit(
+        session,
+        "access_grant_created",
+        resource_type=body.resource_type,
+        resource_id=body.resource_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+        details={"grant_id": grant.id, "admin_user_id": body.admin_user_id},
+    )
     
     return AccessGrantResponse(
         id=grant.id,
@@ -220,6 +232,7 @@ async def list_access_grants(
 @router.delete("/{grant_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def revoke_access_grant(
     grant_id: int,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -248,5 +261,15 @@ async def revoke_access_grant(
     # Revoke grant
     grant.revoked_at = datetime.utcnow()
     await session.flush()
+    await log_audit(
+        session,
+        "access_grant_revoked",
+        resource_type=grant.resource_type,
+        resource_id=grant.resource_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+        details={"grant_id": grant_id},
+    )
     
     return None

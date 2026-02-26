@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +11,7 @@ from ..auth.oidc import require_user, UserInfo
 from ..auth.permissions import check_network_permission
 from ..database import get_session
 from ..models import NodeRequest, Network, User, NetworkPermission, NetworkSettings, Node
+from ..services.audit import get_client_ip, log_audit
 
 router = APIRouter(prefix="/api/node-requests", tags=["node-requests"])
 
@@ -46,6 +47,7 @@ class NodeRequestResponse(BaseModel):
 @router.post("", response_model=NodeRequestResponse)
 async def create_node_request(
     body: NodeRequestCreate,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -127,6 +129,26 @@ async def create_node_request(
         
         node_request.created_node_id = node.id
         await session.flush()
+        await log_audit(
+            session,
+            "node_request_approved",
+            resource_type="node_request",
+            resource_id=node_request.id,
+            actor_user_id=db_user.id,
+            actor_identifier=db_user.email or user.sub,
+            client_ip=get_client_ip(request),
+            details={"created_node_id": node.id},
+        )
+    else:
+        await log_audit(
+            session,
+            "node_request_created",
+            resource_type="node_request",
+            resource_id=node_request.id,
+            actor_user_id=db_user.id,
+            actor_identifier=db_user.email or user.sub,
+            client_ip=get_client_ip(request),
+        )
     
     return NodeRequestResponse(
         id=node_request.id,
@@ -242,6 +264,7 @@ class ApproveNodeRequestRequest(BaseModel):
 async def approve_node_request(
     request_id: int,
     body: ApproveNodeRequestRequest,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -299,6 +322,16 @@ async def approve_node_request(
     node_request.processed_at = datetime.utcnow()
     node_request.created_node_id = node.id
     await session.flush()
+    await log_audit(
+        session,
+        "node_request_approved",
+        resource_type="node_request",
+        resource_id=request_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+        details={"created_node_id": node.id},
+    )
     
     # Get network name
     network_result = await session.execute(select(Network).where(Network.id == node_request.network_id))
@@ -334,6 +367,7 @@ class RejectNodeRequestRequest(BaseModel):
 async def reject_node_request(
     request_id: int,
     body: RejectNodeRequestRequest,
+    request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -372,6 +406,16 @@ async def reject_node_request(
     node_request.processed_at = datetime.utcnow()
     node_request.rejection_reason = body.reason
     await session.flush()
+    await log_audit(
+        session,
+        "node_request_rejected",
+        resource_type="node_request",
+        resource_id=request_id,
+        actor_user_id=db_user.id,
+        actor_identifier=db_user.email or user.sub,
+        client_ip=get_client_ip(request),
+        details={"reason": body.reason},
+    )
     
     # Get network name
     network_result = await session.execute(select(Network).where(Network.id == node_request.network_id))
