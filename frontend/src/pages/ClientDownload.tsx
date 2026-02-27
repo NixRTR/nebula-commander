@@ -16,7 +16,10 @@ const TRAY_DOWNLOADS = [
 export function ClientDownload() {
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-6">Client Download</h1>
+      <h1 className="text-3xl font-bold mb-6">Experimental Client Download</h1>
+      <p className="text-gray-600 dark:text-gray-400 mb-6">
+        ncclient is an experimental client application for enrolling devices with Nebula Commander and automatically pulling down Nebula config and certificates. It is a work in progress and not yet recommended for production use, but if you want to try it out or provide feedback, you can download the pre-built binaries below.
+      </p>
       <p className="text-gray-600 dark:text-gray-400 mb-6">
         Install and run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> on your device to enroll with Nebula Commander and pull config and certificates. Get the enrollment code from the Nodes page (Enroll button).
       </p>
