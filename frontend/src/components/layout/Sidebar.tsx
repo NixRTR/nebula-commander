@@ -14,7 +14,7 @@ import {
   HiMail,
   HiClipboardList,
 } from 'react-icons/hi';
-import { FaGithub } from 'react-icons/fa';
+import { FaGithub, FaComments } from 'react-icons/fa';
 import { usePermissions } from '../../contexts/PermissionContext';
 
 interface SidebarProps {
@@ -108,6 +108,16 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 Client Download
               </FlowbiteSidebar.Item>
 
+              <FlowbiteSidebar.Item
+                href="https://nebulacdr.com/docs/"
+                target="_blank"
+                rel="noreferrer"
+                icon={HiGlobe}
+                as="a"
+              >
+                Documentation
+              </FlowbiteSidebar.Item>
+
               {/* System Admin Only */}
               {isSystemAdmin && (
                 <>
@@ -156,6 +166,15 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 }}
               >
                 Logout
+              </FlowbiteSidebar.Item>
+              <FlowbiteSidebar.Item
+                href="https://matrix.to/#/#nebula-commander:matrix.org"
+                target="_blank"
+                rel="noopener noreferrer"
+                icon={FaComments}
+                as="a"
+              >
+                Matrix Space
               </FlowbiteSidebar.Item>
               <FlowbiteSidebar.Item
                 href="https://github.com/NixRTR/nebula-commander"
