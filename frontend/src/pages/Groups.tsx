@@ -298,14 +298,20 @@ export function Groups() {
                             {rules.map((r, idx) => (
                               <Table.Row key={idx}>
                                 <Table.Cell>
-                                  <TextInput
-                                    value={r.allowed_group}
+                                  <Select
+                                    value={r.allowed_group || "All"}
                                     onChange={(e) =>
                                       updateRule(gf.group_name, idx, "allowed_group", e.target.value)
                                     }
-                                    placeholder="e.g. laptops or All"
                                     className="min-w-[120px]"
-                                  />
+                                  >
+                                    <option value="All">All</option>
+                                    {groupList.map((g) => (
+                                      <option key={g.group_name} value={g.group_name}>
+                                        {g.group_name}
+                                      </option>
+                                    ))}
+                                  </Select>
                                 </Table.Cell>
                                 <Table.Cell>
                                   <Select
