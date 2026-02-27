@@ -189,6 +189,29 @@ async def login(request: Request):
     return await client.authorize_redirect(request, redirect_uri)
 
 
+@router.get("/oidc-status")
+async def oidc_status():
+    """
+    Lightweight readiness check for the OIDC provider (Keycloak).
+    Returns 200 when metadata can be loaded, 503 when the provider is unavailable.
+    """
+    if not settings.oidc_issuer_url:
+        # OIDC not configured; treat as "disabled" rather than an error
+        return {"status": "disabled"}
+
+    client = get_oauth_client()
+    if not client:
+        raise HTTPException(status_code=500, detail="OAuth client not initialized")
+
+    try:
+        # Force metadata load; this is where we currently see RemoteProtocolError when Keycloak is down.
+        await client.load_server_metadata()
+        return {"status": "ok"}
+    except Exception as exc:  # pragma: no cover - defensive catch for transport errors
+        logger.warning("OIDC status check failed: %s", exc)
+        raise HTTPException(status_code=503, detail="OIDC provider unavailable") from exc
+
+
 @router.get("/callback")
 async def callback(request: Request, session: AsyncSession = Depends(get_session)):
     """
