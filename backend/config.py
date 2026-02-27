@@ -63,8 +63,8 @@ class Settings(BaseSettings):
     # Default certificate expiry (days)
     default_cert_expiry_days: int = 365
 
-    # Device token (issued on enroll) expiry in days; long-lived so client can poll
-    device_token_expiration_days: int = 3650
+    # Device token (issued on enroll) expiry in days; long-lived but not \"forever\"
+    device_token_expiration_days: int = 365
 
     # CORS: env accepts "*" or comma-separated list (avoids JSON parse of env).
     # Set NEBULA_COMMANDER_CORS_ORIGINS in env (e.g. * or frontend URL); no service ports hardcoded.

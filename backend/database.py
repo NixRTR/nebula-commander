@@ -313,6 +313,15 @@ def _run_sqlite_migrations() -> None:
                 "CREATE INDEX ix_audit_log_occurred_at ON audit_log (occurred_at DESC)"
             )
             logger.info("Migration: created table audit_log")
+
+        # Add device_token_version column to nodes table
+        cur.execute("PRAGMA table_info(nodes)")
+        node_columns = {row[1] for row in cur.fetchall()}
+        if "device_token_version" not in node_columns:
+            cur.execute(
+                "ALTER TABLE nodes ADD COLUMN device_token_version INTEGER DEFAULT 1"
+            )
+            logger.info("Migration: added column nodes.device_token_version")
         
         conn.commit()
     finally:

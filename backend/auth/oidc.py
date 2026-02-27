@@ -2,7 +2,7 @@
 OIDC authentication middleware. Validates JWT from OIDC provider (Authelia, Authentik, etc.)
 or from our own JWT secret. When oidc_issuer_url is set, JWTs are validated using the
 provider's JWKS; otherwise the configured JWT secret is used.
-Also: device tokens (JWT with sub=device, node_id) for dnclient-style enrollment.
+Also: device tokens (JWT with sub=device, node_id, ver) for dnclient-style enrollment.
 """
 import logging
 from datetime import datetime, timedelta
@@ -14,7 +14,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwk, jwt
 from pydantic import BaseModel
 
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from ..config import settings
+from ..database import get_session
+from ..models.db import Node
 
 logger = logging.getLogger(__name__)
 
@@ -138,10 +143,13 @@ async def require_user(
 
 # --- Device token (for dnclient-style enrollment) ---
 
-def create_device_token(node_id: int) -> str:
-    """Create a long-lived JWT for a device (node). Payload: sub=device, node_id=N."""
+def create_device_token(node_id: int, version: int) -> str:
+    """Create a long-lived JWT for a device (node).
+
+    Payload: sub=device, node_id=N, ver=version
+    """
     exp = datetime.utcnow() + timedelta(days=settings.device_token_expiration_days)
-    payload = {"sub": "device", "node_id": node_id, "exp": exp}
+    payload = {"sub": "device", "node_id": node_id, "ver": version, "exp": exp}
     return jwt.encode(
         payload,
         settings.jwt_secret_key,
@@ -149,8 +157,8 @@ def create_device_token(node_id: int) -> str:
     )
 
 
-def decode_device_token(token: str) -> Optional[int]:
-    """Decode device JWT; return node_id or None."""
+def decode_device_token(token: str) -> Optional[tuple[int, int]]:
+    """Decode device JWT; return (node_id, version) or None."""
     try:
         payload = jwt.decode(
             token,
@@ -159,7 +167,12 @@ def decode_device_token(token: str) -> Optional[int]:
         )
         if payload.get("sub") != "device":
             return None
-        return payload.get("node_id")
+        node_id = payload.get("node_id")
+        if node_id is None:
+            return None
+        # Tokens issued before versioning did not include \"ver\"; treat them as version 1.
+        version = payload.get("ver", 1)
+        return int(node_id), int(version)
     except JWTError:
         return None
 
@@ -168,19 +181,36 @@ async def require_device_token(
     credentials: Annotated[
         Optional[HTTPAuthorizationCredentials], Depends(security)
     ] = None,
+    session: AsyncSession = Depends(get_session),
 ) -> int:
-    """Dependency: require device Bearer token; return node_id. Raises 401 if invalid."""
+    """Dependency: require device Bearer token; return node_id. Raises 401 if invalid.
+
+    In addition to validating the JWT, this enforces per-node token versioning so that
+    older tokens are invalidated when a new token is issued for the node.
+    """
     if not credentials or not credentials.credentials:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Missing or invalid device token",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    node_id = decode_device_token(credentials.credentials)
-    if node_id is None:
+    decoded = decode_device_token(credentials.credentials)
+    if decoded is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired device token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    node_id, token_version = decoded
+
+    # Enforce that the token version matches the current version stored on the node.
+    result = await session.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+    if not node or (node.device_token_version or 1) != token_version:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired device token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     return node_id

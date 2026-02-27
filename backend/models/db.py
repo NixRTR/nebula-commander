@@ -93,6 +93,7 @@ class Node(Base):
     logging_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # level, format, disable_timestamp, timestamp_format
     punchy_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # respond, delay, respond_delay
     status: Mapped[str] = mapped_column(String(32), default="pending")  # pending, active, revoked, offline
+    device_token_version: Mapped[int] = mapped_column(Integer, default=1)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     first_polled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # set when device first fetches config/bundle
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)

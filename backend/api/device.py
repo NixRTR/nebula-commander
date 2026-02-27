@@ -171,7 +171,10 @@ async def enroll(
         actor_identifier=node.hostname or "device",
         client_ip=client_ip,
     )
-    device_token = create_device_token(node.id)
+    # Bump the device token version so any previously issued tokens for this node are invalidated.
+    node.device_token_version = (node.device_token_version or 1) + 1
+    await session.flush()
+    device_token = create_device_token(node.id, node.device_token_version)
     return EnrollResponse(
         device_token=device_token,
         node_id=node.id,
