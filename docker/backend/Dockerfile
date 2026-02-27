@@ -18,7 +18,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && chmod +x /usr/local/bin/nebula-cert \
     && apt-get purge -y curl \
     && apt-get autoremove -y \
-    && rm -rf /var/lib/apt/lists/* /tmp/nebula*
+    && rm -rf /var/lib/apt/lists/* /tmp/nebula* \
+    && apt-get clean
 
 WORKDIR /app
 

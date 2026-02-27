@@ -291,8 +291,14 @@ async def update_network(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only network owners can update networks"
         )
-    
+    # NOTE: When editable fields are added to NetworkUpdate,
+    # capture original values before mutation and populate this
+    # `changed` dict with old/new pairs for audit logging.
+    changed: dict = {}
+
     await session.refresh(network)
+
+    details = {"changed": changed} if changed else None
     await log_audit(
         session,
         "network_updated",
@@ -301,6 +307,7 @@ async def update_network(
         actor_user_id=db_user.id,
         actor_identifier=db_user.email or user.sub,
         client_ip=get_client_ip(request),
+        details=details,
     )
     return NetworkResponse(
         id=network.id,
@@ -521,6 +528,7 @@ async def update_group_firewall(
         session.add(gf)
     await session.flush()
     await session.refresh(gf)
+    rule_count = len(gf.inbound_rules or [])
     await log_audit(
         session,
         "network_group_firewall_updated",
@@ -529,7 +537,7 @@ async def update_group_firewall(
         actor_user_id=db_user.id,
         actor_identifier=db_user.email or user.sub,
         client_ip=get_client_ip(request),
-        details={"group_name": group_name},
+        details={"group_name": group_name, "rule_count": rule_count},
     )
     return GroupFirewallResponse(
         group_name=gf.group_name,
@@ -571,6 +579,7 @@ async def delete_group_firewall(
     )
     gf = result.scalar_one_or_none()
     if gf:
+        previous_rule_count = len(gf.inbound_rules or [])
         await session.delete(gf)
         await session.flush()
         await log_audit(
@@ -581,7 +590,10 @@ async def delete_group_firewall(
             actor_user_id=db_user.id,
             actor_identifier=db_user.email or user.sub,
             client_ip=get_client_ip(request),
-            details={"group_name": group_name},
+            details={
+                "group_name": group_name,
+                "previous_rule_count": previous_rule_count,
+            },
         )
     return None
 

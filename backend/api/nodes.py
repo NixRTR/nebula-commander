@@ -251,7 +251,8 @@ async def get_node(
 async def update_node(
     node_id: int,
     body: NodeUpdate,
-    _user: UserInfo = Depends(require_user),
+    request: Request,
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Update node group (single), lighthouse flag, public endpoint, or lighthouse options."""
@@ -259,6 +260,26 @@ async def update_node(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+
+    original_groups = list(node.groups or [])
+    original_is_lighthouse = node.is_lighthouse
+    original_is_relay = node.is_relay
+    original_public_endpoint = node.public_endpoint
+    original_lighthouse_options = (
+        node.lighthouse_options.copy()
+        if isinstance(node.lighthouse_options, dict)
+        else node.lighthouse_options
+    )
+    original_logging_options = (
+        node.logging_options.copy()
+        if isinstance(node.logging_options, dict)
+        else node.logging_options
+    )
+    original_punchy_options = (
+        node.punchy_options.copy()
+        if isinstance(node.punchy_options, dict)
+        else node.punchy_options
+    )
     if body.group is not None:
         node.groups = [body.group] if (body.group and body.group.strip()) else []
     if body.is_lighthouse is not None:
@@ -287,7 +308,62 @@ async def update_node(
         node.logging_options = body.logging_options
     if body.punchy_options is not None:
         node.punchy_options = body.punchy_options
+
     await session.flush()
+
+    changed: dict[str, dict[str, Any]] = {}
+
+    new_groups = node.groups or []
+    if original_groups != new_groups:
+        changed["groups"] = {"old": original_groups, "new": new_groups}
+
+    if original_is_lighthouse != node.is_lighthouse:
+        changed["is_lighthouse"] = {
+            "old": original_is_lighthouse,
+            "new": node.is_lighthouse,
+        }
+
+    if original_is_relay != node.is_relay:
+        changed["is_relay"] = {"old": original_is_relay, "new": node.is_relay}
+
+    if original_public_endpoint != node.public_endpoint:
+        changed["public_endpoint"] = {
+            "old": original_public_endpoint,
+            "new": node.public_endpoint,
+        }
+
+    if original_lighthouse_options != node.lighthouse_options:
+        changed["lighthouse_options"] = {
+            "old": original_lighthouse_options,
+            "new": node.lighthouse_options,
+        }
+
+    if original_logging_options != node.logging_options:
+        changed["logging_options"] = {
+            "old": original_logging_options,
+            "new": node.logging_options,
+        }
+
+    if original_punchy_options != node.punchy_options:
+        changed["punchy_options"] = {
+            "old": original_punchy_options,
+            "new": node.punchy_options,
+        }
+
+    if changed:
+        user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+        db_user = user_result.scalar_one_or_none()
+        await log_audit(
+            session,
+            "node_updated",
+            resource_type="node",
+            resource_id=node_id,
+            actor_user_id=db_user.id if db_user else None,
+            actor_identifier=user.email or user.sub,
+            client_ip=get_client_ip(request),
+            details={"changed": changed},
+        )
+
     return {"ok": True}
 
 
