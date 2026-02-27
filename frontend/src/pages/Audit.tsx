@@ -67,7 +67,6 @@ function resourceDisplay(entry: AuditEntry): string {
 export const Audit: React.FC = () => {
   const [entries, setEntries] = useState<AuditEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [offset, setOffset] = useState(0);
   const [filters, setFilters] = useState<AuditLogParams>({
     limit: LIMIT,
     offset: 0,
@@ -119,13 +118,11 @@ export const Audit: React.FC = () => {
   };
 
   const nextPage = () => {
-    setOffset((o) => o + LIMIT);
     setFilters((f) => ({ ...f, offset: (f.offset ?? 0) + LIMIT }));
   };
 
   const prevPage = () => {
     const newOffset = Math.max(0, (filters.offset ?? 0) - LIMIT);
-    setOffset(newOffset);
     setFilters((f) => ({ ...f, offset: newOffset }));
   };
 
