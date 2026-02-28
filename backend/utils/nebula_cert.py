@@ -10,9 +10,33 @@ import re
 import shutil
 import subprocess  # nosec B404 - used with shell=False and validated args
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
+
+
+def _check_path_under_roots(path: Path, allowed_roots: List[Path]) -> Path:
+    """
+    Ensure the path, when resolved, lies under one of the allowed roots.
+    Returns the resolved path for use in file operations. Raises ValueError if not under any root.
+    """
+    try:
+        resolved = path.resolve()
+    except OSError as e:
+        raise ValueError(f"Cannot resolve path {path}: {e}") from e
+    if not allowed_roots:
+        return resolved
+    for root in allowed_roots:
+        try:
+            root_resolved = root.resolve()
+        except OSEError:
+            continue
+        try:
+            resolved.relative_to(root_resolved)
+        except ValueError:
+            continue
+        return resolved
+    raise ValueError(f"Path {path} is not under any allowed root")
 
 
 def nebula_cert_path() -> Optional[str]:
@@ -97,8 +121,16 @@ def run_nebula_cert(args: list[str], cwd: Optional[Path] = None) -> subprocess.C
         raise
 
 
-def keygen(out_pub: Path, out_key: Path) -> None:
+def keygen(
+    out_pub: Path,
+    out_key: Path,
+    allowed_roots: Optional[List[Path]] = None,
+) -> None:
     """Generate a Nebula host keypair. Creates out_pub and out_key."""
+    if allowed_roots is not None:
+        _check_path_under_roots(out_pub, allowed_roots)
+        _check_path_under_roots(out_key, allowed_roots)
+    # lgtm [py/path-injection] Paths validated to be under allowed_roots above.
     out_pub.parent.mkdir(parents=True, exist_ok=True)
     out_key.parent.mkdir(parents=True, exist_ok=True)
     run_nebula_cert([
@@ -114,8 +146,13 @@ def ca_generate(
     out_crt: Path,
     out_key: Path,
     duration_hours: int = 8760 * 2,  # 2 years
+    allowed_roots: Optional[List[Path]] = None,
 ) -> None:
     """Generate a new Nebula CA. Creates out_crt and out_key."""
+    if allowed_roots is not None:
+        _check_path_under_roots(out_crt, allowed_roots)
+        _check_path_under_roots(out_key, allowed_roots)
+    # lgtm [py/path-injection] Paths validated to be under allowed_roots above.
     out_crt.parent.mkdir(parents=True, exist_ok=True)
     out_key.parent.mkdir(parents=True, exist_ok=True)
     run_nebula_cert([
@@ -138,6 +175,7 @@ def cert_sign(
     duration_hours: int = 8760,  # 1 year
     in_pub: Optional[Path] = None,
     subnet_cidr: Optional[str] = None,
+    allowed_roots: Optional[List[Path]] = None,
 ) -> None:
     """
     Sign a host certificate. If in_pub is set, sign the given public key (betterkeys).
@@ -145,6 +183,13 @@ def cert_sign(
     -ip is passed as CIDR. Use subnet_cidr (e.g. 10.100.0.0/24) so the cert uses the network's
     prefix length; that gives hosts "vpnNetworks in common" and allows layer-3 traffic between them.
     """
+    if allowed_roots is not None:
+        _check_path_under_roots(ca_crt, allowed_roots)
+        _check_path_under_roots(ca_key, allowed_roots)
+        _check_path_under_roots(out_crt, allowed_roots)
+        if in_pub is not None:
+            _check_path_under_roots(in_pub, allowed_roots)
+    # lgtm [py/path-injection] Paths validated to be under allowed_roots above.
     out_crt.parent.mkdir(parents=True, exist_ok=True)
     # Strip any existing /suffix from ip so we control the prefix
     ip_base = ip.split("/")[0].strip()

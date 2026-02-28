@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Network, Node, Certificate, AllocatedIP
-from ..utils.nebula_cert import ca_generate, cert_sign, keygen
+from ..utils.nebula_cert import _check_path_under_roots, ca_generate, cert_sign, keygen
 from .cert_store import read_cert_store_file, write_cert_store_file
 from .ip_allocator import IPAllocator
 
@@ -41,7 +41,13 @@ class CertManager:
             network.ca_key_path = str(ca_key)
             await self.session.flush()
             return
-        ca_generate(network.name, ca_crt, ca_key)
+        _cert_store_root = Path(settings.cert_store_path)
+        ca_generate(
+            network.name,
+            ca_crt,
+            ca_key,
+            allowed_roots=[_cert_store_root],
+        )
         # Overwrite with encrypted storage
         write_cert_store_file(ca_crt, ca_crt.read_text())
         write_cert_store_file(ca_key, ca_key.read_text())
@@ -86,6 +92,7 @@ class CertManager:
                 ca_key_tmp = tmp / "ca.key"
                 ca_crt_tmp.write_text(read_cert_store_file(Path(network.ca_cert_path)))
                 ca_key_tmp.write_text(read_cert_store_file(Path(network.ca_key_path)))
+                _roots = [Path(settings.cert_store_path), Path(tempfile.gettempdir())]
                 cert_sign(
                     ca_crt_tmp,
                     ca_key_tmp,
@@ -96,8 +103,10 @@ class CertManager:
                     duration_hours=duration_hours,
                     in_pub=pub_path,
                     subnet_cidr=network.subnet_cidr,
+                    allowed_roots=_roots,
                 )
-            cert_pem = out_crt.read_text()
+            _check_path_under_roots(out_crt, [Path(settings.cert_store_path)])
+            cert_pem = out_crt.read_text()  # lgtm [py/path-injection] Path validated above.
             write_cert_store_file(out_crt, cert_pem)
         finally:
             pub_path.unlink(missing_ok=True)
@@ -138,7 +147,8 @@ class CertManager:
             ca_key_tmp = tmp / "ca.key"
             ca_crt_tmp.write_text(read_cert_store_file(Path(network.ca_cert_path)))
             ca_key_tmp.write_text(read_cert_store_file(Path(network.ca_key_path)))
-            keygen(out_pub=pub_path, out_key=key_path)
+            _roots = [Path(settings.cert_store_path), Path(tempfile.gettempdir())]
+            keygen(out_pub=pub_path, out_key=key_path, allowed_roots=_roots)
             cert_sign(
                 ca_crt_tmp,
                 ca_key_tmp,
@@ -149,6 +159,7 @@ class CertManager:
                 duration_hours=duration_hours,
                 in_pub=pub_path,
                 subnet_cidr=network.subnet_cidr,
+                allowed_roots=_roots,
             )
             cert_pem = out_crt_tmp.read_text()
             private_key_pem = key_path.read_text()
@@ -205,7 +216,8 @@ class CertManager:
             ca_key_tmp = tmp / "ca.key"
             ca_crt_tmp.write_text(read_cert_store_file(Path(network.ca_cert_path)))
             ca_key_tmp.write_text(read_cert_store_file(Path(network.ca_key_path)))
-            keygen(out_pub=pub_path, out_key=key_path)
+            _roots = [Path(settings.cert_store_path), Path(tempfile.gettempdir())]
+            keygen(out_pub=pub_path, out_key=key_path, allowed_roots=_roots)
             cert_sign(
                 ca_crt_tmp,
                 ca_key_tmp,
@@ -216,6 +228,7 @@ class CertManager:
                 duration_hours=duration_hours,
                 in_pub=pub_path,
                 subnet_cidr=network.subnet_cidr,
+                allowed_roots=_roots,
             )
             cert_pem = out_crt_tmp.read_text()
             private_key_pem = key_path.read_text()

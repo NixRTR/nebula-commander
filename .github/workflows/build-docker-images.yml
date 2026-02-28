@@ -7,6 +7,10 @@ on:
     types: [completed]
   workflow_dispatch:  # Allow manual trigger (uses VERSION=latest)
 
+permissions:
+  contents: read
+  # build-* jobs add packages: write for pushing to GHCR
+
 env:
   REGISTRY: ghcr.io
   BACKEND_IMAGE_NAME: nixrtr/nebula-commander-backend
@@ -17,6 +21,8 @@ jobs:
   get-version:
     name: Get version
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:
@@ -190,6 +196,8 @@ jobs:
     needs: [get-version, build-backend, build-frontend, build-keycloak]
     runs-on: ubuntu-latest
     if: always() && needs.get-version.outputs.version != ''
+    permissions:
+      contents: read
     steps:
       - name: Check build status
         run: |
