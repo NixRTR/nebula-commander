@@ -6,6 +6,7 @@ Command path is resolved at runtime but not user-controllable.
 """
 import ipaddress
 import logging
+import re
 import shutil
 import subprocess  # nosec B404 - used with shell=False and validated args
 from pathlib import Path
@@ -19,24 +20,39 @@ def nebula_cert_path() -> Optional[str]:
     return shutil.which("nebula-cert")
 
 
+# Allow only a conservative character set for arguments (hostnames, paths, identifiers)
+_SAFE_ARG_PATTERN = re.compile(r"^[a-zA-Z0-9_\-.:/]*$")
+
+
 def _validate_arg(arg: str) -> None:
     """
     Validate subprocess argument for safety.
-    
+
     While shell=False protects us from shell injection, this provides
-    defense in depth by rejecting arguments with suspicious characters.
+    defense in depth by rejecting arguments with suspicious characters
+    and enforcing a conservative allowlist for argument contents.
     """
     # Check for shell metacharacters that should never appear in nebula-cert args
     dangerous_chars = ['|', '&', ';', '`', '$', '(', ')', '<', '>', '\n', '\r']
     arg_str = str(arg)
-    
+
     for char in dangerous_chars:
         if char in arg_str:
             raise ValueError(f"Invalid character '{char}' in argument: {arg_str[:50]}")
-    
+
     # Additional check: reject null bytes
     if '\x00' in arg_str:
         raise ValueError(f"Null byte in argument: {arg_str[:50]}")
+
+    # Enforce a reasonable maximum length to avoid abuse
+    if len(arg_str) > 256:
+        raise ValueError(f"Argument too long (>{256} chars): {arg_str[:50]}")
+
+    # Allow only a conservative character set in arguments derived from user input.
+    # This includes alphanumerics and a few safe punctuation characters commonly used
+    # in hostnames, file paths, and identifiers.
+    if not _SAFE_ARG_PATTERN.match(arg_str):
+        raise ValueError(f"Argument contains disallowed characters: {arg_str[:50]}")
 
 
 def run_nebula_cert(args: list[str], cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
