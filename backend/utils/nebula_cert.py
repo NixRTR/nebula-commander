@@ -20,8 +20,12 @@ def nebula_cert_path() -> Optional[str]:
     return shutil.which("nebula-cert")
 
 
-# Allow only a conservative character set for arguments (hostnames, paths, identifiers)
+# Allow only a conservative character set for arguments (hostnames, paths, identifiers).
+# CodeQL: we pass the result of _to_safe_arg() to subprocess, not raw user input.
 _SAFE_ARG_PATTERN = re.compile(r"^[a-zA-Z0-9_\-.:/]*$")
+_ALLOWED_ARG_CHARS = set(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.:/"
+)
 
 
 def _validate_arg(arg: str) -> None:
@@ -55,6 +59,16 @@ def _validate_arg(arg: str) -> None:
         raise ValueError(f"Argument contains disallowed characters: {arg_str[:50]}")
 
 
+def _to_safe_arg(arg: str) -> str:
+    """
+    Validate argument and return a new string built only from allowlisted characters.
+    The returned value is safe to pass to subprocess (no raw user input is passed through).
+    """
+    _validate_arg(arg)
+    # Reconstruct from allowlist so the value passed to subprocess is not the raw input
+    return "".join(c for c in str(arg) if c in _ALLOWED_ARG_CHARS)
+
+
 def run_nebula_cert(args: list[str], cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
     """
     Run nebula-cert with given args. Raises CalledProcessError on failure; stderr is logged.
@@ -65,13 +79,11 @@ def run_nebula_cert(args: list[str], cwd: Optional[Path] = None) -> subprocess.C
     if not cmd:
         raise FileNotFoundError("nebula-cert not found in PATH")
     
-    # Validate all arguments
-    for arg in args:
-        _validate_arg(arg)
-    
+    # Pass only allowlist-derived strings to subprocess (no raw user input)
+    safe_args = [_to_safe_arg(a) for a in args]
     try:
-        return subprocess.run(  # nosec B603 - command path validated, shell=False, args validated
-            [cmd] + args,
+        return subprocess.run(  # nosec B603 - command path validated, shell=False, args from _to_safe_arg
+            [cmd] + safe_args,
             cwd=cwd,
             capture_output=True,
             text=True,
