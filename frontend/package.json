@@ -7,6 +7,10 @@
   "engines": {
     "node": ">=18"
   },
+  "overrides": {
+    "rollup": ">=4.59.0",
+    "minimatch": ">=9.0.7"
+  },
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
