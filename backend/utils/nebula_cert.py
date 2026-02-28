@@ -82,6 +82,7 @@ def run_nebula_cert(args: list[str], cwd: Optional[Path] = None) -> subprocess.C
     # Pass only allowlist-derived strings to subprocess (no raw user input)
     safe_args = [_to_safe_arg(a) for a in args]
     try:
+        # lgtm [py/command-line-injection] Arguments are allowlist-sanitized by _to_safe_arg() before use.
         return subprocess.run(  # nosec B603 - command path validated, shell=False, args from _to_safe_arg
             [cmd] + safe_args,
             cwd=cwd,
