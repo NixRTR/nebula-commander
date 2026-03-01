@@ -91,6 +91,12 @@ class Settings(BaseSettings):
     smtp_from_email: str = "noreply@example.com"
     smtp_from_name: str = "Nebula Commander"
 
+    # Analytics (optional). Exposed to frontend via GET /api/public-config for script injection.
+    plausible_domain: Optional[str] = None  # e.g. nebulacdr.net
+    plausible_script_src: Optional[str] = None  # e.g. https://plausible.beardedtek.org/js/script.file-downloads.hash.outbound-links.js
+    ga_measurement_id: Optional[str] = None  # e.g. G-XXXXXXXXXX
+    analytics_custom_scripts: Optional[str] = None  # JSON array of { "src": "https://...", "defer": true } or { "inline": "..." }
+
     @field_validator("cors_origins", mode="after")
     @classmethod
     def normalize_cors_origins(cls, v: str | list[str]) -> list[str]:

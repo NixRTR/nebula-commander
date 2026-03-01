@@ -143,6 +143,23 @@ NEBULA_COMMANDER_SMTP_FROM_EMAIL=noreply@example.com
 NEBULA_COMMANDER_SMTP_FROM_NAME=Nebula Commander
 
 # =============================================================================
+# Analytics (Optional)
+# =============================================================================
+# When set, the frontend fetches /api/public-config and injects the corresponding
+# scripts into the page. No auth required; config is public.
+
+# Plausible: set domain to enable. Script loads from PLAUSIBLE_SCRIPT_SRC or default.
+# NEBULA_COMMANDER_PLAUSIBLE_DOMAIN=nebulacdr.net
+# Custom proxy example:
+# NEBULA_COMMANDER_PLAUSIBLE_SCRIPT_SRC=https://plausible.beardedtek.org/js/script.file-downloads.hash.outbound-links.js
+
+# Google Analytics: set measurement ID to enable (e.g. G-XXXXXXXXXX).
+# NEBULA_COMMANDER_GA_MEASUREMENT_ID=
+
+# Custom scripts: JSON array of { "src": "https://...", "defer": true } or { "inline": "..." }.
+# NEBULA_COMMANDER_ANALYTICS_CUSTOM_SCRIPTS=[{"src":"https://example.com/script.js","defer":true}]
+
+# =============================================================================
 # Debug Mode
 # =============================================================================
 

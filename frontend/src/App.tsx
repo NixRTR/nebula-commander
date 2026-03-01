@@ -9,6 +9,7 @@ import { ToastProvider } from "./contexts/ToastContext";
 import { OnboardingOverlay } from "./components/onboarding/OnboardingOverlay";
 import { initializeTokenRefresh } from "./api/client";
 import ProtectedRoute from "./components/ProtectedRoute";
+import { AnalyticsInjector } from "./components/AnalyticsInjector";
 
 // Lazy load pages for code splitting - reduces initial bundle size
 const Home = lazy(() => import("./pages/Home").then(m => ({ default: m.Home })));
@@ -96,6 +97,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
+        <AnalyticsInjector />
         <Suspense fallback={<PageLoader />}>
           <Routes>
             {/* Public routes */}
