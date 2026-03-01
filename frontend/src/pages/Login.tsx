@@ -61,7 +61,7 @@ const Login: React.FC = () => {
   return (
     <div
       className="relative min-h-screen flex items-center justify-center bg-gray-900 bg-cover bg-center bg-no-repeat"
-      style={{ backgroundImage: 'url(/nebula-bg.webp)' }}
+      style={{ backgroundImage: 'url(/nebula.webp)' }}
     >
       <div className="absolute inset-0 bg-black/50" aria-hidden="true" />
       <div className="relative z-10 max-w-md w-full space-y-8 p-8 bg-gray-900/90 dark:bg-gray-800/95 rounded-lg shadow-xl border border-purple-800/50 backdrop-blur-sm">

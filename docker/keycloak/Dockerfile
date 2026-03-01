@@ -7,8 +7,8 @@ FROM quay.io/keycloak/keycloak:26.5.3
 COPY --chown=keycloak:keycloak docker/keycloak-import /opt/keycloak/data/import
 
 # Custom login/account theme (nebula background + logo).
-# For the nebula background, ensure nebula-bg.webp is in keycloak-theme/nebula/login/resources/img/
-# (or copy from frontend/public/nebula-bg.webp) before building.
+# For the nebula background, ensure nebula.webp is in keycloak-theme/nebula/login/resources/img/
+# (or copy from frontend/public/nebula.webp) before building.
 COPY docker/keycloak-theme /opt/keycloak/themes
 
 # Startup script: substitute NEBULA_COMMANDER_* in realm JSON, then start Keycloak with --import-realm
