@@ -12,10 +12,18 @@ let
     websockets
     sqlalchemy
     aiosqlite
+    alembic
     pydantic
     pydantic-settings
+    email-validator
+    pyyaml
     python-jose
     httpx
+    authlib
+    itsdangerous
+    cryptography
+    aiosmtplib
+    jinja2
   ]);
   # Package has backend/ at root; run uvicorn from root so "backend.main" resolves
   rootSrc = nebulaCommanderPkg;
@@ -29,7 +37,7 @@ in
       type = types.package;
       default = pkgs.runCommand "nebula-commander-src" { } ''
         mkdir -p $out/backend
-        cp -r ${toString (../../backend)}/* $out/backend/
+        cp -r ${toString (../backend)}/* $out/backend/
       '';
       defaultText = "backend source from repo";
       description = "Nebula Commander package (backend source)";
@@ -65,6 +73,12 @@ in
       description = "Path to JWT secret file (e.g. managed by sops-nix)";
     };
 
+    encryptionKeyFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = "Path to encryption key file (Fernet key for DB/cert encryption). If null, auto-generated at /var/lib/nebula-commander/encryption-key";
+    };
+
     debug = mkOption {
       type = types.bool;
       default = false;
@@ -86,6 +100,24 @@ in
       "d /run/nebula-commander 0750 nebula-commander nebula-commander -"
     ];
 
+    systemd.services.nebula-commander-encryption-init = mkIf (cfg.encryptionKeyFile == null) {
+      description = "Generate encryption key for Nebula Commander";
+      wantedBy = [ "multi-user.target" ];
+      before = [ "nebula-commander.service" ];
+      after = [ "network.target" ] ++ optional (cfg.jwtSecretFile == null) "nebula-commander-jwt-init.service";
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+      };
+      script = ''
+        if [ ! -f /var/lib/nebula-commander/encryption-key ]; then
+          ${pythonEnv}/bin/python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())" > /var/lib/nebula-commander/encryption-key
+          chmod 640 /var/lib/nebula-commander/encryption-key
+          chown nebula-commander:nebula-commander /var/lib/nebula-commander/encryption-key
+        fi
+      '';
+    };
+
     systemd.services.nebula-commander-jwt-init = mkIf (cfg.jwtSecretFile == null) {
       description = "Generate JWT secret for Nebula Commander";
       wantedBy = [ "multi-user.target" ];
@@ -105,15 +137,19 @@ in
 
     systemd.services.nebula-commander = {
       description = "Nebula Commander API (FastAPI)";
-      after = [ "network.target" ] ++ optional (cfg.jwtSecretFile == null) "nebula-commander-jwt-init.service";
+      after = [ "network.target" ]
+        ++ optional (cfg.jwtSecretFile == null) "nebula-commander-jwt-init.service"
+        ++ optional (cfg.encryptionKeyFile == null) "nebula-commander-encryption-init.service";
       wantedBy = [ "multi-user.target" ];
-      requires = optional (cfg.jwtSecretFile == null) "nebula-commander-jwt-init.service";
+      requires = optional (cfg.jwtSecretFile == null) "nebula-commander-jwt-init.service"
+        ++ optional (cfg.encryptionKeyFile == null) "nebula-commander-encryption-init.service";
 
       environment = {
         NEBULA_COMMANDER_DATABASE_URL = "sqlite+aiosqlite:///${cfg.databasePath}";
         NEBULA_COMMANDER_CERT_STORE_PATH = cfg.certStorePath;
         NEBULA_COMMANDER_PORT = toString cfg.backendPort;
-        JWT_SECRET_FILE = if cfg.jwtSecretFile != null then toString cfg.jwtSecretFile else "/var/lib/nebula-commander/jwt-secret";
+        NEBULA_COMMANDER_JWT_SECRET_FILE = if cfg.jwtSecretFile != null then toString cfg.jwtSecretFile else "/var/lib/nebula-commander/jwt-secret";
+        NEBULA_COMMANDER_ENCRYPTION_KEY_FILE = if cfg.encryptionKeyFile != null then toString cfg.encryptionKeyFile else "/var/lib/nebula-commander/encryption-key";
         DEBUG = if cfg.debug then "true" else "false";
         PATH = "/run/current-system/sw/bin:${pkgs.nebula}/bin";
       };

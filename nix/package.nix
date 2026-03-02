@@ -13,10 +13,18 @@ let
     websockets
     sqlalchemy
     aiosqlite
+    alembic
     pydantic
     pydantic-settings
+    email-validator
+    pyyaml
     python-jose
     httpx
+    authlib
+    itsdangerous
+    cryptography
+    aiosmtplib
+    jinja2
   ]);
 in
 
@@ -31,7 +39,6 @@ else if frontendOnly then
     version = "0.1.0";
     src = src + "/frontend";
     npmDepsHash = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
-    NODE_OPTIONS = "--openssl-legacy-provider";
     installPhase = "cp -r dist $out";
   })
 else
