@@ -16,55 +16,19 @@ KC_BOOTSTRAP_ADMIN_USERNAME=admin
 KC_BOOTSTRAP_ADMIN_PASSWORD=admin
 
 # Hostname Configuration (as seen by the browser)
-# Use FQDN or host:port so Keycloak redirects and discovery work from the public interface.
-# Examples: localhost  |  auth.example.com  |  192.168.1.1:8082
+# If running behind a reverse proxy, set this to: https://your-domain.com
 KC_HOSTNAME=localhost
-
-# Hostname strict mode (disable dynamic hostname resolution from request headers)
-# Set to true in production
-KC_HOSTNAME_STRICT=false
-
-# HTTP Configuration (for development behind proxy)
-# Enable HTTP listener (disabled by default in production mode)
 KC_HTTP_ENABLED=true
+
+# If running behind a reverse proxy, uncomment this line
+KC_PROXY_HEADERS=xforwarded
+
 
 # Health and Metrics
 KC_HEALTH_ENABLED=true
 KC_METRICS_ENABLED=true
 
-# Proxy Configuration (when behind reverse proxy)
-# Options: edge, reencrypt, passthrough, none
-# KC_PROXY=edge
-
 # Logging
 KC_LOG_LEVEL=info
 
-# =============================================================================
-# Realm import (zero-touch setup)
-# =============================================================================
-# When using realm import (start-dev --import-realm), the nebula-commander
-# realm is created from keycloak-import/nebula-commander-realm.json.
-# Placeholders in that file are resolved from the Keycloak container env.
-#
-# You can set these here, or pass env.d/backend so the same values used by
-# the Nebula Commander backend are available for the import (docker-compose
-# already adds env.d/backend for the keycloak service):
-#
-# NEBULA_COMMANDER_OIDC_CLIENT_SECRET=<same as backend>
-# NEBULA_COMMANDER_OIDC_REDIRECT_URI=http://localhost/api/auth/callback
-# NEBULA_COMMANDER_PUBLIC_URL=http://localhost
-#
-# Optional: use different theme names (default is nebula):
-# KC_LOGIN_THEME=nebula
-# KC_ACCOUNT_THEME=nebula
 
-# =============================================================================
-# Production Notes
-# =============================================================================
-# For production:
-# 1. Use start --optimized instead of start-dev in docker-compose
-# 2. Set KC_HOSTNAME to your public URL
-# 3. Set KC_HOSTNAME_STRICT=true
-# 4. Configure TLS certificates or use KC_PROXY=edge with reverse proxy
-# 5. Change admin credentials
-# 6. Use strong database password

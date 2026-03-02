@@ -149,9 +149,9 @@ NEBULA_COMMANDER_SMTP_FROM_NAME=Nebula Commander
 # scripts into the page. No auth required; config is public.
 
 # Plausible: set domain to enable. Script loads from PLAUSIBLE_SCRIPT_SRC or default.
-# NEBULA_COMMANDER_PLAUSIBLE_DOMAIN=nebulacdr.net
+# NEBULA_COMMANDER_PLAUSIBLE_DOMAIN=nebulacdr.example.com
 # Custom proxy example:
-# NEBULA_COMMANDER_PLAUSIBLE_SCRIPT_SRC=https://plausible.beardedtek.org/js/script.file-downloads.hash.outbound-links.js
+# NEBULA_COMMANDER_PLAUSIBLE_SCRIPT_SRC=https://plausible.example.com/js/script.file-downloads.hash.outbound-links.js
 
 # Google Analytics: set measurement ID to enable (e.g. G-XXXXXXXXXX).
 # NEBULA_COMMANDER_GA_MEASUREMENT_ID=
@@ -165,20 +165,5 @@ NEBULA_COMMANDER_SMTP_FROM_NAME=Nebula Commander
 
 # Enable debug mode (enables /dev-token endpoint)
 # WARNING: Never enable in production!
-NEBULA_COMMANDER_DEBUG=true
+NEBULA_COMMANDER_DEBUG=false
 
-# =============================================================================
-# Notes
-# =============================================================================
-# 1. Set NEBULA_COMMANDER_PUBLIC_URL to the URL users use (FQDN or host:port).
-#    Redirect URI and redirect validation are derived from it when possible.
-#
-# 2. OIDC: Use internal issuer (keycloak:8080) for backend→Keycloak; use public
-#    issuer (FQDN or host:port) for browser-facing URLs. Frontend and backend
-#    can be on different hosts; auth flows use the public interface.
-#
-# 3. For production:
-#    - Change JWT_SECRET_KEY to a strong random value
-#    - Use HTTPS for PUBLIC_URL and OIDC public URLs
-#    - Set DEBUG=false
-#    - CORS_ORIGINS should include your public URL
