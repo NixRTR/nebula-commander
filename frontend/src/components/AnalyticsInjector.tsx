@@ -38,16 +38,18 @@ function injectScripts(config: PublicConfig) {
   // Google Analytics (gtag)
   if (analytics.gaMeasurementId) {
     const gid = analytics.gaMeasurementId;
+    // Escape for single-quoted JS string: backslash first, then single quote
+    const escaped = String(gid).replace(/\\/g, "\\\\").replace(/'/g, "\\'");
     const script = document.createElement("script");
     script.async = true;
-    script.src = `https://www.googletagmanager.com/gtag/js?id=${gid}`;
+    script.src = `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(gid)}`;
     document.head.appendChild(script);
     const inline = document.createElement("script");
     inline.textContent = `
       window.dataLayer = window.dataLayer || [];
       function gtag(){ dataLayer.push(arguments); }
       gtag('js', new Date());
-      gtag('config', '${gid.replace(/'/g, "\\'")}');
+      gtag('config', '${escaped}');
     `;
     document.head.appendChild(inline);
   }
