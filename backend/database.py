@@ -47,7 +47,13 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 class EncryptedText(TypeDecorator):
-    """Stores encrypted string in DB (base64 of magic+Fernet token). Transparent encrypt on bind, decrypt on result."""
+    """
+    Stores encrypted string in DB (base64 of magic+Fernet token).
+    Transparent encrypt on bind, decrypt on result.
+    All writes to columns using this type must go through the ORM so process_bind_parameter
+    runs; raw SQL that inserts/updates these columns must use encrypt_to_str() from
+    backend.services.encryption (e.g. migrate_encrypt.py).
+    """
 
     impl = Text
     cache_ok = True
@@ -61,8 +67,8 @@ class EncryptedText(TypeDecorator):
     def process_result_value(self, value, dialect):
         if value is None:
             return None
-        from .services.encryption import decrypt_to_str
-        return decrypt_to_str(value)
+        from .services.encryption import decrypt_to_str_or_plain
+        return decrypt_to_str_or_plain(value)
 
 
 class Base(DeclarativeBase):

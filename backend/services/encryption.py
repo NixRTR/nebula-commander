@@ -67,3 +67,27 @@ def decrypt_from_str(ciphertext_b64: str) -> bytes:
 def decrypt_to_str(ciphertext_b64: str) -> str:
     """Decrypt from base64 string and return UTF-8 str (for DB Text columns)."""
     return decrypt_from_str(ciphertext_b64).decode("utf-8")
+
+
+def _looks_like_encrypted(value: str) -> bool:
+    """True if value is valid base64 and decodes to our MAGIC-prefixed ciphertext."""
+    if not value or len(value) < 20:
+        return False
+    try:
+        raw = base64.b64decode(value, validate=True)
+        return raw.startswith(MAGIC)
+    except Exception:
+        return False
+
+
+def decrypt_to_str_or_plain(value: str | None) -> str | None:
+    """
+    Decrypt from base64 (our format) and return UTF-8 str; if value is not
+    encrypted (legacy plaintext or invalid), return value as-is. Use for DB
+    reads so legacy plaintext rows do not raise.
+    """
+    if value is None:
+        return None
+    if not _looks_like_encrypted(value):
+        return value
+    return decrypt_to_str(value)
