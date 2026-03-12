@@ -41,7 +41,6 @@ from client.ncclient import (
     _default_output_dir,
 )
 from client.token_store import get_token
-from client.webui.server import run_server_thread
 from client.windows import autostart
 from client.windows import dialogs
 from client.windows import icons
@@ -179,7 +178,7 @@ def main() -> None:
 
     def run_poll() -> None:
         nonlocal poll_thread, server, output_dir, interval, nebula_path
-        # Re-read settings so Web UI or tray menu has latest (e.g. when starting from API)
+        # Re-read settings so tray menu has latest
         s = load_settings()
         server = (s.get("server") or "").strip() or "https://"
         output_dir = (s.get("output_dir") or "").strip() or _default_output_dir()
@@ -325,14 +324,9 @@ def main() -> None:
         icon.stop()
         _log("on_exit: icon.stop() returned")
 
-    # Start config Web UI server (used by "Configure" and by ncclient web)
-    web_thread, config_url = run_server_thread(
-        get_status=lambda: (current_status, current_message),
-        set_polling=lambda start: (run_poll() if start else stop_poll()),
-    )
-
     def on_configure(icon: pystray.Icon, item: pystray.MenuItem) -> None:
-        webbrowser.open(config_url)
+        _log("on_configure: putting 'settings' in queue")
+        ui_queue.put("settings")
 
     def on_nebula_commander(icon: pystray.Icon, item: pystray.MenuItem) -> None:
         if server and server != "https://":
@@ -344,7 +338,7 @@ def main() -> None:
 
     def make_menu() -> pystray.Menu:
         nonlocal server, output_dir, interval, nebula_path
-        # Re-read settings so Web UI changes are reflected (e.g. server URL for Nebula Commander link)
+        # Re-read settings so tray menu has latest (e.g. server URL for Nebula Commander link)
         s = load_settings()
         server = (s.get("server") or "").strip() or "https://"
         output_dir = (s.get("output_dir") or "").strip() or _default_output_dir()
@@ -355,7 +349,7 @@ def main() -> None:
         polling = poll_thread is not None and poll_thread.is_alive()
         start_stop_label = "Stop polling" if polling else "Start polling"
         items = [
-            Item("Configure", on_configure, default=True),
+            Item("Settings", on_configure, default=True),
             Item(start_stop_label, on_start_stop),
         ]
         if get_token() is not None and server and server != "https://":
@@ -388,6 +382,12 @@ def main() -> None:
             _log("process_ui_queue: calling tk_root.quit()")
             tk_root.quit()
             return
+        if msg == "settings":
+            _do_settings(tk_root)
+        if msg == "enroll":
+            _do_enroll(tk_root)
+        if msg == "download_nebula":
+            _do_download_nebula(tk_root)
         if tk_root:
             tk_root.after(100, process_ui_queue)
 

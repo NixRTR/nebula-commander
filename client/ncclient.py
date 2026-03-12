@@ -33,6 +33,7 @@ from typing import Callable
 
 if sys.platform == "win32":
     import ctypes
+    from ctypes import wintypes
 
 # Env vars that can make a child load the PyInstaller-extracted libs instead of system libs.
 # When we run systemctl (or any system binary), clear these so it uses system libraries only.
@@ -114,6 +115,38 @@ def _config_path(output_dir: str) -> str:
     return os.path.join(output_dir, "config.yaml")
 
 
+def _windows_process_is_elevated() -> bool:
+    """True if the current process has elevated privileges (e.g. running as admin)."""
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        advapi32 = ctypes.windll.advapi32  # type: ignore[attr-defined]
+        TOKEN_QUERY = 0x0008
+        TokenElevation = 20
+        handle = wintypes.HANDLE()
+        if not advapi32.OpenProcessToken(
+            kernel32.GetCurrentProcess(),
+            TOKEN_QUERY,
+            ctypes.byref(handle),
+        ):
+            return False
+        try:
+            elevation = wintypes.DWORD()
+            size = ctypes.sizeof(elevation)
+            if not advapi32.GetTokenInformation(
+                handle,
+                TokenElevation,
+                ctypes.byref(elevation),
+                size,
+                ctypes.byref(wintypes.DWORD(size)),
+            ):
+                return False
+            return bool(elevation.value)
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception:
+        return False
+
+
 def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
     config = _config_path(output_dir)
     if not os.path.exists(config):
@@ -125,26 +158,87 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
         nebula_abs = nebula_bin
 
     if sys.platform == "win32":
-        # Nebula needs admin (TAP device, etc.). Start it elevated via UAC so
-        # ncclient/tray can stay normal user; we don't get a process handle back.
-        try:
-            shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
-            SW_HIDE = 0
-            # ShellExecuteW(hwnd, lpVerb, lpFile, lpParameters, lpDirectory, nShowCmd)
-            result = shell32.ShellExecuteW(
-                None,
-                "runas",
-                nebula_abs,
-                f'-config "{config_abs}"',
-                output_dir,
-                SW_HIDE,
-            )
-            # ShellExecute returns value > 32 on success
-            if result <= 32:
-                print(f"Failed to start Nebula elevated (ShellExecute returned {result}).", file=sys.stderr)
+        # Nebula needs admin (TAP device, etc.). If we're already elevated, start
+        # with subprocess so the child inherits elevation and we get a handle.
+        # Otherwise use ShellExecute runas to trigger UAC (no handle back).
+        if _windows_process_is_elevated():
+            try:
+                kwargs = {
+                    "stdout": subprocess.DEVNULL,
+                    "stderr": None,
+                    "start_new_session": True,
+                    "cwd": output_dir,
+                }
+                proc = subprocess.Popen(
+                    [nebula_abs, "-config", config],
+                    **kwargs,
+                )
+                print(f"Started Nebula (elevated, PID {proc.pid})")
+                return proc
+            except FileNotFoundError:
+                print(f"Nebula binary not found: {nebula_bin}", file=sys.stderr)
                 return None
-            print("Started Nebula (elevated). UAC may have prompted.")
-            return None  # no handle when using runas
+            except Exception as e:
+                print(f"Failed to start Nebula: {e}", file=sys.stderr)
+                return None
+        # ShellExecute with "runas" requires an STA (single-threaded apartment) thread.
+        # When called from MTA (e.g. Python main thread or ncclient.exe), it returns 5 (access denied).
+        # Run it in a dedicated thread that initializes COM as STA first.
+        def _runas_sta() -> int:
+            COINIT_APARTMENTTHREADED = 2
+            ole32 = ctypes.windll.ole32  # type: ignore[attr-defined]
+            shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
+            ole32.CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+            try:
+                SW_HIDE = 0
+                return shell32.ShellExecuteW(
+                    None,
+                    "runas",
+                    nebula_abs,
+                    f'-config "{config_abs}"',
+                    output_dir,
+                    SW_HIDE,
+                )
+            finally:
+                ole32.CoUninitialize()
+
+        try:
+            result_queue: list[int] = []
+            sta_thread = threading.Thread(target=lambda: result_queue.append(_runas_sta()))
+            sta_thread.start()
+            sta_thread.join(timeout=15)
+            if not result_queue:
+                pass  # fall through to Popen fallback
+            else:
+                result = result_queue[0]
+                # ShellExecute returns value > 32 on success
+                if result > 32:
+                    print("Started Nebula (elevated). UAC may have prompted.")
+                    return None  # no handle when using runas
+            # ShellExecute failed (5, timeout, etc.) or returned error. Fall back to starting
+            # Nebula with subprocess so we at least get a process. If the current process is
+            # elevated (e.g. user ran terminal as admin but elevation check failed in exe),
+            # the child will inherit elevation. If not elevated, Nebula may fail creating the
+            # interface; we still start it and suggest running as admin if needed.
+            try:
+                kwargs = {
+                    "stdout": subprocess.DEVNULL,
+                    "stderr": None,
+                    "start_new_session": True,
+                    "cwd": output_dir,
+                }
+                proc = subprocess.Popen(
+                    [nebula_abs, "-config", config],
+                    **kwargs,
+                )
+                print(f"Started Nebula (PID {proc.pid}). If the network interface fails, run this terminal as Administrator.")
+                return proc
+            except FileNotFoundError:
+                print(f"Nebula binary not found: {nebula_bin}", file=sys.stderr)
+                return None
+            except Exception as e:
+                print(f"Failed to start Nebula: {e}", file=sys.stderr)
+                return None
         except Exception as e:
             print(f"Failed to start Nebula: {e}", file=sys.stderr)
             return None
@@ -494,9 +588,6 @@ def main() -> None:
     p_run.add_argument("--nebula", "-n", metavar="PATH", help="Path to nebula binary if not in PATH (default: run 'nebula' from PATH)")
     p_run.add_argument("--restart-service", "-r", metavar="NAME", help="Restart this systemd service after config change instead of running nebula (e.g. nebula)")
 
-    p_web = sub.add_parser("web", help="Start config Web UI and open in browser (for Linux/macOS or when tray is not running)")
-    p_web.add_argument("--no-open", action="store_true", help="Do not open browser automatically")
-
     args = ap.parse_args()
     from client.config import load_settings
     server = (args.server or "").strip() or (load_settings().get("server") or "").strip() or None
@@ -530,19 +621,5 @@ def main() -> None:
             nebula_bin,
             restart_service,
         )
-    elif args.cmd == "web":
-        import webbrowser
-        from client.webui.server import run_server
-        server, base_url = run_server()
-        print("Config UI at", base_url)
-        if not getattr(args, "no_open", False):
-            webbrowser.open(base_url)
-        try:
-            server.serve_forever()
-        except KeyboardInterrupt:
-            server.shutdown()
-            print("\nStopped.")
-
-
 if __name__ == "__main__":
     main()

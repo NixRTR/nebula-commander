@@ -1,5 +1,5 @@
 """
-Shared config and paths for ncclient (tray, Web UI, CLI).
+Shared config and paths for ncclient (tray, CLI).
 Settings are stored in settings.json. Config dir is standalone (no token path).
 """
 import json
