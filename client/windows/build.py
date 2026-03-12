@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
-Download Nebula Windows binary from slackhq/nebula releases and run PyInstaller
-to build ncclient-tray.exe (with optional bundled nebula.exe).
+Run PyInstaller to build ncclient-tray.exe. By default Nebula is not bundled;
+the tray uses nebula from the user's PATH or from Settings.
 
 Usage (from client/windows/):
-  python build.py [--nebula-version v1.10.2] [--no-nebula]
+  python build.py [--with-nebula [--nebula-version v1.10.2]]
 
-Without --no-nebula, downloads the Windows asset and extracts nebula.exe into
-nebula/nebula.exe for packaging. With --no-nebula, skips download and builds
-without bundling Nebula.
+With --with-nebula, downloads the Windows asset and extracts nebula.exe into
+nebula/nebula.exe for packaging. Without it, builds without bundling Nebula.
 """
 import argparse
 import os
@@ -71,25 +70,28 @@ def run_pyinstaller() -> int:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build ncclient-tray.exe (optionally with bundled Nebula)")
-    parser.add_argument("--nebula-version", default=NEBULA_VERSION_DEFAULT, help=f"Nebula release tag (default: {NEBULA_VERSION_DEFAULT})")
-    parser.add_argument("--no-nebula", action="store_true", help="Skip downloading Nebula; build without bundled nebula.exe")
+    parser = argparse.ArgumentParser(description="Build ncclient-tray.exe (Nebula not bundled by default)")
+    parser.add_argument("--with-nebula", action="store_true", help="Download and bundle nebula.exe in the build")
+    parser.add_argument("--nebula-version", default=NEBULA_VERSION_DEFAULT, help=f"Nebula release tag when using --with-nebula (default: {NEBULA_VERSION_DEFAULT})")
     args = parser.parse_args()
 
     if sys.platform != "win32":
         print("This build script is for Windows. Run on Windows to produce ncclient-tray.exe.", file=sys.stderr)
         return 1
 
-    if not args.no_nebula:
+    if args.with_nebula:
         if not download_nebula(args.nebula_version):
             return 1
     else:
-        if os.path.isfile(NEBULA_EXE):
-            print("Using existing", NEBULA_EXE)
-        else:
-            print("No nebula.exe present; building without bundled Nebula.")
+        if os.path.isdir(NEBULA_DIR):
+            shutil.rmtree(NEBULA_DIR, ignore_errors=True)
+            print("Removed", NEBULA_DIR, "so the build does not bundle Nebula.")
+        print("Building without bundled Nebula. Tray will use nebula from PATH (or Settings → Nebula path).")
 
-    return run_pyinstaller()
+    rc = run_pyinstaller()
+    if rc == 0 and not args.with_nebula:
+        print("Done. ncclient-tray will use the nebula binary from your system PATH (or the path set in Settings).")
+    return rc
 
 
 if __name__ == "__main__":

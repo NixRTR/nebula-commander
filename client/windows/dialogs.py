@@ -20,6 +20,17 @@ def get_bundled_nebula_path() -> str:
     return path if os.path.isfile(path) else ""
 
 
+def _is_stale_nebula_path(path: str) -> bool:
+    """True if path looks like a PyInstaller temp path and the file no longer exists (e.g. after --no-nebula rebuild)."""
+    import os
+    if not (path and path.strip()):
+        return False
+    p = path.strip()
+    if "_MEI" not in p and "Temp" not in p:
+        return False
+    return not os.path.isfile(p)
+
+
 def enroll_dialog(parent=None) -> tuple[str, str] | None:
     """
     Show Enroll dialog: server URL and code. Returns (server, code) on OK, None on Cancel.
@@ -125,8 +136,16 @@ def settings_dialog(
     frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
     root.columnconfigure(0, weight=1)
     root.rowconfigure(0, weight=1)
+    try:
+        style = ttk.Style()
+        style.configure("Small.TLabel", font=("TkDefaultFont", 8))
+    except Exception:
+        pass
 
-    default_nebula = nebula_path or get_bundled_nebula_path()
+    # Show only the saved value; never auto-fill from bundled path so user's "empty" choice sticks.
+    default_nebula = (nebula_path or "").strip()
+    if _is_stale_nebula_path(default_nebula):
+        default_nebula = ""
 
     ttk.Label(frame, text="Server URL:").grid(row=0, column=0, sticky=tk.W, pady=(0, 2))
     server_var = tk.StringVar(value=server or "https://")
@@ -143,7 +162,8 @@ def settings_dialog(
 
     ttk.Label(frame, text="Nebula executable path (optional):").grid(row=6, column=0, sticky=tk.W, pady=(0, 2))
     nebula_var = tk.StringVar(value=default_nebula)
-    ttk.Entry(frame, textvariable=nebula_var, width=40).grid(row=7, column=0, sticky=(tk.W, tk.E), pady=(0, 12))
+    ttk.Entry(frame, textvariable=nebula_var, width=40).grid(row=7, column=0, sticky=(tk.W, tk.E), pady=(0, 2))
+    ttk.Label(frame, text="Leave empty to use nebula from system PATH.", style="Small.TLabel").grid(row=8, column=0, sticky=tk.W, pady=(0, 12))
 
     def ok() -> None:
         s = (server_var.get() or "").strip()
@@ -168,7 +188,7 @@ def settings_dialog(
         root.destroy()
 
     btn_frame = ttk.Frame(frame)
-    btn_frame.grid(row=8, column=0, sticky=tk.E, pady=(4, 0))
+    btn_frame.grid(row=9, column=0, sticky=tk.E, pady=(4, 0))
     ttk.Button(btn_frame, text="Cancel", command=cancel).pack(side=tk.RIGHT, padx=(4, 0))
     ttk.Button(btn_frame, text="Save", command=ok).pack(side=tk.RIGHT)
 

@@ -115,39 +115,144 @@ def _config_path(output_dir: str) -> str:
     return os.path.join(output_dir, "config.yaml")
 
 
+def _nebula_log_path(output_dir: str) -> str:
+    """Path for Nebula stderr log. Default on Windows: %USERPROFILE%\\.nebula\\nebula.log"""
+    return os.path.join(output_dir, "nebula.log")
+
+
+def _current_process_handle():
+    """Return GetCurrentProcess() as a pointer-sized handle for OpenProcessToken (fixes 64-bit)."""
+    h = ctypes.windll.kernel32.GetCurrentProcess()  # type: ignore[attr-defined]
+    return ctypes.c_void_p(h)
+
+
 def _windows_process_is_elevated() -> bool:
     """True if the current process has elevated privileges (e.g. running as admin)."""
     try:
         kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
         advapi32 = ctypes.windll.advapi32  # type: ignore[attr-defined]
         TOKEN_QUERY = 0x0008
-        TokenElevation = 20
+        TOKEN_READ = 0x20008  # STANDARD_RIGHTS_READ | TOKEN_READ
+        TokenElevation = 20  # TOKEN_ELEVATION.TokenIsElevated
+        TokenElevationType = 18  # TokenElevationTypeDefault=1, Full=2, Limited=3
+        TokenElevationTypeFull = 2
         handle = wintypes.HANDLE()
         if not advapi32.OpenProcessToken(
-            kernel32.GetCurrentProcess(),
-            TOKEN_QUERY,
+            _current_process_handle(),
+            TOKEN_READ,
             ctypes.byref(handle),
         ):
             return False
         try:
             elevation = wintypes.DWORD()
             size = ctypes.sizeof(elevation)
-            if not advapi32.GetTokenInformation(
+            if advapi32.GetTokenInformation(
                 handle,
                 TokenElevation,
                 ctypes.byref(elevation),
                 size,
                 ctypes.byref(wintypes.DWORD(size)),
             ):
-                return False
-            return bool(elevation.value)
+                if elevation.value:
+                    return True
+            # Fallback: TokenElevation can be 0 in some contexts; check TokenElevationType.
+            typ = wintypes.DWORD()
+            if advapi32.GetTokenInformation(
+                handle,
+                TokenElevationType,
+                ctypes.byref(typ),
+                ctypes.sizeof(typ),
+                ctypes.byref(wintypes.DWORD(ctypes.sizeof(typ))),
+            ):
+                return typ.value == TokenElevationTypeFull
+            return False
         finally:
             kernel32.CloseHandle(handle)
     except Exception:
         return False
 
 
+def get_elevation_debug_info() -> list[str]:
+    """
+    Return a list of human-readable debug lines about the current process token and elevation.
+    Used when --console is passed to the tray to see why is_process_elevated() might be False.
+    """
+    lines: list[str] = []
+    if sys.platform != "win32":
+        return ["Elevation debug: not Windows, skipping."]
+    try:
+        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
+        advapi32 = ctypes.windll.advapi32  # type: ignore[attr-defined]
+        TOKEN_READ = 0x20008
+        TokenElevation = 20
+        TokenElevationType = 18
+        TokenElevationTypeFull = 2
+
+        proc_handle = _current_process_handle()
+        lines.append("Elevation debug:")
+        lines.append("  GetCurrentProcess() = %s (as void_p: %s)" % (kernel32.GetCurrentProcess(), proc_handle.value))
+        handle = wintypes.HANDLE()
+        ok_open = advapi32.OpenProcessToken(
+            proc_handle,
+            TOKEN_READ,
+            ctypes.byref(handle),
+        )
+        err_after_open = kernel32.GetLastError()
+        lines.append("  OpenProcessToken(TOKEN_READ): ok=%s, handle=%s, GetLastError=%s" % (bool(ok_open), handle.value, err_after_open))
+        if not ok_open:
+            lines.append("  (Common errors: 5=access denied, 6=invalid handle)")
+            return lines
+
+        try:
+            elevation = wintypes.DWORD()
+            size = ctypes.sizeof(elevation)
+            size_arg = wintypes.DWORD(size)
+            ok_elev = advapi32.GetTokenInformation(
+                handle,
+                TokenElevation,
+                ctypes.byref(elevation),
+                size,
+                ctypes.byref(size_arg),
+            )
+            err_elev = kernel32.GetLastError()
+            lines.append("  GetTokenInformation(TokenElevation=20): ok=%s, TokenIsElevated=%s, GetLastError=%s" % (bool(ok_elev), elevation.value, err_elev))
+            lines.append("  (TokenElevation: 0=not elevated, 1=elevated)")
+
+            typ = wintypes.DWORD()
+            size_typ = ctypes.sizeof(typ)
+            size_typ_arg = wintypes.DWORD(size_typ)
+            ok_typ = advapi32.GetTokenInformation(
+                handle,
+                TokenElevationType,
+                ctypes.byref(typ),
+                size_typ,
+                ctypes.byref(size_typ_arg),
+            )
+            err_typ = kernel32.GetLastError()
+            type_names = {1: "Default", 2: "Full(elevated)", 3: "Limited"}
+            lines.append("  GetTokenInformation(TokenElevationType=18): ok=%s, value=%s (%s), GetLastError=%s" % (bool(ok_typ), typ.value, type_names.get(typ.value, "?"), err_typ))
+            lines.append("  (TokenElevationType: 1=Default, 2=Full, 3=Limited)")
+
+            result = _windows_process_is_elevated()
+            lines.append("  is_process_elevated() = %s" % result)
+        finally:
+            kernel32.CloseHandle(handle)
+    except Exception as e:
+        lines.append("  Exception: %s" % e)
+        import traceback
+        lines.append(traceback.format_exc())
+    return lines
+
+
+def is_process_elevated() -> bool:
+    """True if the current process has elevated privileges. On non-Windows, returns True (no elevation concept)."""
+    if sys.platform != "win32":
+        return True
+    return _windows_process_is_elevated()
+
+
 def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
+    output_dir = os.path.expanduser(output_dir)
     config = _config_path(output_dir)
     if not os.path.exists(config):
         return None
@@ -158,69 +263,23 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
         nebula_abs = nebula_bin
 
     if sys.platform == "win32":
-        # Nebula needs admin (TAP device, etc.). If we're already elevated, start
-        # with subprocess so the child inherits elevation and we get a handle.
-        # Otherwise use ShellExecute runas to trigger UAC (no handle back).
-        if _windows_process_is_elevated():
-            try:
-                kwargs = {
-                    "stdout": subprocess.DEVNULL,
-                    "stderr": None,
-                    "start_new_session": True,
-                    "cwd": output_dir,
-                }
-                proc = subprocess.Popen(
-                    [nebula_abs, "-config", config],
-                    **kwargs,
-                )
-                print(f"Started Nebula (elevated, PID {proc.pid})")
-                return proc
-            except FileNotFoundError:
-                print(f"Nebula binary not found: {nebula_bin}", file=sys.stderr)
-                return None
-            except Exception as e:
-                print(f"Failed to start Nebula: {e}", file=sys.stderr)
-                return None
-        # ShellExecute with "runas" requires an STA (single-threaded apartment) thread.
-        # When called from MTA (e.g. Python main thread or ncclient.exe), it returns 5 (access denied).
-        # Run it in a dedicated thread that initializes COM as STA first.
-        def _runas_sta() -> int:
-            COINIT_APARTMENTTHREADED = 2
-            ole32 = ctypes.windll.ole32  # type: ignore[attr-defined]
-            shell32 = ctypes.windll.shell32  # type: ignore[attr-defined]
-            ole32.CoInitializeEx(None, COINIT_APARTMENTTHREADED)
-            try:
-                SW_HIDE = 0
-                return shell32.ShellExecuteW(
-                    None,
-                    "runas",
-                    nebula_abs,
-                    f'-config "{config_abs}"',
-                    output_dir,
-                    SW_HIDE,
-                )
-            finally:
-                ole32.CoUninitialize()
-
+        # Nebula MUST run elevated (TAP device, etc.). Only start via Popen so the child
+        # inherits our token; do not use ShellExecute runas (separate session, no handle).
+        if not _windows_process_is_elevated():
+            print(
+                "Nebula requires Administrator. Run ncclient-tray as Administrator (right-click → Run as administrator).",
+                file=sys.stderr,
+            )
+            return None
+        manual_run = (
+            f'To see Nebula errors, run in an elevated terminal: cd /d "{output_dir}" && "{nebula_abs}" -config "{config_abs}"'
+        )
+        os.makedirs(output_dir, exist_ok=True)
+        nebula_to_console = os.environ.get("NCCLIENT_NEBULA_CONSOLE", "").strip().lower() in ("1", "true", "yes")
         try:
-            result_queue: list[int] = []
-            sta_thread = threading.Thread(target=lambda: result_queue.append(_runas_sta()))
-            sta_thread.start()
-            sta_thread.join(timeout=15)
-            if not result_queue:
-                pass  # fall through to Popen fallback
-            else:
-                result = result_queue[0]
-                # ShellExecute returns value > 32 on success
-                if result > 32:
-                    print("Started Nebula (elevated). UAC may have prompted.")
-                    return None  # no handle when using runas
-            # ShellExecute failed (5, timeout, etc.) or returned error. Fall back to starting
-            # Nebula with subprocess so we at least get a process. If the current process is
-            # elevated (e.g. user ran terminal as admin but elevation check failed in exe),
-            # the child will inherit elevation. If not elevated, Nebula may fail creating the
-            # interface; we still start it and suggest running as admin if needed.
-            try:
+            if nebula_to_console:
+                # Inherit stderr so Nebula writes directly to our console (same handle).
+                # PIPE + forwarder can miss output on Windows when parent is a GUI app.
                 kwargs = {
                     "stdout": subprocess.DEVNULL,
                     "stderr": None,
@@ -228,17 +287,31 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
                     "cwd": output_dir,
                 }
                 proc = subprocess.Popen(
-                    [nebula_abs, "-config", config],
+                    [nebula_abs, "-config", config_abs],
                     **kwargs,
                 )
-                print(f"Started Nebula (PID {proc.pid}). If the network interface fails, run this terminal as Administrator.")
-                return proc
-            except FileNotFoundError:
-                print(f"Nebula binary not found: {nebula_bin}", file=sys.stderr)
-                return None
-            except Exception as e:
-                print(f"Failed to start Nebula: {e}", file=sys.stderr)
-                return None
+                log_note = " (stderr to console)"
+            else:
+                log_path = _nebula_log_path(output_dir)
+                log_file = open(log_path, "a", encoding="utf-8", errors="replace")
+                kwargs = {
+                    "stdout": subprocess.DEVNULL,
+                    "stderr": log_file,
+                    "start_new_session": True,
+                    "cwd": output_dir,
+                }
+                proc = subprocess.Popen(
+                    [nebula_abs, "-config", config_abs],
+                    **kwargs,
+                )
+                log_note = ". Log: %s" % log_path
+            print(f"Started Nebula (elevated, PID {proc.pid}){log_note}", file=sys.stderr)
+            if not nebula_to_console:
+                print(manual_run)
+            return proc
+        except FileNotFoundError:
+            print(f"Nebula binary not found: {nebula_bin}", file=sys.stderr)
+            return None
         except Exception as e:
             print(f"Failed to start Nebula: {e}", file=sys.stderr)
             return None
@@ -251,7 +324,7 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
             "cwd": output_dir,
         }
         proc = subprocess.Popen(
-            [nebula_bin, "-config", config],
+            [nebula_bin, "-config", config_abs],
             **kwargs,
         )
         print(f"Started Nebula (PID {proc.pid})")
@@ -274,6 +347,11 @@ def _stop_nebula(proc: subprocess.Popen | None) -> None:
             proc.wait()
         except Exception:
             pass
+        if getattr(proc, "stderr", None) is not None and proc.stderr is not sys.stderr:
+            try:
+                proc.stderr.close()
+            except Exception:
+                pass
         print("Stopped Nebula")
         return
     if sys.platform == "win32":
@@ -460,6 +538,7 @@ def run_poll_loop(
             sys.exit(1)
         return
     url = f"{base}/api/device/config"
+    output_dir = os.path.expanduser(output_dir)
     os.makedirs(output_dir, exist_ok=True)
     last_etag: str | None = None
     nebula_proc: subprocess.Popen | None = None
