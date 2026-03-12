@@ -299,6 +299,11 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
                     "stderr": log_file,
                     "start_new_session": True,
                     "cwd": output_dir,
+                    # On Windows, starting a console-mode child from a GUI parent
+                    # would normally pop up a new console window. Suppress that
+                    # for the tray by creating the process with no window unless
+                    # NCCLIENT_NEBULA_CONSOLE is set (verbose/console mode).
+                    "creationflags": subprocess.CREATE_NO_WINDOW,
                 }
                 proc = subprocess.Popen(
                     [nebula_abs, "-config", config_abs],
