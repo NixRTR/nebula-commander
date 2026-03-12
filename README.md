@@ -25,6 +25,15 @@
 - **Web UI** — React dashboard with OIDC (e.g. Keycloak) or dev token authentication
 - **Device client (ncclient)** — `pip install nebula-commander` for enroll and run; see [client/README.md](client/README.md) and [ncclient documentation](https://nebulacdr.com/docs/usage/ncclient/)
 
+### Our Generous Supporters
+
+#### [AndrewPaglusch](https://github.com/AndrewPaglusch)
+
+#### We humbly accept donations through
+
+- [PayPal and Venmo](https://www.paypal.com/donate/?hosted_button_id=CHLZH2ZJXKQFU)
+- More to come
+
 ### Status
 
 **Implemented**
