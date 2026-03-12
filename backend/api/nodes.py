@@ -13,6 +13,7 @@ from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import require_user, UserInfo
+from ..auth.permissions import get_user_nodes
 from ..config import settings
 from ..database import get_session
 from ..models import Certificate, EnrollmentCode, Network, NetworkConfig, Node, User
@@ -61,16 +62,33 @@ class NodeResponse(BaseModel):
         from_attributes = True
 
 
+async def _ensure_user_can_access_node(
+    user: UserInfo,
+    session: AsyncSession,
+    node: Node,
+) -> None:
+    """
+    Raise 404 if the current user cannot access the given node.
+
+    Uses get_user_nodes, which respects per-network and per-node permissions.
+    """
+    node_ids = await get_user_nodes(user, session, network_id=node.network_id)
+    if node.id not in node_ids:
+        raise HTTPException(status_code=404, detail="Node not found")
+
+
 @router.get("", response_model=list[NodeResponse])
 async def list_nodes(
     network_id: Optional[int] = Query(None),
-    _user: UserInfo = Depends(require_user),
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """List nodes, optionally filtered by network_id."""
-    q = select(Node).order_by(Node.id)
-    if network_id is not None:
-        q = q.where(Node.network_id == network_id)
+    node_ids = await get_user_nodes(user, session, network_id=network_id, include_limited=False)
+    if not node_ids:
+        return []
+
+    q = select(Node).where(Node.id.in_(node_ids)).order_by(Node.id)
     result = await session.execute(q)
     nodes = result.scalars().all()
     return [
@@ -108,6 +126,7 @@ async def get_node_config(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    await _ensure_user_can_access_node(user, session, node)
     if not node.ip_address:
         raise HTTPException(
             status_code=404,
@@ -165,6 +184,7 @@ async def get_node_certs(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    await _ensure_user_can_access_node(user, session, node)
     if not node.ip_address:
         raise HTTPException(
             status_code=404,
@@ -219,7 +239,7 @@ async def get_node_certs(
 @router.get("/{node_id}", response_model=NodeResponse)
 async def get_node(
     node_id: int,
-    _user: UserInfo = Depends(require_user),
+    user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
     """Get a single node by ID."""
@@ -227,6 +247,7 @@ async def get_node(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    await _ensure_user_can_access_node(user, session, node)
     return NodeResponse(
         id=node.id,
         network_id=node.network_id,
@@ -260,6 +281,7 @@ async def update_node(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    await _ensure_user_can_access_node(user, session, node)
 
     original_groups = list(node.groups or [])
     original_is_lighthouse = node.is_lighthouse
@@ -379,6 +401,7 @@ async def delete_node(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    await _ensure_user_can_access_node(user, session, node)
 
     if node.is_lighthouse:
         count_result = await session.execute(
@@ -442,6 +465,7 @@ async def revoke_node_certificate(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    await _ensure_user_can_access_node(user, session, node)
 
     # Mark all certificates for this node as revoked
     await session.execute(
@@ -492,6 +516,7 @@ async def reenroll_node(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
+    await _ensure_user_can_access_node(user, session, node)
 
     # If node has a certificate, revoke it first (mark certs, release IP, remove files, clear node fields)
     if node.ip_address:
