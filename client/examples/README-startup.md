@@ -135,7 +135,6 @@ When using `ncclient run` (with no `--server`), these are read from the environm
 | `NEBULA_COMMANDER_SERVER` | Nebula Commander base URL | (required) |
 | `NEBULA_COMMANDER_OUTPUT_DIR` | Where to write config/certs | `/etc/nebula` (Linux/macOS), `~/.nebula` (Windows) |
 | `NEBULA_COMMANDER_INTERVAL` | Poll interval (seconds) | 60 |
-| `NEBULA_COMMANDER_TOKEN_FILE` | Device token file path | `~/.config/nebula-commander/token` or `/etc/nebula-commander/token` (root) |
 | `NEBULA_COMMANDER_NEBULA` | Path to nebula binary (if not in PATH) | (use `nebula` from PATH) |
 | `NEBULA_COMMANDER_RESTART_SERVICE` | systemd service to restart (Linux only) | (ncclient runs nebula directly if unset) |
 

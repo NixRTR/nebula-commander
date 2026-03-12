@@ -32,21 +32,23 @@ Or install the package in development mode from the `client/` directory: `pip in
 ncclient enroll --server https://YOUR_NEBULA_COMMANDER_URL --code XXXXXXXX
 ```
 
-This saves a device token to `~/.config/nebula-commander/token` (or `/etc/nebula-commander/token` when run as root).
+This saves the device token to your OS credential store (e.g. Windows Credential Manager, macOS Keychain, Linux Secret Service) and saves the server URL so you can run `ncclient run` without `--server` next time.
+
+**Upgrading from an older version:** If you previously used a token file, you must re-enroll once after upgrading. You can then delete the old token file if it exists (`~/.config/nebula-commander/token` or `/etc/nebula-commander/token`).
 
 ## Run (daemon)
 
-Poll for config and certs every 60 seconds, write them to `/etc/nebula` (or another directory), and **run Nebula** (from your PATH) when config changes:
+Poll for config and certs every 60 seconds, write them to `/etc/nebula` (or another directory), and **run Nebula** (from your PATH) when config changes. If you have already enrolled, you can omit `--server` (the URL is saved at enrollment):
 
 ```bash
-ncclient run --server https://YOUR_NEBULA_COMMANDER_URL
+ncclient run
+# or: ncclient run --server https://YOUR_NEBULA_COMMANDER_URL
 ```
 
 ncclient assumes `nebula` is on your PATH and will start/restart it by default. Options:
 
 - `--output-dir DIR` – where to write `config.yaml`, `ca.crt`, `host.crt` (default: `/etc/nebula` on Linux/macOS, `~/.nebula` on Windows)
 - `--interval N` – poll interval in seconds (default: 60)
-- `--token-file PATH` – path to device token file
 - **`--nebula PATH`** – path to the `nebula` binary **only if it's not in PATH** (e.g. `--nebula /opt/homebrew/bin/nebula`). Omit this when `nebula` is already on your PATH.
 - **`--restart-service NAME`** – instead of running nebula directly, restart this systemd service after config updates (e.g. `nebula`). Use **only one** of `--nebula` or `--restart-service`.
 
@@ -86,7 +88,7 @@ On Linux you can install the systemd service with one command:
 sudo ncclient install
 ```
 
-This checks that you have already enrolled (token at `/etc/nebula-commander/token`). If not, it prints the exact `ncclient enroll --server URL --code XXXXXXXX` command to run first (get the code from the Nebula Commander UI: Nodes → Enroll). Then it prompts for the server URL and optional settings (output directory, poll interval, nebula path, restart-service), writes `/etc/default/ncclient` and `/etc/systemd/system/ncclient.service`, enables the service, and optionally starts it. Use `--no-start` to enable without starting; use `--non-interactive` with `NEBULA_COMMANDER_SERVER` (and optional env vars) set for scripting.
+This checks that you have already enrolled (token is stored in the OS credential store). If not, it prints the exact `ncclient enroll --server URL --code XXXXXXXX` command to run first (get the code from the Nebula Commander UI: Nodes → Enroll). Then it prompts for the server URL and optional settings (output directory, poll interval, nebula path, restart-service), writes `/etc/default/ncclient` and `/etc/systemd/system/ncclient.service`, enables the service, and optionally starts it. Use `--no-start` to enable without starting; use `--non-interactive` with `NEBULA_COMMANDER_SERVER` (and optional env vars) set for scripting.
 
 ### Manual setup (all platforms)
 
@@ -96,7 +98,7 @@ Run `ncclient run` under systemd (or your init system) so config and certs stay 
 
 ncclient works on macOS (Intel and Apple Silicon). Use Python 3.10+ and install with `pip install nebula-commander`.
 
-- **Token** is stored at `~/.config/nebula-commander/token` (or `/etc/nebula-commander/token` when run as root).
+- **Token** is stored in the OS credential store (Keychain).
 - **Default output dir** is `/etc/nebula` (same as Linux). If you run as a normal user, use `--output-dir ~/.nebula` so you don't need sudo to write config/certs.
 - **Nebula**: ncclient runs `nebula` from your PATH by default. After `brew install nebula`, you usually don't need `--nebula`. Use `--nebula /opt/homebrew/bin/nebula` (Apple Silicon) or `--nebula /usr/local/bin/nebula` (Intel) only if it's not on PATH. Do not use `--restart-service`; macOS uses launchd, not systemd.
 - To run ncclient in the background, use **launchd** (e.g. a LaunchAgent in `~/Library/LaunchAgents` or a LaunchDaemon in `/Library/LaunchDaemons`).

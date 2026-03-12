@@ -81,15 +81,6 @@ def _server_url(server: str) -> str:
     return base
 
 
-def _token_path() -> str:
-    try:
-        if os.getuid() == 0:
-            return "/etc/nebula-commander/token"
-    except (AttributeError, OSError):
-        pass  # Windows or other
-    return os.path.expanduser("~/.config/nebula-commander/token")
-
-
 def _default_output_dir() -> str:
     """Default directory for config/certs; Windows-friendly."""
     if sys.platform == "win32":
@@ -97,7 +88,7 @@ def _default_output_dir() -> str:
     return "/etc/nebula"
 
 
-def cmd_enroll(server: str, code: str, token_path_out: str | None) -> None:
+def cmd_enroll(server: str, code: str) -> None:
     base = _server_url(server)
     url = f"{base}/api/device/enroll"
     code = code.strip().upper()
@@ -111,13 +102,12 @@ def cmd_enroll(server: str, code: str, token_path_out: str | None) -> None:
         sys.exit(1)
     data = r.json()
     token = data["device_token"]
-    out_path = token_path_out or _token_path()
-    os.makedirs(os.path.dirname(out_path), exist_ok=True)
-    with open(out_path, "w") as f:
-        f.write(token)
-    os.chmod(out_path, 0o600)
-    print(f"Enrolled. Token saved to {out_path}")
-    print(f"Run: ncclient run --server {base}")
+    from client.token_store import set_token
+    from client.config import load_settings, save_settings
+    set_token(token)
+    save_settings({**load_settings(), "server": base})
+    print("Enrolled. Token saved to credential store.")
+    print("Run: ncclient run")
 
 
 def _config_path(output_dir: str) -> str:
@@ -283,11 +273,9 @@ def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
             "",
         ).strip()
 
-    token_path = "/etc/nebula-commander/token"
-    if not os.path.isfile(token_path):
-        print("You have not enrolled yet. The system service reads the token from:", file=sys.stderr)
-        print(f"  {token_path}", file=sys.stderr)
-        print("Run the following command (as root), then run ncclient install again:", file=sys.stderr)
+    from client.token_store import get_token
+    if get_token() is None:
+        print("You have not enrolled yet. Run the following (as root), then run ncclient install again:", file=sys.stderr)
         print(f"  ncclient enroll --server {server} --code XXXXXXXX", file=sys.stderr)
         print("Get the code from the Nebula Commander UI: Nodes → Enroll", file=sys.stderr)
         sys.exit(1)
@@ -356,7 +344,6 @@ def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
 
 def run_poll_loop(
     server: str,
-    token_path_in: str | None,
     output_dir: str,
     interval: int,
     nebula_bin: str | None,
@@ -368,17 +355,16 @@ def run_poll_loop(
     Poll for config/certs and optionally run Nebula. Exits when stop_event is set.
     status_callback(status, message) is called with "idle", "connected", or "error".
     """
+    from client.token_store import get_token
     base = _server_url(server)
-    path = token_path_in or _token_path()
-    if not os.path.exists(path):
+    token = get_token()
+    if not token:
         if status_callback:
             status_callback("error", "Token not found. Enroll first.")
         else:
-            print(f"Token not found at {path}. Run 'ncclient enroll' first.", file=sys.stderr)
+            print("Token not found. Run 'ncclient enroll' first.", file=sys.stderr)
             sys.exit(1)
         return
-    with open(path) as f:
-        token = f.read().strip()
     url = f"{base}/api/device/config"
     os.makedirs(output_dir, exist_ok=True)
     last_etag: str | None = None
@@ -458,7 +444,6 @@ def run_poll_loop(
 
 def cmd_run(
     server: str,
-    token_path_in: str | None,
     output_dir: str,
     interval: int,
     nebula_bin: str | None,
@@ -476,7 +461,6 @@ def cmd_run(
     try:
         run_poll_loop(
             server,
-            token_path_in,
             output_dir,
             interval,
             nebula_bin,
@@ -503,10 +487,8 @@ def main() -> None:
 
     p_enroll = sub.add_parser("enroll", help="Enroll with a one-time code from the UI")
     p_enroll.add_argument("--code", "-c", required=True, help="Enrollment code")
-    p_enroll.add_argument("--token-file", help="Path to save device token (default: ~/.config/nebula-commander/token or /etc/nebula-commander/token)")
 
     p_run = sub.add_parser("run", help="Run daemon: poll for config and certs, optionally start/restart Nebula (dnclientd-style)")
-    p_run.add_argument("--token-file", help="Path to device token file")
     p_run.add_argument("--output-dir", "-o", default=None, help="Directory to write config.yaml, ca.crt, host.crt (default: /etc/nebula on Linux, ~/.nebula on Windows)")
     p_run.add_argument("--interval", "-i", type=int, default=60, help="Poll interval in seconds (default: 60)")
     p_run.add_argument("--nebula", "-n", metavar="PATH", help="Path to nebula binary if not in PATH (default: run 'nebula' from PATH)")
@@ -516,7 +498,8 @@ def main() -> None:
     p_web.add_argument("--no-open", action="store_true", help="Do not open browser automatically")
 
     args = ap.parse_args()
-    server = (args.server or "").strip() or None
+    from client.config import load_settings
+    server = (args.server or "").strip() or (load_settings().get("server") or "").strip() or None
     if args.cmd == "run" and not server:
         print("Set --server or NEBULA_COMMANDER_SERVER to your Nebula Commander URL.", file=sys.stderr)
         sys.exit(1)
@@ -530,7 +513,7 @@ def main() -> None:
             non_interactive=getattr(args, "non_interactive", False),
         )
     elif args.cmd == "enroll":
-        cmd_enroll(server, args.code, getattr(args, "token_file", None))
+        cmd_enroll(server, args.code)
     elif args.cmd == "run":
         if getattr(args, "nebula", None) and getattr(args, "restart_service", None):
             print("Use only one of --nebula or --restart-service.", file=sys.stderr)
@@ -542,7 +525,6 @@ def main() -> None:
             nebula_bin = "nebula"
         cmd_run(
             server,
-            getattr(args, "token_file", None),
             args.output_dir or _default_output_dir(),
             args.interval,
             nebula_bin,

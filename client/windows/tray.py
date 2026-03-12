@@ -34,13 +34,13 @@ def _ensure_path() -> None:
 
 _ensure_path()
 
-from client.config import load_settings, save_settings
+from client.config import config_dir, load_settings, save_settings
 from client.ncclient import (
     run_poll_loop,
     cmd_enroll,
-    _token_path,
     _default_output_dir,
 )
+from client.token_store import get_token
 from client.webui.server import run_server_thread
 from client.windows import autostart
 from client.windows import dialogs
@@ -56,8 +56,8 @@ except ImportError as e:
 
 
 def _nebula_download_dir() -> str:
-    """Directory where we install downloaded nebula.exe: ~/.config/nebula-commander/nebula/"""
-    return os.path.join(os.path.dirname(_token_path()), "nebula")
+    """Directory where we install downloaded nebula.exe: config_dir/nebula/"""
+    return os.path.join(config_dir(), "nebula")
 
 
 def _downloaded_nebula_path() -> str:
@@ -155,7 +155,6 @@ def main() -> None:
         interval = 3600
     nebula_path = (settings.get("nebula_path") or "").strip() or _default_nebula_path()
 
-    token_path = _token_path()
     stop_event = threading.Event()
     poll_thread: threading.Thread | None = None
     current_status = "idle"
@@ -191,7 +190,7 @@ def main() -> None:
         if not server or server == "https://":
             update_ui("error", "Set server URL in Settings")
             return
-        if not os.path.isfile(token_path):
+        if get_token() is None:
             update_ui("error", "Enroll first")
             return
         # Only pass a nebula path if the binary exists or is on PATH; else poll without starting Nebula
@@ -201,7 +200,7 @@ def main() -> None:
             update_ui(s, m)
         poll_thread = threading.Thread(
             target=run_poll_loop,
-            args=(server, None, output_dir, interval, nebula_bin, None),
+            args=(server, output_dir, interval, nebula_bin, None),
             kwargs={"stop_event": stop_event, "status_callback": callback},
             daemon=True,
         )
@@ -223,7 +222,7 @@ def main() -> None:
         if result:
             server_url, code = result
             try:
-                cmd_enroll(server_url, code, None)
+                cmd_enroll(server_url, code)
                 messagebox.showinfo("Enroll", "Enrolled successfully.", parent=parent)
             except SystemExit as e:
                 msg = "Enroll failed. Check server URL and code."
@@ -359,7 +358,7 @@ def main() -> None:
             Item("Configure", on_configure, default=True),
             Item(start_stop_label, on_start_stop),
         ]
-        if os.path.isfile(token_path) and server and server != "https://":
+        if get_token() is not None and server and server != "https://":
             items.append(Item("Nebula Commander", on_nebula_commander))
         items.append(Item("Exit", on_exit))
         return pystray.Menu(*items)

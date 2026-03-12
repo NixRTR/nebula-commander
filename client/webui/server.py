@@ -19,8 +19,9 @@ def _ensure_path() -> None:
 
 _ensure_path()
 
-from client.config import load_settings, save_settings, settings_path, token_path
+from client.config import config_dir, load_settings, save_settings, settings_path
 from client.ncclient import _default_output_dir, cmd_enroll
+from client.token_store import get_token
 
 
 # Default port; override with env NCCLIENT_WEB_PORT
@@ -82,8 +83,8 @@ def _default_nebula_path() -> str:
             return bundled
     except Exception:
         pass
-    # Downloaded path: ~/.config/nebula-commander/nebula/nebula.exe
-    nebula_dir = os.path.join(os.path.dirname(token_path()), "nebula")
+    # Downloaded path: config_dir/nebula/nebula.exe
+    nebula_dir = os.path.join(config_dir(), "nebula")
     exe = os.path.join(nebula_dir, "nebula.exe")
     return exe if os.path.isfile(exe) else "nebula"
 
@@ -121,7 +122,7 @@ class ConfigHandler(BaseHTTPRequestHandler):
         elif interval > 3600:
             interval = 3600
         nebula_path = (s.get("nebula_path") or "").strip() or _default_nebula_path()
-        enrolled = os.path.isfile(token_path())
+        enrolled = get_token() is not None
         return {
             "server": server,
             "output_dir": output_dir,
@@ -170,7 +171,7 @@ class ConfigHandler(BaseHTTPRequestHandler):
             self._json({"error": "Enrollment code required"}, 400)
             return
         try:
-            cmd_enroll(server, code, None)
+            cmd_enroll(server, code)
             self._json({"ok": True, "message": "Enrolled successfully"})
         except SystemExit as e:
             msg = str(e.code).strip() if isinstance(e.code, str) and str(e.code).strip() else "Enroll failed. Check server URL and code."
