@@ -86,7 +86,7 @@ def main() -> int:
         if os.path.isdir(NEBULA_DIR):
             shutil.rmtree(NEBULA_DIR, ignore_errors=True)
             print("Removed", NEBULA_DIR, "so the build does not bundle Nebula.")
-        print("Building without bundled Nebula. Tray will use nebula from PATH (or Settings → Nebula path).")
+        print("Building without bundled Nebula. Tray will use nebula from PATH (or Settings, Nebula path).")
 
     rc = run_pyinstaller()
     if rc == 0 and not args.with_nebula:
