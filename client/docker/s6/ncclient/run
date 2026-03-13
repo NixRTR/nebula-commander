@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+set -eu
+
+SERVER="${NEBULA_COMMANDER_SERVER:-}"
+OUTPUT_DIR="${NEBULA_OUTPUT_DIR:-/etc/nebula}"
+TOKEN_FILE="${NEBULA_DEVICE_TOKEN_FILE:-/etc/nebula-commander/token}"
+ENROLL_CODE="${ENROLL_CODE:-}"
+
+if [ -z "${SERVER}" ]; then
+  echo "NEBULA_COMMANDER_SERVER is required" >&2
+  exit 1
+fi
+
+# Ensure token file exists or enroll once using ENROLL_CODE
+if [ ! -f "${TOKEN_FILE}" ]; then
+  if [ -z "${ENROLL_CODE}" ]; then
+    echo "Token file not found and ENROLL_CODE not set. Mount an existing token file or set ENROLL_CODE to enroll." >&2
+    exit 1
+  fi
+  mkdir -p "$(dirname "$(readlink -f "${TOKEN_FILE}")")"
+  export NEBULA_COMMANDER_SERVER="${SERVER}"
+  export NEBULA_DEVICE_TOKEN_FILE="${TOKEN_FILE}"
+  if ! ncclient --server "${SERVER}" enroll --code "${ENROLL_CODE}"; then
+    echo "Enroll failed" >&2
+    exit 1
+  fi
+  if [ ! -f "${TOKEN_FILE}" ]; then
+    echo "Enroll succeeded but token file was not created at ${TOKEN_FILE}" >&2
+    exit 1
+  fi
+fi
+
+export NEBULA_COMMANDER_SERVER="${SERVER}"
+export NEBULA_DEVICE_TOKEN_FILE="${TOKEN_FILE}"
+mkdir -p "${OUTPUT_DIR}"
+
+exec ncclient --server "${SERVER}" run --output-dir "${OUTPUT_DIR}"
+

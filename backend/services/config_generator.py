@@ -54,21 +54,14 @@ def _lighthouse_section(
     node: Node,
     other_lighthouse_ips: list[str],
 ) -> dict[str, Any]:
-    """Build lighthouse section: am_lighthouse, hosts, optional serve_dns/dns/interval."""
+    """Build lighthouse section: am_lighthouse, hosts, optional interval. DNS is served by ncclient dnsmasq only."""
     section: dict[str, Any] = {
         "am_lighthouse": node.is_lighthouse,
         "hosts": other_lighthouse_ips,
     }
     opts = node.lighthouse_options or {}
-    if node.is_lighthouse and opts:
-        if opts.get("serve_dns") is True:
-            section["serve_dns"] = True
-            section["dns"] = {
-                "host": opts.get("dns_host") or "0.0.0.0",  # nosec B104 - Nebula node config needs all interfaces
-                "port": opts.get("dns_port") or 53,
-            }
-        if opts.get("interval_seconds") is not None:
-            section["interval"] = opts["interval_seconds"]
+    if node.is_lighthouse and opts.get("interval_seconds") is not None:
+        section["interval"] = opts["interval_seconds"]
     return section
 
 

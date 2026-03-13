@@ -107,7 +107,7 @@ def cmd_enroll(server: str, code: str) -> None:
     from client.config import load_settings, save_settings
     set_token(token)
     save_settings({**load_settings(), "server": base})
-    print("Enrolled. Token saved to credential store.")
+    print("Enrolled. Token saved.")
     print("Run: ncclient run")
 
 

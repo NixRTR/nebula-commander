@@ -88,6 +88,16 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
 
               <FlowbiteSidebar.Item
                 as={Link}
+                to="/dns"
+                icon={HiGlobe}
+                active={location.pathname === '/dns'}
+                onClick={handleItemClick}
+              >
+                DNS
+              </FlowbiteSidebar.Item>
+
+              <FlowbiteSidebar.Item
+                as={Link}
                 to="/nodes"
                 icon={HiServer}
                 active={location.pathname === '/nodes'}

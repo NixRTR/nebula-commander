@@ -15,6 +15,7 @@ import { AnalyticsInjector } from "./components/AnalyticsInjector";
 const Home = lazy(() => import("./pages/Home").then(m => ({ default: m.Home })));
 const Networks = lazy(() => import("./pages/Networks").then(m => ({ default: m.Networks })));
 const Groups = lazy(() => import("./pages/Groups").then(m => ({ default: m.Groups })));
+const DNS = lazy(() => import("./pages/DNS").then(m => ({ default: m.DNS })));
 const Nodes = lazy(() => import("./pages/Nodes").then(m => ({ default: m.Nodes })));
 const ClientDownload = lazy(() => import("./pages/ClientDownload").then(m => ({ default: m.ClientDownload })));
 const Users = lazy(() => import("./pages/Users").then(m => ({ default: m.Users })));
@@ -72,6 +73,7 @@ function AppContent() {
                   <Route path="/networks" element={<Networks />} />
                   <Route path="/networks/:networkId/users" element={<NetworkUsers />} />
                   <Route path="/groups" element={<Groups />} />
+                  <Route path="/dns" element={<DNS />} />
                   <Route path="/nodes" element={<Nodes />} />
                   <Route path="/client-download" element={<ClientDownload />} />
                   <Route path="/users" element={<Users />} />

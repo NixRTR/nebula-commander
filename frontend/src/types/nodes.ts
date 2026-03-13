@@ -1,7 +1,4 @@
 export interface LighthouseOptions {
-  serve_dns?: boolean;
-  dns_host?: string;
-  dns_port?: number;
   interval_seconds?: number;
 }
 

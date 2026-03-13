@@ -50,7 +50,7 @@ class CreateRequest(BaseModel):
     is_lighthouse: Optional[bool] = None
     is_relay: Optional[bool] = None
     public_endpoint: Optional[str] = None
-    lighthouse_options: Optional[dict[str, Any]] = None  # serve_dns, dns_host, dns_port, interval_seconds
+    lighthouse_options: Optional[dict[str, Any]] = None  # interval_seconds; DNS is via ncclient dnsmasq only
     punchy_options: Optional[dict[str, Any]] = None  # respond, delay, respond_delay
 
 

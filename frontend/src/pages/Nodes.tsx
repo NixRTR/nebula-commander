@@ -87,9 +87,6 @@ export function Nodes() {
     is_lighthouse: boolean;
     is_relay: boolean;
     public_endpoint: string;
-    serve_dns: boolean;
-    dns_host: string;
-    dns_port: string;
     interval_seconds: string;
     log_level: string;
     log_format: string;
@@ -103,9 +100,6 @@ export function Nodes() {
     is_lighthouse: false,
     is_relay: false,
     public_endpoint: "",
-    serve_dns: false,
-    dns_host: "0.0.0.0",
-    dns_port: "53",
     interval_seconds: "60",
     log_level: "info",
     log_format: "text",
@@ -145,9 +139,6 @@ export function Nodes() {
     is_lighthouse: false,
     is_relay: false,
     public_endpoint: "",
-    serve_dns: false,
-    dns_host: "0.0.0.0",
-    dns_port: "53",
     interval_seconds: "60",
   });
   const [nodeNameError, setNodeNameError] = useState<string | null>(null);
@@ -279,12 +270,7 @@ export function Nodes() {
       is_relay: createNodeForm.is_relay,
       public_endpoint: createNodeForm.public_endpoint.trim() || undefined,
       lighthouse_options: createNodeForm.is_lighthouse
-        ? {
-            serve_dns: createNodeForm.serve_dns,
-            dns_host: createNodeForm.dns_host || "0.0.0.0",
-            dns_port: parseInt(createNodeForm.dns_port, 10) || 53,
-            interval_seconds: parseInt(createNodeForm.interval_seconds, 10) || 60,
-          }
+        ? { interval_seconds: parseInt(createNodeForm.interval_seconds, 10) || 60 }
         : undefined,
     };
     createCertificate(body)
@@ -338,6 +324,14 @@ export function Nodes() {
   const isFirstNodeInNetwork = (networkId: number): boolean =>
     nodes.filter((n) => n.network_id === networkId).length === 0;
 
+  useEffect(() => {
+    // When creating a node and this is the first node in the selected network,
+    // default Lighthouse to checked so the public endpoint field is visible.
+    if (showCreateNodeForm && isFirstNodeInNetwork(createNodeForm.network_id) && !createNodeForm.is_lighthouse) {
+      setCreateNodeForm((f) => ({ ...f, is_lighthouse: true }));
+    }
+  }, [showCreateNodeForm, createNodeForm.network_id]);
+
   const isOnlyLighthouseInNetwork = (node: Node): boolean =>
     !!node?.is_lighthouse &&
     nodes.filter((n) => n.network_id === node.network_id && n.is_lighthouse).length === 1;
@@ -355,9 +349,6 @@ export function Nodes() {
       is_relay: node.is_relay,
       public_endpoint: node.public_endpoint ?? "",
       group: (node.groups && node.groups[0]) ?? "",
-      serve_dns: opts?.serve_dns ?? false,
-      dns_host: opts?.dns_host ?? "0.0.0.0",
-      dns_port: String(opts?.dns_port ?? 53),
       interval_seconds: String(opts?.interval_seconds ?? 60),
       log_level: logOpts?.level ?? "info",
       log_format: logOpts?.format ?? "text",
@@ -387,9 +378,6 @@ export function Nodes() {
       deviceDetailsForm.is_lighthouse !== node.is_lighthouse ||
       deviceDetailsForm.is_relay !== node.is_relay ||
       (deviceDetailsForm.public_endpoint ?? "") !== (node.public_endpoint ?? "") ||
-      deviceDetailsForm.serve_dns !== (opts?.serve_dns ?? false) ||
-      (deviceDetailsForm.dns_host ?? "0.0.0.0") !== (opts?.dns_host ?? "0.0.0.0") ||
-      String(deviceDetailsForm.dns_port ?? 53) !== String(opts?.dns_port ?? 53) ||
       String(deviceDetailsForm.interval_seconds ?? 60) !== String(opts?.interval_seconds ?? 60) ||
       (deviceDetailsForm.log_level ?? "info") !== (logOpts?.level ?? "info") ||
       (deviceDetailsForm.log_format ?? "text") !== (logOpts?.format ?? "text") ||
@@ -416,9 +404,6 @@ export function Nodes() {
     setSaving(true);
     const group = deviceDetailsForm.group?.trim() || null;
     const lighthouse_options: LighthouseOptions = {
-      serve_dns: deviceDetailsForm.serve_dns,
-      dns_host: deviceDetailsForm.dns_host || "0.0.0.0",
-      dns_port: parseInt(deviceDetailsForm.dns_port, 10) || 53,
       interval_seconds: parseInt(deviceDetailsForm.interval_seconds, 10) || 60,
     };
     const logging_options: LoggingOptions = {
@@ -452,9 +437,6 @@ export function Nodes() {
               is_lighthouse: updated.is_lighthouse,
               is_relay: updated.is_relay,
               public_endpoint: updated.public_endpoint ?? "",
-              serve_dns: updated.lighthouse_options?.serve_dns ?? false,
-              dns_host: updated.lighthouse_options?.dns_host ?? "0.0.0.0",
-              dns_port: String(updated.lighthouse_options?.dns_port ?? 53),
               interval_seconds: String(updated.lighthouse_options?.interval_seconds ?? 60),
               log_level: updated.logging_options?.level ?? "info",
               log_format: updated.logging_options?.format ?? "text",
@@ -795,12 +777,11 @@ export function Nodes() {
                         onChange={(e) =>
                           setCreateNodeForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
                         }
-                        disabled={isFirstNodeInNetwork(createNodeForm.network_id)}
                       />
                       <Label htmlFor="create_node_lighthouse">Lighthouse</Label>
                       {isFirstNodeInNetwork(createNodeForm.network_id) && (
                         <span className="text-sm text-gray-500 dark:text-gray-400">
-                          The first node in this network must be a lighthouse.
+                          The first node in this network should be a lighthouse so it can accept inbound connections.
                         </span>
                       )}
                     </div>
@@ -829,54 +810,18 @@ export function Nodes() {
                         />
                       </div>
                       {createNodeForm.is_lighthouse && (
-                        <>
-                      <div className="flex items-center gap-2">
-                        <Checkbox
-                          id="create_node_serve_dns"
-                          checked={createNodeForm.serve_dns}
-                          onChange={(e) =>
-                            setCreateNodeForm((f) => ({ ...f, serve_dns: e.target.checked }))
-                          }
-                        />
-                        <Label htmlFor="create_node_serve_dns">Serve DNS</Label>
-                      </div>
-                      {createNodeForm.serve_dns && (
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                          <div>
-                            <Label htmlFor="create_node_dns_host" value="DNS host" />
-                            <TextInput
-                              id="create_node_dns_host"
-                              value={createNodeForm.dns_host}
-                              onChange={(e) =>
-                                setCreateNodeForm((f) => ({ ...f, dns_host: e.target.value }))
-                              }
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="create_node_dns_port" value="DNS port" />
-                            <TextInput
-                              id="create_node_dns_port"
-                              type="number"
-                              value={createNodeForm.dns_port}
-                              onChange={(e) =>
-                                setCreateNodeForm((f) => ({ ...f, dns_port: e.target.value }))
-                              }
-                            />
-                          </div>
-                          <div>
-                            <Label htmlFor="create_node_interval" value="Report interval (seconds)" />
-                            <TextInput
-                              id="create_node_interval"
-                              type="number"
-                              value={createNodeForm.interval_seconds}
-                              onChange={(e) =>
-                                setCreateNodeForm((f) => ({ ...f, interval_seconds: e.target.value }))
-                              }
-                            />
-                          </div>
+                        <div>
+                          <Label htmlFor="create_node_interval" value="Report interval (seconds)" />
+                          <TextInput
+                            id="create_node_interval"
+                            type="number"
+                            value={createNodeForm.interval_seconds}
+                            onChange={(e) =>
+                              setCreateNodeForm((f) => ({ ...f, interval_seconds: e.target.value }))
+                            }
+                            className="w-24"
+                          />
                         </div>
-                      )}
-                        </>
                       )}
                     </>
                   )}
@@ -1238,43 +1183,7 @@ export function Nodes() {
                                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                                           Lighthouse options
                                         </p>
-                                        <div className="flex items-center gap-2 mb-3">
-                                          <Checkbox
-                                            id="dd_serve_dns"
-                                            checked={deviceDetailsForm.serve_dns}
-                                            onChange={(e) =>
-                                              setDeviceDetailsForm((f) => ({ ...f, serve_dns: e.target.checked }))
-                                            }
-                                            disabled={!deviceDetailsModal.isEditing}
-                                          />
-                                          <Label htmlFor="dd_serve_dns">Serve DNS</Label>
-                                        </div>
                                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                          <div className="min-w-0">
-                                            <Label htmlFor="dd_dns_host" value="DNS host" className="text-gray-500 dark:text-gray-400" />
-                                            <TextInput
-                                              id="dd_dns_host"
-                                              value={deviceDetailsForm.dns_host}
-                                              onChange={(e) =>
-                                                setDeviceDetailsForm((f) => ({ ...f, dns_host: e.target.value }))
-                                              }
-                                              disabled={!deviceDetailsModal.isEditing}
-                                              className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                            />
-                                          </div>
-                                          <div className="min-w-0">
-                                            <Label htmlFor="dd_dns_port" value="DNS port" className="text-gray-500 dark:text-gray-400" />
-                                            <TextInput
-                                              id="dd_dns_port"
-                                              type="number"
-                                              value={deviceDetailsForm.dns_port}
-                                              onChange={(e) =>
-                                                setDeviceDetailsForm((f) => ({ ...f, dns_port: e.target.value }))
-                                              }
-                                              disabled={!deviceDetailsModal.isEditing}
-                                              className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                            />
-                                          </div>
                                           <div className="min-w-0">
                                             <Label htmlFor="dd_interval" value="Report interval (seconds)" className="text-gray-500 dark:text-gray-400" />
                                             <TextInput
@@ -1435,9 +1344,6 @@ export function Nodes() {
                                                 is_lighthouse: node.is_lighthouse,
                                                 is_relay: node.is_relay,
                                                 public_endpoint: node.public_endpoint ?? "",
-                                                serve_dns: node.lighthouse_options?.serve_dns ?? false,
-                                                dns_host: node.lighthouse_options?.dns_host ?? "0.0.0.0",
-                                                dns_port: String(node.lighthouse_options?.dns_port ?? 53),
                                                 interval_seconds: String(node.lighthouse_options?.interval_seconds ?? 60),
                                                 log_level: node.logging_options?.level ?? "info",
                                                 log_format: node.logging_options?.format ?? "text",

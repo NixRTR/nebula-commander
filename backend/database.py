@@ -328,6 +328,19 @@ def _run_sqlite_migrations() -> None:
                 "ALTER TABLE nodes ADD COLUMN device_token_version INTEGER DEFAULT 1"
             )
             logger.info("Migration: added column nodes.device_token_version")
+
+        # Add upstream_servers to network_dns_configs
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='network_dns_configs'"
+        )
+        if cur.fetchone() is not None:
+            cur.execute("PRAGMA table_info(network_dns_configs)")
+            dns_cfg_columns = {row[1] for row in cur.fetchall()}
+            if "upstream_servers" not in dns_cfg_columns:
+                cur.execute(
+                    "ALTER TABLE network_dns_configs ADD COLUMN upstream_servers TEXT"
+                )
+                logger.info("Migration: added column network_dns_configs.upstream_servers")
         
         conn.commit()
     finally:

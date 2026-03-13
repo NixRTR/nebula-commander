@@ -21,7 +21,7 @@ export function ClientDownload() {
         ncclient is an experimental client application for enrolling devices with Nebula Commander and automatically pulling down Nebula config and certificates. It is a work in progress and not yet recommended for production use, but if you want to try it out or provide feedback, you can download the pre-built binaries below.
       </p>
       <p className="text-gray-600 dark:text-gray-400 mb-6">
-        Install and run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> on your device to enroll with Nebula Commander and pull config and certificates. Get the enrollment code from the Nodes page (Enroll button).
+        Install and run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> on your device to enroll with Nebula Commander and pull config and certificates. Get the enrollment code from the Nodes page (Enroll button). You can run ncclient as a native binary, via Python, or inside a Docker container using the example <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">docker-compose.yml</code> shown below.
       </p>
 
       <Card className="mb-6">
@@ -97,8 +97,48 @@ export function ClientDownload() {
         </a>
       </Card>
 
-      <h2 className="text-xl font-bold mb-4">Alternative: install via Python (PyPI)</h2>
+      <h2 className="text-xl font-bold mb-4">Alternative: Docker or Python (PyPI)</h2>
       <Tabs aria-label="Client installation instructions" style="underline">
+        <Tabs.Item title="Docker">
+          <Card className="mt-4">
+            <h2 className="text-xl font-bold mb-4">Run ncclient in Docker</h2>
+            <p className="text-gray-700 dark:text-gray-300 mb-2">
+              Use the published ncclient Docker image to enroll and run a Nebula client inside a container. Replace <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;YOUR_SERVER&gt;</code> with your Nebula Commander URL and <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;ENROLL_CODE&gt;</code> with the code from the Nodes page.
+            </p>
+            <p className="text-gray-700 dark:text-gray-300 mb-2">
+              Example <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">docker-compose.yml</code>:
+            </p>
+            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto mb-4">
+{`services:
+  ncclient:
+    image: ghcr.io/nixrtr/nebula-commander-ncclient:latest
+    network_mode: host
+    restart: unless-stopped
+    environment:
+      NEBULA_COMMANDER_SERVER: "https://<YOUR_SERVER>"
+      # One-time enrollment code from the Nodes page
+      ENROLL_CODE: "<ENROLL_CODE>"
+      # Data directory inside the container
+      NEBULA_OUTPUT_DIR: "/data/nebula"
+      NEBULA_DEVICE_TOKEN_FILE: "/data/nebula-commander/token"
+      # Optional: enable DNS on lighthouses only
+      # SERVE_DNS: "true"
+      # NEBULA_NETWORK_ID: "1"
+    volumes:
+      - ncclient-data:/data
+
+volumes:
+  ncclient-data:
+    driver: local`}
+            </pre>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              On first start, the container uses <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ENROLL_CODE</code> to enroll and write the device token under <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/data/nebula-commander/token</code>. On subsequent starts, the existing token is reused and <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ENROLL_CODE</code> is ignored.
+            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              If you enable <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">SERVE_DNS</code> and set <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">NEBULA_NETWORK_ID</code>, the container will only serve DNS when the node is a lighthouse in that network.
+            </p>
+          </Card>
+        </Tabs.Item>
         <Tabs.Item active title="Linux">
           <Card className="mt-4">
             <h2 className="text-xl font-bold mb-4">Install</h2>

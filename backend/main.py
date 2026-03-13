@@ -14,7 +14,22 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from .config import settings
 from .database import init_db
-from .api import networks, nodes, certificates, auth, heartbeat, device, users, node_requests, access_grants, invitations, network_permissions, audit, public_config
+from .api import (
+    networks,
+    nodes,
+    certificates,
+    auth,
+    heartbeat,
+    device,
+    users,
+    node_requests,
+    access_grants,
+    invitations,
+    network_permissions,
+    audit,
+    public_config,
+    dns,
+)
 from .middleware import RateLimitMiddleware
 
 logging.basicConfig(
@@ -96,6 +111,7 @@ app.include_router(invitations.router)
 app.include_router(network_permissions.router)
 app.include_router(audit.router)
 app.include_router(public_config.router)
+app.include_router(dns.router)
 
 
 @app.get("/api")

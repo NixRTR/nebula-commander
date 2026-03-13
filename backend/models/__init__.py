@@ -15,6 +15,8 @@ from .db import (
     NodeRequest,
     AccessGrant,
     NetworkSettings,
+    NetworkDNSConfig,
+    NetworkDNSAlias,
     Invitation,
     AuditLog,
 )
@@ -34,6 +36,8 @@ __all__ = [
     "NodeRequest",
     "AccessGrant",
     "NetworkSettings",
+    "NetworkDNSConfig",
+    "NetworkDNSAlias",
     "Invitation",
     "AuditLog",
 ]

@@ -89,7 +89,7 @@ class Node(Base):
     is_lighthouse: Mapped[bool] = mapped_column(Boolean, default=False)
     is_relay: Mapped[bool] = mapped_column(Boolean, default=False)
     public_endpoint: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # e.g. hostname:4242 for static_host_map
-    lighthouse_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # serve_dns, dns_host, dns_port, interval_seconds
+    lighthouse_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # interval_seconds; DNS is via ncclient dnsmasq only
     logging_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # level, format, disable_timestamp, timestamp_format
     punchy_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # respond, delay, respond_delay
     status: Mapped[str] = mapped_column(String(32), default="pending")  # pending, active, revoked, offline
@@ -300,6 +300,53 @@ class NetworkSettings(Base):
     default_is_relay: Mapped[bool] = mapped_column(Boolean, default=False)
 
     network: Mapped["Network"] = relationship("Network", back_populates="settings")
+
+
+class NetworkDNSConfig(Base):
+    """Per-network DNS configuration (domain, upstream servers, and flags)."""
+
+    __tablename__ = "network_dns_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    network_id: Mapped[int] = mapped_column(
+        ForeignKey("networks.id"), unique=True, nullable=False
+    )
+    # e.g. "nebula.example.com" or "nebula"
+    domain: Mapped[str] = mapped_column(String(255), nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True)
+    # Upstream DNS servers for non-local queries (e.g. ["8.8.8.8", "1.1.1.1"])
+    upstream_servers: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+
+    network: Mapped["Network"] = relationship("Network")
+
+    __table_args__ = (
+        UniqueConstraint("network_id", name="uq_network_dns_config_network"),
+    )
+
+
+class NetworkDNSAlias(Base):
+    """DNS alias within a network zone: alias -> node hostname/IP."""
+
+    __tablename__ = "network_dns_aliases"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    network_id: Mapped[int] = mapped_column(
+        ForeignKey("networks.id"), nullable=False, index=True
+    )
+    node_id: Mapped[int] = mapped_column(ForeignKey("nodes.id"), nullable=False)
+    # alias label without the domain, e.g. "api", "db1"
+    alias: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    network: Mapped["Network"] = relationship("Network")
+    node: Mapped["Node"] = relationship("Node")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "network_id",
+            "alias",
+            name="uq_network_dns_alias_network_alias",
+        ),
+    )
 
 
 class Invitation(Base):
