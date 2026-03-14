@@ -51,6 +51,7 @@ ncclient assumes `nebula` is on your PATH and will start/restart it by default. 
 - `--interval N` – poll interval in seconds (default: 60)
 - **`--nebula PATH`** – path to the `nebula` binary **only if it's not in PATH** (e.g. `--nebula /opt/homebrew/bin/nebula`). Omit this when `nebula` is already on your PATH.
 - **`--restart-service NAME`** – instead of running nebula directly, restart this systemd service after config updates (e.g. `nebula`). Use **only one** of `--nebula` or `--restart-service`.
+- **`--accept-dns`** – enable split-horizon DNS: fetch DNS config from the server, write `dns-client.json`, and apply it so the Nebula domain is resolved via the network’s DNS (e.g. lighthouse). On Linux the client tries, in order: **systemd-resolved**, **dnsmasq**, **NetworkManager**, **systemd-networkd** (with resolved), then **/etc/resolv.conf**. The resolv.conf fallback is best-effort only (no guaranteed split-horizon). Install systemd-resolved or dnsmasq for proper split-horizon. On Windows it uses NRPT. Run as root (Linux) or Administrator (Windows) to apply.
 
 Example – nebula in a non-standard location:
 
@@ -67,6 +68,18 @@ ncclient run --server https://nc.example.com --restart-service nebula
 When the certificate was **created** via the server (Create certificate in the Nebula Commander UI), the bundle includes `host.key` and no manual copy is needed. For certificates created via **Sign** (betterkeys, client-generated key), the server does not have the key; place your own `host.key` in the same directory as the generated certs.
 
 **Linux:** Creating the Nebula TUN device requires root. Run ncclient as root so the Nebula process can create the interface, e.g. `sudo ncclient run --server https://...` (or use `--output-dir ~/.nebula` and run as root so nebula reads from a dir that has host.key).
+
+## Split-horizon DNS (Linux)
+
+With `--accept-dns`, ncclient applies split-horizon DNS so the Nebula domain (e.g. `*.nebula.example.com`) is resolved by the network’s DNS server. Backends are tried in order until one succeeds:
+
+1. **systemd-resolved** – drop-in under `/etc/systemd/resolved.conf.d/`
+2. **dnsmasq** – snippet under `/etc/dnsmasq.d/` (requires dnsmasq installed and used as resolver)
+3. **NetworkManager** – per-connection DNS for the Nebula interface via `nmcli`
+4. **systemd-networkd** – `.network` file for the Nebula interface (only when systemd-resolved is active)
+5. **/etc/resolv.conf** – append nameserver and search domain (best-effort; not true split-horizon; first nameserver often gets all queries)
+
+If no backend succeeds, ncclient reports the failure. The **resolv.conf** fallback does not guarantee that only the Nebula domain is sent to the Nebula DNS server; for proper split-horizon, use a system with systemd-resolved or dnsmasq. Manual apply/remove scripts: `client/contrib/dns-apply-linux.sh` and `client/contrib/dns-apply-windows.ps1`.
 
 ## Troubleshooting
 
