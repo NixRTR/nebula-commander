@@ -169,7 +169,7 @@ def settings_dialog(
     accept_dns_var = tk.BooleanVar(value=accept_dns)
     accept_dns_cb = ttk.Checkbutton(
         frame,
-        text="Accept split-horizon DNS (apply Nebula DNS / NRPT when config updates)",
+        text="Accept split-horizon DNS",
         variable=accept_dns_var,
     )
     accept_dns_cb.grid(row=9, column=0, sticky=tk.W, pady=(0, 12))

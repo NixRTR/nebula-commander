@@ -16,7 +16,7 @@ from ..auth.permissions import (
 )
 from ..auth.reauth import verify_reauth, clear_reauth_challenge
 from ..database import get_session
-from ..models import Network, NetworkGroupFirewall, NetworkPermission, NetworkSettings, User
+from ..models import Network, NetworkDNSConfig, NetworkGroupFirewall, NetworkPermission, NetworkSettings, User
 from ..services.audit import get_client_ip, log_audit
 from ..services.ip_allocator import IPAllocator
 
@@ -51,7 +51,7 @@ class NetworkListResponse(NetworkResponse):
 
 class NetworkUpdate(BaseModel):
     """No network-level firewall (defined.net style: only per-group inbound rules)."""
-    pass
+    name: Optional[str] = None  # If set, must be unique across all networks
 
 
 @router.get("", response_model=list[NetworkListResponse])
@@ -186,7 +186,16 @@ async def create_network(
         default_is_relay=False,
     )
     session.add(settings)
-    
+
+    # Default DNS config: domain = network name (user can change in DNS page)
+    dns_config = NetworkDNSConfig(
+        network_id=network.id,
+        domain=network.name,
+        enabled=False,
+        upstream_servers=None,
+    )
+    session.add(dns_config)
+
     await session.flush()
     await log_audit(
         session,
@@ -295,6 +304,21 @@ async def update_network(
     # capture original values before mutation and populate this
     # `changed` dict with old/new pairs for audit logging.
     changed: dict = {}
+
+    if body.name is not None:
+        new_name = body.name.strip()
+        if new_name != network.name:
+            existing = await session.execute(
+                select(Network).where(Network.name == new_name, Network.id != network_id)
+            )
+            if existing.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Network with name '{new_name}' already exists",
+                )
+            changed["name"] = (network.name, new_name)
+            network.name = new_name
+            await session.flush()
 
     await session.refresh(network)
 

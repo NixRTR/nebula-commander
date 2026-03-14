@@ -38,7 +38,8 @@ class DNSConfigResponse(BaseModel):
 
 
 class DNSConfigUpdate(BaseModel):
-    domain: HostnameLabel | str
+    """domain defaults to network name when creating a new config if omitted."""
+    domain: Optional[HostnameLabel | str] = None
     enabled: Optional[bool] = None
     upstream_servers: Optional[List[str]] = None
 
@@ -104,7 +105,16 @@ async def get_dns_config(
     )
     cfg = cfg_result.scalar_one_or_none()
     if not cfg:
-        raise HTTPException(status_code=404, detail="DNS config not found")
+        # Default DNS config for networks created before we added creation at network create
+        cfg = NetworkDNSConfig(
+            network_id=network_id,
+            domain=network.name,
+            enabled=False,
+            upstream_servers=None,
+        )
+        session.add(cfg)
+        await session.flush()
+        await session.refresh(cfg)
 
     return DNSConfigResponse(
         domain=cfg.domain,
@@ -133,15 +143,17 @@ async def upsert_dns_config(
     )
     cfg = cfg_result.scalar_one_or_none()
     if cfg:
-        cfg.domain = body.domain.strip()
+        if body.domain is not None:
+            cfg.domain = body.domain.strip()
         if body.enabled is not None:
             cfg.enabled = body.enabled
         if body.upstream_servers is not None:
             cfg.upstream_servers = body.upstream_servers
     else:
+        domain = (body.domain.strip() if body.domain and str(body.domain).strip() else network.name)
         cfg = NetworkDNSConfig(
             network_id=network_id,
-            domain=body.domain.strip(),
+            domain=domain,
             enabled=body.enabled if body.enabled is not None else True,
             upstream_servers=body.upstream_servers if body.upstream_servers is not None else [],
         )

@@ -72,7 +72,9 @@ export function DNS() {
           setUpstreamServersText((cfg.upstream_servers ?? []).join("\n"));
         } else {
           setConfig(null);
-          setDomainInput("");
+          const defaultDomain =
+            networks.find((n) => n.id === selectedNetworkId)?.name ?? "";
+          setDomainInput(defaultDomain);
           setEnabled(true);
           setUpstreamServersText("");
         }
