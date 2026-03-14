@@ -115,6 +115,10 @@ def _config_path(output_dir: str) -> str:
     return os.path.join(output_dir, "config.yaml")
 
 
+def _dns_client_config_path(output_dir: str) -> str:
+    return os.path.join(output_dir, "dns-client.json")
+
+
 def _nebula_log_path(output_dir: str) -> str:
     """Path for Nebula stderr log. Default on Windows: %USERPROFILE%\\.nebula\\nebula.log"""
     return os.path.join(output_dir, "nebula.log")
@@ -527,12 +531,20 @@ def run_poll_loop(
     restart_service: str | None,
     stop_event: threading.Event,
     status_callback: Callable[[str, str], None] | None = None,
+    accept_dns: bool = False,
+    dns_debug_log: Callable[[str], None] | None = None,
 ) -> None:
     """
     Poll for config/certs and optionally run Nebula. Exits when stop_event is set.
     status_callback(status, message) is called with "idle", "connected", or "error".
+    When accept_dns is True, fetch dns-client-config, write dns-client.json, and apply
+    split-horizon DNS (systemd-resolved / NRPT); remove on exit and on start.
+    When dns_debug_log is provided (e.g. from tray with --console), it is called with
+    DNS-related debug messages for troubleshooting.
     """
     from client.token_store import get_token
+    from client.dns_apply import apply_split_horizon_dns, remove_split_horizon_dns
+
     base = _server_url(server)
     token = get_token()
     if not token:
@@ -543,10 +555,17 @@ def run_poll_loop(
             sys.exit(1)
         return
     url = f"{base}/api/device/config"
+    dns_url = f"{base}/api/device/dns-client-config"
     output_dir = os.path.expanduser(output_dir)
     os.makedirs(output_dir, exist_ok=True)
     last_etag: str | None = None
     nebula_proc: subprocess.Popen | None = None
+
+    # Clean slate on start: remove any split-horizon from a previous crash
+    if accept_dns:
+        if dns_debug_log:
+            dns_debug_log("accept_dns=True, removing any existing split-horizon on start")
+        remove_split_horizon_dns()
 
     def _sleep() -> None:
         elapsed = 0
@@ -609,6 +628,49 @@ def run_poll_loop(
                     nebula_proc = _start_nebula(nebula_bin, output_dir)
                 if restart_service:
                     _restart_systemd_service(restart_service)
+
+                # Fetch split-horizon DNS client config and optionally apply
+                dns_path = _dns_client_config_path(output_dir)
+                try:
+                    if dns_debug_log:
+                        dns_debug_log(f"fetching dns-client-config from {dns_url}")
+                    r_dns = requests.get(
+                        dns_url,
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=30,
+                    )
+                    if dns_debug_log:
+                        dns_debug_log(f"dns-client-config status={r_dns.status_code}")
+                    if r_dns.status_code == 200:
+                        with open(dns_path, "wb") as f:
+                            f.write(r_dns.content)
+                        if dns_debug_log:
+                            dns_debug_log(f"wrote dns-client.json to {dns_path}")
+                        if accept_dns:
+                            if dns_debug_log:
+                                dns_debug_log("applying split-horizon (NRPT)...")
+                            ok = apply_split_horizon_dns(config_dict=r_dns.json())
+                            if dns_debug_log:
+                                dns_debug_log(f"apply_split_horizon_dns result={ok}")
+                    elif r_dns.status_code == 404:
+                        if dns_debug_log:
+                            dns_debug_log("dns-client-config 404 (DNS not enabled for network)")
+                        if os.path.exists(dns_path):
+                            try:
+                                os.remove(dns_path)
+                            except OSError:
+                                pass
+                        if accept_dns:
+                            remove_split_horizon_dns()
+                    else:
+                        if dns_debug_log:
+                            dns_debug_log(f"dns-client-config unexpected status={r_dns.status_code} body={r_dns.text[:200]!r}")
+                    # Ignore other status codes; leave existing dns-client.json as-is
+                except requests.RequestException as e:
+                    if dns_debug_log:
+                        dns_debug_log(f"dns-client-config request failed: {e}")
+                    # Don't fail the poll loop for DNS fetch errors
+
             except requests.RequestException as e:
                 err = str(e)
                 if status_callback:
@@ -618,6 +680,10 @@ def run_poll_loop(
             _sleep()
     finally:
         _stop_nebula(nebula_proc)
+        if accept_dns:
+            if dns_debug_log:
+                dns_debug_log("removing split-horizon on exit")
+            remove_split_horizon_dns()
 
 
 def cmd_run(
@@ -626,6 +692,7 @@ def cmd_run(
     interval: int,
     nebula_bin: str | None,
     restart_service: str | None,
+    accept_dns: bool = False,
 ) -> None:
     stop_event = threading.Event()
 
@@ -645,6 +712,7 @@ def cmd_run(
             restart_service,
             stop_event=stop_event,
             status_callback=noop_callback,
+            accept_dns=accept_dns,
         )
     except KeyboardInterrupt:
         print("\nStopped.")
@@ -671,6 +739,7 @@ def main() -> None:
     p_run.add_argument("--interval", "-i", type=int, default=60, help="Poll interval in seconds (default: 60)")
     p_run.add_argument("--nebula", "-n", metavar="PATH", help="Path to nebula binary if not in PATH (default: run 'nebula' from PATH)")
     p_run.add_argument("--restart-service", "-r", metavar="NAME", help="Restart this systemd service after config change instead of running nebula (e.g. nebula)")
+    p_run.add_argument("--accept-dns", action="store_true", help="Apply split-horizon DNS (systemd-resolved / NRPT) when dns-client.json is updated; remove on exit")
 
     args = ap.parse_args()
     from client.config import load_settings
@@ -704,6 +773,7 @@ def main() -> None:
             args.interval,
             nebula_bin,
             restart_service,
+            accept_dns=getattr(args, "accept_dns", False),
         )
 if __name__ == "__main__":
     main()

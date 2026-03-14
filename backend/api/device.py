@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.oidc import require_user, require_device_token, UserInfo, create_device_token
 from ..config import settings
 from ..database import get_session
-from ..models import Network, Node, EnrollmentCode, User
+from ..models import Network, NetworkDNSConfig, Node, EnrollmentCode, User
 from ..services.audit import get_client_ip, log_audit
 from ..services.cert_store import read_cert_store_file
 from ..services.config_generator import generate_config_for_node
@@ -183,6 +183,56 @@ async def enroll(
 
 
 # --- Device: config and certs (require device token) ---
+
+
+class DNSClientConfigResponse(BaseModel):
+    """Split-horizon DNS config for the client: domain and lighthouse IPs to use as DNS servers."""
+
+    domain: str
+    dns_servers: list[str]
+
+
+@router.get("/dns-client-config", response_model=DNSClientConfigResponse)
+async def device_dns_client_config(
+    node_id: int = Depends(require_device_token),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Return split-horizon DNS config for this device: domain and DNS server IPs (lighthouse Nebula IPs).
+    Use Authorization: Bearer <device_token>. Returns 404 if DNS is not enabled for the network.
+    """
+    result = await session.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    network_id = node.network_id
+
+    cfg_result = await session.execute(
+        select(NetworkDNSConfig).where(NetworkDNSConfig.network_id == network_id)
+    )
+    cfg = cfg_result.scalar_one_or_none()
+    if not cfg or not cfg.enabled:
+        raise HTTPException(status_code=404, detail="DNS not enabled for this network")
+
+    # Lighthouses serve DNS (dnsmasq in ncclient container); collect their Nebula IPs.
+    lighthouses_result = await session.execute(
+        select(Node).where(
+            Node.network_id == network_id,
+            Node.is_lighthouse == True,
+            Node.ip_address.isnot(None),
+        )
+    )
+    dns_servers = [
+        n.ip_address
+        for n in lighthouses_result.scalars().all()
+        if n.ip_address and n.ip_address.strip()
+    ]
+
+    return DNSClientConfigResponse(
+        domain=cfg.domain,
+        dns_servers=dns_servers,
+    )
+
 
 @router.get("/config")
 async def device_config(

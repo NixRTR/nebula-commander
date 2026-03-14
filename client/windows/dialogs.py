@@ -109,9 +109,10 @@ def settings_dialog(
     output_dir: str,
     interval: int,
     nebula_path: str,
-) -> tuple[str, str, int, str] | None:
+    accept_dns: bool = False,
+) -> tuple[str, str, int, str, bool] | None:
     """
-    Show Settings dialog. Returns (server, output_dir, interval, nebula_path) on OK, None on Cancel.
+    Show Settings dialog. Returns (server, output_dir, interval, nebula_path, accept_dns) on OK, None on Cancel.
     When parent is not None (tray): deiconify parent off-screen so Toplevel shows; use wait_window (single mainloop).
     """
     if parent is not None:
@@ -130,7 +131,7 @@ def settings_dialog(
         root.update_idletasks()
         root.after(100, lambda: root.attributes("-topmost", False))
 
-    result: list[tuple[str, str, int, str] | None] = [None]
+    result: list[tuple[str, str, int, str, bool] | None] = [None]
 
     frame = ttk.Frame(root, padding=10)
     frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
@@ -163,7 +164,15 @@ def settings_dialog(
     ttk.Label(frame, text="Nebula executable path (optional):").grid(row=6, column=0, sticky=tk.W, pady=(0, 2))
     nebula_var = tk.StringVar(value=default_nebula)
     ttk.Entry(frame, textvariable=nebula_var, width=40).grid(row=7, column=0, sticky=(tk.W, tk.E), pady=(0, 2))
-    ttk.Label(frame, text="Leave empty to use nebula from system PATH.", style="Small.TLabel").grid(row=8, column=0, sticky=tk.W, pady=(0, 12))
+    ttk.Label(frame, text="Leave empty to use nebula from system PATH.", style="Small.TLabel").grid(row=8, column=0, sticky=tk.W, pady=(0, 4))
+
+    accept_dns_var = tk.BooleanVar(value=accept_dns)
+    accept_dns_cb = ttk.Checkbutton(
+        frame,
+        text="Accept split-horizon DNS (apply Nebula DNS / NRPT when config updates)",
+        variable=accept_dns_var,
+    )
+    accept_dns_cb.grid(row=9, column=0, sticky=tk.W, pady=(0, 12))
 
     def ok() -> None:
         s = (server_var.get() or "").strip()
@@ -181,14 +190,14 @@ def settings_dialog(
         if not s:
             messagebox.showwarning("Settings", "Enter server URL.", parent=root)
             return
-        result[0] = (s, o or ".", i, n)
+        result[0] = (s, o or ".", i, n, accept_dns_var.get())
         root.destroy()
 
     def cancel() -> None:
         root.destroy()
 
     btn_frame = ttk.Frame(frame)
-    btn_frame.grid(row=9, column=0, sticky=tk.E, pady=(4, 0))
+    btn_frame.grid(row=10, column=0, sticky=tk.E, pady=(4, 0))
     ttk.Button(btn_frame, text="Cancel", command=cancel).pack(side=tk.RIGHT, padx=(4, 0))
     ttk.Button(btn_frame, text="Save", command=ok).pack(side=tk.RIGHT)
 

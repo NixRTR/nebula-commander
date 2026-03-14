@@ -23,8 +23,31 @@ is_lighthouse_from_config() {
   [ -f "${path}" ] && grep -q "am_lighthouse: true" "${path}"
 }
 
+# Wait until the listen-address IP from dnsmasq config is assigned (e.g. by Nebula).
+# Avoids "Cannot assign requested address" when dnsmasq starts before the Nebula interface is up.
+wait_for_listen_address() {
+  local conf="$1"
+  local listen_ip
+  listen_ip="$(grep -m1 '^listen-address=' "${conf}" 2>/dev/null | sed 's/^listen-address=//')"
+  if [ -z "${listen_ip}" ]; then
+    return 0
+  fi
+  local max_wait=90
+  local waited=0
+  while [ "${waited}" -lt "${max_wait}" ]; do
+    if ip -4 addr show 2>/dev/null | grep -q "inet ${listen_ip}/"; then
+      return 0
+    fi
+    sleep 2
+    waited=$((waited + 2))
+  done
+  echo "Warning: listen-address ${listen_ip} not assigned after ${max_wait}s; dnsmasq may fail to bind." >&2
+  return 0
+}
+
 restart_dnsmasq() {
   local conf="$1"
+  wait_for_listen_address "${conf}"
   # Stop any existing dnsmasq instance in the container namespace.
   pkill dnsmasq 2>/dev/null || true
   # Run dnsmasq in the foreground so all logs go to the container logs.

@@ -6,10 +6,12 @@ Run with: python -m client.windows.tray  (from repo root)
 Terminal output: use --console, -v, or --verbose to print log messages to stderr.
 Alternatively: set NCCLIENT_TRAY_VERBOSE=1, or run from a console (stdout is a TTY).
 """
+import atexit
 import json
 import os
 import queue
 import shutil
+import signal
 import sys
 import threading
 import tkinter as tk
@@ -298,6 +300,43 @@ def main() -> None:
     # Queue for tray -> main thread: only main thread touches Tk (required on Windows)
     ui_queue: queue.Queue[str] = queue.Queue()
 
+    # Clean slate on startup: remove any NRPT rules left from a previous run
+    if bool(settings.get("accept_dns", False)):
+        try:
+            from client.dns_apply import remove_split_horizon_dns
+            if not remove_split_horizon_dns():
+                _log("remove split-horizon on startup: returned False")
+        except Exception as e:
+            _log(f"remove split-horizon on startup: {e}")
+            if not VERBOSE:
+                print(f"[tray] remove split-horizon on startup: {e}", file=sys.stderr, flush=True)
+
+    # On process exit (normal or atexit), remove NRPT rules if accept_dns was enabled
+    def _cleanup_dns_on_exit() -> None:
+        try:
+            s = load_settings()
+            if bool(s.get("accept_dns", False)):
+                from client.dns_apply import remove_split_horizon_dns
+                remove_split_horizon_dns()
+        except Exception:
+            pass
+
+    atexit.register(_cleanup_dns_on_exit)
+
+    # Ctrl+C: request graceful quit so main thread runs quit handler (cleanup + tk_root.quit())
+    def _signal_handler(signum: int, frame: object) -> None:
+        _log("SIGINT received, requesting graceful quit")
+        stop_event.set()
+        try:
+            ui_queue.put("quit")
+        except Exception:
+            pass
+
+    try:
+        signal.signal(signal.SIGINT, _signal_handler)
+    except (ValueError, OSError):
+        pass  # signal only valid in main thread on some platforms
+
     def update_ui(status: str, message: str) -> None:
         nonlocal current_status, current_message
         current_status = status
@@ -320,6 +359,7 @@ def main() -> None:
         interval = int(s.get("interval") or 60)
         interval = max(10, min(3600, interval))
         nebula_path = _effective_nebula_path_from_settings(s)
+        accept_dns = bool(s.get("accept_dns", False))
 
         if not server or server == "https://":
             update_ui("error", "Set server URL in Settings")
@@ -346,10 +386,17 @@ def main() -> None:
             else:
                 update_ui(s, m)
 
+        if VERBOSE:
+            _log(f"dns: starting poll with output_dir={output_dir!r}, accept_dns={accept_dns}")
         poll_thread = threading.Thread(
             target=run_poll_loop,
             args=(server, output_dir, interval, nebula_bin, None),
-            kwargs={"stop_event": stop_event, "status_callback": callback},
+            kwargs={
+                "stop_event": stop_event,
+                "status_callback": callback,
+                "accept_dns": accept_dns,
+                "dns_debug_log": (lambda msg: _log(f"dns: {msg}")) if VERBOSE else None,
+            },
             daemon=True,
         )
         poll_thread.start()
@@ -391,15 +438,17 @@ def main() -> None:
         raw_nebula = (s.get("nebula_path") or "").strip()
         if dialogs._is_stale_nebula_path(raw_nebula):
             raw_nebula = ""
-        result = dialogs.settings_dialog(parent, server, output_dir, interval, raw_nebula)
+        accept_dns = bool(s.get("accept_dns", False))
+        result = dialogs.settings_dialog(parent, server, output_dir, interval, raw_nebula, accept_dns)
         _log("_do_settings: dialog closed, result=%s" % (result is not None))
         if result:
-            server, output_dir, interval, nebula_path = result
+            server, output_dir, interval, nebula_path, accept_dns = result
             save_settings({
                 "server": server,
                 "output_dir": output_dir,
                 "interval": interval,
                 "nebula_path": nebula_path,
+                "accept_dns": accept_dns,
             })
             update_ui(current_status, current_message)
 
@@ -643,6 +692,14 @@ def main() -> None:
             return
         _log(f"process_ui_queue: got message '{msg}' (main thread id={threading.current_thread().ident})")
         if msg == "quit":
+            # Remove split-horizon DNS on exit so NRPT rules are cleared even if poll thread's finally didn't run
+            s = load_settings()
+            if bool(s.get("accept_dns", False)):
+                try:
+                    from client.dns_apply import remove_split_horizon_dns
+                    remove_split_horizon_dns()
+                except Exception as e:
+                    _log(f"remove split-horizon on exit: {e}")
             _log("process_ui_queue: calling tk_root.quit()")
             tk_root.quit()
             return
@@ -672,6 +729,12 @@ def main() -> None:
         tk_root.mainloop()
     except KeyboardInterrupt:
         _log("Ctrl+C received, exiting gracefully")
+        if bool(load_settings().get("accept_dns", False)):
+            try:
+                from client.dns_apply import remove_split_horizon_dns
+                remove_split_horizon_dns()
+            except Exception as e:
+                _log(f"remove split-horizon on Ctrl+C: {e}")
         stop_poll()
         try:
             icon_obj.stop()
