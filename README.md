@@ -1,7 +1,7 @@
 # Nebula Commander
 
 [![Release](https://img.shields.io/github/v/release/NixRTR/nebula-commander?include_prereleases=&sort=semver)](https://github.com/NixRTR/nebula-commander/releases)
-[![Static Badge](https://img.shields.io/badge/documentation-nebulacdr.com-blue)](https://nebulacdr.com)
+[![Static Badge](https://img.shields.io/badge/documentation-nebulacommander.com-blue)](https://nebulacommander.com)
 [![Static Badge](https://img.shields.io/badge/[matrix]-support-blue)](https://matrix.to/#/#nebula-commander-support:matrix.org)
 [![Static Badge](https://img.shields.io/badge/[matrix]-development-blue)](https://matrix.to/#/#nebula-development-support:matrix.org)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Linux%20x86_64)
@@ -23,7 +23,7 @@
 
 - **Networks & nodes** — Create networks, manage nodes, IP allocation, and certificates
 - **Web UI** — React dashboard with OIDC (e.g. Keycloak) or dev token authentication
-- **Device client (ncclient)** — `pip install nebula-commander` for enroll and run; see [client/README.md](client/README.md) and [ncclient documentation](https://nebulacdr.com/docs/usage/ncclient/)
+- **Device client (ncclient)** — `pip install nebula-commander` for enroll and run; see [client/README.md](client/README.md) and [ncclient documentation](https://nebulacommander.com/docs/usage/ncclient/)
 
 ### Our Generous Supporters
 
@@ -79,7 +79,7 @@ docker compose -f docker-compose.yml -f docker-compose-keycloak.yml up -d
 
 #### NixOS (experimental)
 
-Import the module and enable the service. See [nix/module.nix](nix/module.nix) for options and [Server Installation: NixOS](https://nebulacdr.com/docs/installation/nixos/) for more detail.
+Import the module and enable the service. See [nix/module.nix](nix/module.nix) for options and [Server Installation: NixOS](https://nebulacommander.com/docs/installation/nixos/) for more detail.
 
 ```nix
 services.nebula-commander.enable = true;
@@ -135,7 +135,7 @@ python -m uvicorn backend.main:app --reload --port 8081
 cd frontend && npm install && npm run dev
 ```
 
-Open http://localhost:5173 (dev token when backend is in debug mode). See [Development: Setup](https://nebulacdr.com/docs/development/setup/) for more.
+Open http://localhost:5173 (dev token when backend is in debug mode). See [Development: Setup](https://nebulacommander.com/docs/development/setup/) for more.
 
 ---
 
@@ -152,7 +152,7 @@ Open http://localhost:5173 (dev token when backend is in debug mode). See [Devel
 
 ### Configuration
 
-Env prefix: `NEBULA_COMMANDER_`. Key options: `DATABASE_URL`, `CERT_STORE_PATH`, **`ENCRYPTION_KEY`** or **`ENCRYPTION_KEY_FILE`** (required), `JWT_SECRET_KEY` or `JWT_SECRET_FILE`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `DEBUG`. Full list and examples: [docker/env.d.example/backend](docker/env.d.example/backend) and [Server Configuration](https://nebulacdr.com/docs/configuration/).
+Env prefix: `NEBULA_COMMANDER_`. Key options: `DATABASE_URL`, `CERT_STORE_PATH`, **`ENCRYPTION_KEY`** or **`ENCRYPTION_KEY_FILE`** (required), `JWT_SECRET_KEY` or `JWT_SECRET_FILE`, `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, `DEBUG`. Full list and examples: [docker/env.d.example/backend](docker/env.d.example/backend) and [Server Configuration](https://nebulacommander.com/docs/configuration/).
 
 ### API
 

@@ -6,7 +6,7 @@ This theme makes Keycloak’s **login** and **logout** (account) pages match the
 
 When using **realm import** (see [keycloak-import/README.md](keycloak-import/README.md)), the **nebula-commander** realm is created at startup with **Login theme** and **Account theme** already set to **nebula**. No manual steps are required.
 
-- **Background**: Same as frontend — `nebula/login/resources/img/nebula.webp` (copy from `frontend/public/nebula.webp` or from the docs site `nebulacdr.com/static/nebula.webp`). A dark overlay is applied in CSS to match the frontend.
+- **Background**: Same as frontend — `nebula/login/resources/img/nebula.webp` (copy from `frontend/public/nebula.webp` or from the docs site `nebulacommander.com/static/nebula.webp`). A dark overlay is applied in CSS to match the frontend.
 - **Header**: Logo (`logo.svg`) and “Nebula Commander” in large text, plus subtitle “Sign in to manage your Nebula network”.
 When using the **custom Keycloak image** (see docker/README.md), this theme is baked into the image; no host mount is needed. Before building that image, ensure `nebula.webp` is in `nebula/login/resources/img/` (or copy from `frontend/public/nebula.webp`). Start Keycloak with the Keycloak compose file; the imported realm will use this theme automatically.
 

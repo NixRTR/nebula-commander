@@ -119,7 +119,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               </FlowbiteSidebar.Item>
 
               <FlowbiteSidebar.Item
-                href="https://nebulacdr.com/docs/"
+                href="https://nebulacommander.com/docs/"
                 target="_blank"
                 rel="noreferrer"
                 icon={HiGlobe}
