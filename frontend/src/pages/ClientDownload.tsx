@@ -1,4 +1,5 @@
-import { Card, Tabs } from "flowbite-react";
+import { Card, Tabs, type TabsRef } from "flowbite-react";
+import { useEffect, useRef } from "react";
 import { HiDownload } from "react-icons/hi";
 
 const DOWNLOADS = [
@@ -13,103 +14,21 @@ const TRAY_DOWNLOADS = [
   { name: "Windows Tray App (x86_64)", file: "ncclient-tray-windows-amd64.exe", platform: "windows" },
 ] as const;
 
-export function ClientDownload() {
-  return (
-    <div>
-      <h1 className="text-3xl font-bold mb-6">Experimental Client Download</h1>
-      <p className="text-gray-600 dark:text-gray-400 mb-6">
-        ncclient is an experimental client application for enrolling devices with Nebula Commander and automatically pulling down Nebula config and certificates. It is a work in progress and not yet recommended for production use, but if you want to try it out or provide feedback, you can download the pre-built binaries below.
-      </p>
-      <p className="text-gray-600 dark:text-gray-400 mb-6">
-        Install and run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> on your device to enroll with Nebula Commander and pull config and certificates. Get the enrollment code from the Nodes page (Enroll button). You can run ncclient as a native binary, via Python, or inside a Docker container using the example <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">docker-compose.yml</code> shown below.
-      </p>
+type PlatformTab = "docker" | "linux" | "windows" | "macos" | "mobile";
 
-      <Card className="mb-6">
-        <h2 className="text-xl font-bold mb-2">Raw binaries — ncclient (command-line)</h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-          Pre-built command-line executables — no Python required. Served from this server so no internet access is needed after deployment.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {DOWNLOADS.map((d) => (
-            <a
-              key={d.file}
-              href={`/downloads/${d.file}`}
-              download={d.file}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white transition-colors"
-            >
-              <HiDownload className="w-5 h-5 shrink-0" />
-              <span>{d.name}</span>
-            </a>
-          ))}
-        </div>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mt-3">
-          Linux/macOS: after download run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">chmod +x ncclient-*</code> then move to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/usr/local/bin</code> or your PATH.
-        </p>
-      </Card>
+const TAB_ORDER: PlatformTab[] = ["docker", "linux", "windows", "macos", "mobile"];
 
-      <Card className="mb-6">
-        <h2 className="text-xl font-bold mb-2">Download ncclient (Windows Tray App)</h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-          Windows system-tray application with GUI for enrollment, settings, and auto-start at login. Includes bundled Nebula binary — no separate Nebula installation required.
-        </p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {TRAY_DOWNLOADS.map((d) => (
-            <a
-              key={d.file}
-              href={`/downloads/${d.file}`}
-              download={d.file}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-gray-900 dark:text-white transition-colors"
-            >
-              <HiDownload className="w-5 h-5 shrink-0" />
-              <span>{d.name}</span>
-            </a>
-          ))}
-        </div>
-        <div className="mt-4 p-3 bg-blue-50 dark:bg-blue-950 rounded-lg">
-          <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
-            <strong>Features:</strong>
-          </p>
-          <ul className="text-sm text-gray-600 dark:text-gray-400 list-disc list-inside space-y-1">
-            <li>System tray icon with Start/Stop polling</li>
-            <li>Enroll dialog — paste enrollment code from Nodes page</li>
-            <li>Settings dialog — configure server URL, output directory, poll interval</li>
-            <li>Auto-start at login (adds Registry entry, no Windows Service required)</li>
-            <li>Bundled Nebula binary (official Windows release)</li>
-          </ul>
-          <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
-            Simply download and run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient-tray-windows-amd64.exe</code> — no installation needed. Or use the <a href="/downloads/NebulaCommander-windows-amd64.msi" className="text-purple-600 dark:text-purple-400 hover:underline">MSI installer</a> to install both ncclient and the tray app and add them to PATH.
-          </p>
-        </div>
-      </Card>
+function getDefaultPlatformTab(): PlatformTab {
+  if (typeof navigator === "undefined") return "linux";
+  const ua = navigator.userAgent.toLowerCase();
+  const platform = (navigator as { platform?: string }).platform?.toLowerCase() ?? "";
+  if (ua.includes("win") || platform.includes("win")) return "windows";
+  if (ua.includes("mac") || platform.includes("mac")) return "macos";
+  if (ua.includes("linux") || platform.includes("linux")) return "linux";
+  return "linux";
+}
 
-      <Card className="mb-6">
-        <h2 className="text-xl font-bold mb-2">Windows MSI installer</h2>
-        <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-          Single installer that installs both ncclient (CLI) and ncclient-tray, adds the install directory to PATH (optional), creates Start Menu shortcuts, and registers in Add or Remove Programs for clean uninstall.
-        </p>
-        <a
-          href="/downloads/NebulaCommander-windows-amd64.msi"
-          download="NebulaCommander-windows-amd64.msi"
-          className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 text-gray-900 dark:text-white transition-colors"
-        >
-          <HiDownload className="w-5 h-5 shrink-0" />
-          <span>Download NebulaCommander-windows-amd64.msi</span>
-        </a>
-      </Card>
-
-      <h2 className="text-xl font-bold mb-4">Alternative: Docker or Python (PyPI)</h2>
-      <Tabs aria-label="Client installation instructions" style="underline">
-        <Tabs.Item title="Docker">
-          <Card className="mt-4">
-            <h2 className="text-xl font-bold mb-4">Run ncclient in Docker</h2>
-            <p className="text-gray-700 dark:text-gray-300 mb-2">
-              Use the published ncclient Docker image to enroll and run a Nebula client inside a container. Replace <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;YOUR_SERVER&gt;</code> with your Nebula Commander URL and <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;ENROLL_CODE&gt;</code> with the code from the Nodes page.
-            </p>
-            <p className="text-gray-700 dark:text-gray-300 mb-2">
-              Example <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">docker-compose.yml</code>:
-            </p>
-            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto mb-4">
-{`services:
+const DOCKER_COMPOSE_SNIPPET = `services:
   ncclient:
     image: ghcr.io/nixrtr/nebula-commander-ncclient:latest
     network_mode: host
@@ -121,27 +40,87 @@ export function ClientDownload() {
       # Data directory inside the container
       NEBULA_OUTPUT_DIR: "/data/nebula"
       NEBULA_DEVICE_TOKEN_FILE: "/data/nebula-commander/token"
-      # Optional: enable DNS on lighthouses only
+      # Optional: enable DNS on lighthouses only (network is derived from device token)
       # SERVE_DNS: "true"
-      # NEBULA_NETWORK_ID: "1"
     volumes:
       - ncclient-data:/data
 
 volumes:
   ncclient-data:
-    driver: local`}
-            </pre>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-              On first start, the container uses <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ENROLL_CODE</code> to enroll and write the device token under <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/data/nebula-commander/token</code>. On subsequent starts, the existing token is reused and <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ENROLL_CODE</code> is ignored.
+    driver: local`;
+
+const NEBULA_GOOGLE_PLAY_URL = "https://play.google.com/store/apps/details?id=net.defined.mobile_nebula";
+const NEBULA_APP_STORE_URL = "https://apps.apple.com/us/app/mobile-nebula/id1509587936";
+// Official store badge assets (Google and Apple guidelines)
+const GOOGLE_PLAY_BADGE_URL = "https://play.google.com/intl/en_us/badges/static/images/badges/en_badge_web_generic.png";
+// Apple badge: official design (SVG from Apple marketing assets / Wikimedia)
+const APP_STORE_BADGE_URL = "https://upload.wikimedia.org/wikipedia/commons/3/3c/Download_on_the_App_Store_Badge.svg";
+
+export function ClientDownload() {
+  const tabsRef = useRef<TabsRef>(null);
+  const defaultTabIndex = TAB_ORDER.indexOf(getDefaultPlatformTab());
+
+  useEffect(() => {
+    tabsRef.current?.setActiveTab(defaultTabIndex);
+  }, [defaultTabIndex]);
+
+  return (
+    <div>
+      <h1 className="text-3xl font-bold mb-6">Experimental Client Download</h1>
+      <p className="text-gray-600 dark:text-gray-400 mb-6">
+        ncclient is an experimental client application for enrolling devices with Nebula Commander and automatically pulling down Nebula config and certificates. It is a work in progress and not yet recommended for production use, but if you want to try it out or provide feedback, choose your platform below.
+      </p>
+      <p className="text-gray-600 dark:text-gray-400 mb-6">
+        Get the enrollment code from the Nodes page (Enroll button). You can run ncclient as a native binary, via Python, or inside a Docker container.
+      </p>
+
+      <Tabs
+        aria-label="Client downloads by platform"
+        style="underline"
+        ref={tabsRef}
+      >
+        <Tabs.Item title="Docker">
+          <Card className="mt-4">
+            <h2 className="text-xl font-bold mb-4">Run ncclient in Docker</h2>
+            <p className="text-gray-700 dark:text-gray-300 mb-2">
+              Use the published image <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ghcr.io/nixrtr/nebula-commander-ncclient:latest</code> to enroll and run a Nebula client inside a container. Replace <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;YOUR_SERVER&gt;</code> with your Nebula Commander URL and <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;ENROLL_CODE&gt;</code> with the code from the Nodes page.
             </p>
+            <p className="text-gray-700 dark:text-gray-300 mb-2">
+              Example <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">docker-compose.yml</code>:
+            </p>
+            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-xs overflow-x-auto mb-4">
+              {DOCKER_COMPOSE_SNIPPET}
+            </pre>
             <p className="text-sm text-gray-600 dark:text-gray-400">
-              If you enable <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">SERVE_DNS</code> and set <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">NEBULA_NETWORK_ID</code>, the container will only serve DNS when the node is a lighthouse in that network.
+              On first start, the container uses <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ENROLL_CODE</code> to enroll and write the device token under <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/data/nebula-commander/token</code>. On subsequent starts, the existing token is reused. If you set <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">SERVE_DNS: "true"</code>, the container will serve DNS when the node is a lighthouse (network is determined from the device token).
             </p>
           </Card>
         </Tabs.Item>
-        <Tabs.Item active title="Linux">
+
+        <Tabs.Item title="Linux">
           <Card className="mt-4">
-            <h2 className="text-xl font-bold mb-4">Install</h2>
+            <h2 className="text-xl font-bold mb-4">Downloads</h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
+              Pre-built command-line executables — no Python required.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              {DOWNLOADS.filter((d) => d.platform === "linux").map((d) => (
+                <a
+                  key={d.file}
+                  href={`/downloads/${d.file}`}
+                  download={d.file}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white transition-colors"
+                >
+                  <HiDownload className="w-5 h-5 shrink-0" />
+                  <span>{d.name}</span>
+                </a>
+              ))}
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              After download run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">chmod +x ncclient-*</code> then move to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/usr/local/bin</code> or your PATH.
+            </p>
+
+            <h2 className="text-xl font-bold mb-4">Install (Python)</h2>
             <p className="text-gray-700 dark:text-gray-300 mb-2">Requires Python 3.10+. From PyPI:</p>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
               pip install nebula-commander
@@ -171,7 +150,56 @@ volumes:
 
         <Tabs.Item title="Windows">
           <Card className="mt-4">
-            <h2 className="text-xl font-bold mb-4">Install</h2>
+            <h2 className="text-xl font-bold mb-4">Downloads</h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
+              CLI binary, optional tray app, or single MSI installer.
+            </p>
+            <div className="space-y-4 mb-6">
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">ncclient (command-line)</p>
+                <a
+                  href={`/downloads/${DOWNLOADS.find((d) => d.platform === "windows")?.file}`}
+                  download
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white transition-colors"
+                >
+                  <HiDownload className="w-5 h-5 shrink-0" />
+                  <span>ncclient-windows-amd64.exe</span>
+                </a>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Windows Tray App</p>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+                  System-tray app with GUI for enrollment, settings, and auto-start at login. Includes bundled Nebula binary.
+                </p>
+                {TRAY_DOWNLOADS.map((d) => (
+                  <a
+                    key={d.file}
+                    href={`/downloads/${d.file}`}
+                    download={d.file}
+                    className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-gray-900 dark:text-white transition-colors"
+                  >
+                    <HiDownload className="w-5 h-5 shrink-0" />
+                    <span>{d.name}</span>
+                  </a>
+                ))}
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Or use the <a href="/downloads/NebulaCommander-windows-amd64.msi" className="text-purple-600 dark:text-purple-400 hover:underline">MSI installer</a> to install both ncclient and the tray app and add them to PATH.
+                </p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">MSI installer (CLI + Tray)</p>
+                <a
+                  href="/downloads/NebulaCommander-windows-amd64.msi"
+                  download="NebulaCommander-windows-amd64.msi"
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 text-gray-900 dark:text-white transition-colors"
+                >
+                  <HiDownload className="w-5 h-5 shrink-0" />
+                  <span>Download NebulaCommander-windows-amd64.msi</span>
+                </a>
+              </div>
+            </div>
+
+            <h2 className="text-xl font-bold mb-4">Install (Python)</h2>
             <p className="text-gray-700 dark:text-gray-300 mb-2">Requires Python 3.10+. From PyPI:</p>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
               pip install nebula-commander
@@ -193,9 +221,34 @@ volumes:
           </Card>
         </Tabs.Item>
 
-        <Tabs.Item title="Mac">
+        <Tabs.Item title="MacOS">
           <Card className="mt-4">
-            <h2 className="text-xl font-bold mb-4">Install</h2>
+            <div className="p-3 bg-amber-50 dark:bg-amber-950 border border-amber-200 dark:border-amber-800 rounded-lg mb-4">
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-200">MacOS support is untested.</p>
+            </div>
+
+            <h2 className="text-xl font-bold mb-4">Downloads</h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
+              Pre-built command-line executables — no Python required.
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              {DOWNLOADS.filter((d) => d.platform === "macos").map((d) => (
+                <a
+                  key={d.file}
+                  href={`/downloads/${d.file}`}
+                  download={d.file}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white transition-colors"
+                >
+                  <HiDownload className="w-5 h-5 shrink-0" />
+                  <span>{d.name}</span>
+                </a>
+              ))}
+            </div>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
+              After download run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">chmod +x ncclient-*</code> then move to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/usr/local/bin</code> or your PATH.
+            </p>
+
+            <h2 className="text-xl font-bold mb-4">Install (Python)</h2>
             <p className="text-gray-700 dark:text-gray-300 mb-2">Requires Python 3.10+. From PyPI (Intel and Apple Silicon):</p>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
               pip install nebula-commander
@@ -214,6 +267,53 @@ volumes:
             </pre>
             <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Default output dir is <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/etc/nebula</code>. If you run as a normal user, use <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">--output-dir ~/.nebula</code>. After <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">brew install nebula</code>, nebula is usually on PATH; use <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">--nebula /opt/homebrew/bin/nebula</code> (Apple Silicon) or <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">--nebula /usr/local/bin/nebula</code> (Intel) only if needed.</p>
             <p className="text-sm text-gray-600 dark:text-gray-400">To run in the background, use launchd (LaunchAgent in <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">~/Library/LaunchAgents</code> or LaunchDaemon in <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/Library/LaunchDaemons</code>).</p>
+          </Card>
+        </Tabs.Item>
+
+        <Tabs.Item title="Mobile">
+          <Card className="mt-4">
+            <h2 className="text-xl font-bold mb-4">Nebula mobile client</h2>
+            <p className="text-gray-700 dark:text-gray-300 mb-4">
+              ncclient is not available on mobile. Use the official Nebula app (by Defined Networking) and add certificates from Nebula Commander.
+            </p>
+            <div className="flex flex-wrap items-center gap-4 mb-6">
+              <a
+                href={NEBULA_GOOGLE_PLAY_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="focus:outline-none focus:ring-2 focus:ring-purple-500 rounded inline-block h-[52px] w-[180px]"
+                aria-label="Get Nebula on Google Play"
+              >
+                <img
+                  src={GOOGLE_PLAY_BADGE_URL}
+                  alt="Get it on Google Play"
+                  className="h-full w-full object-contain object-left"
+                />
+              </a>
+              <a
+                href={NEBULA_APP_STORE_URL}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="focus:outline-none focus:ring-2 focus:ring-purple-500 rounded inline-block h-[52px] w-[180px]"
+                aria-label="Download Nebula on the App Store"
+              >
+                <img
+                  src={APP_STORE_BADGE_URL}
+                  alt="Download on the App Store"
+                  className="h-full w-full object-contain object-left"
+                />
+              </a>
+            </div>
+
+            <h3 className="text-lg font-bold mb-2">Using certificates</h3>
+            <p className="text-gray-700 dark:text-gray-300 mb-4">
+              Create or sign the node in Nebula Commander (Nodes page), then obtain the certificate bundle (ca.crt, host certificate, host key). Import or paste these into the Nebula mobile app (iOS/Android) following that app’s instructions. The mobile app does not use ncclient or enrollment codes.
+            </p>
+
+            <h3 className="text-lg font-bold mb-2">Magic DNS</h3>
+            <p className="text-gray-700 dark:text-gray-300">
+              Magic DNS (split-horizon DNS provided by ncclient on lighthouses) does not work on mobile clients. Mobile devices will resolve names using their normal DNS (e.g. cellular or Wi‑Fi DNS).
+            </p>
           </Card>
         </Tabs.Item>
       </Tabs>

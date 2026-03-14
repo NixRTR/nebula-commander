@@ -10,8 +10,8 @@ import zipfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import Response
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -21,6 +21,7 @@ from ..config import settings
 from ..database import get_session
 from ..models import Network, NetworkDNSConfig, Node, EnrollmentCode, User
 from ..services.audit import get_client_ip, log_audit
+from ..api.dns import get_dnsmasq_config_for_node
 from ..services.cert_store import read_cert_store_file
 from ..services.config_generator import generate_config_for_node
 
@@ -232,6 +233,31 @@ async def device_dns_client_config(
         domain=cfg.domain,
         dns_servers=dns_servers,
     )
+
+
+@router.get("/dnsmasq.conf")
+async def device_dnsmasq_config(
+    request: Request,
+    node_id: int = Depends(require_device_token),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Return dnsmasq config for this device's network. Network is derived from the device token.
+    Use Authorization: Bearer <device_token>. Supports If-None-Match for 304.
+    """
+    result = await session.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    body, etag = await get_dnsmasq_config_for_node(session, node)
+    if_match = request.headers.get("If-None-Match")
+    if if_match and if_match.strip('"') == etag:
+        return PlainTextResponse(
+            status_code=status.HTTP_304_NOT_MODIFIED, content=""
+        )
+    response = PlainTextResponse(content=body)
+    response.headers["ETag"] = f'"{etag}"'
+    return response
 
 
 @router.get("/config")

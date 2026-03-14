@@ -50,10 +50,9 @@ RUN curl -sSL -o /tmp/nebula.tar.gz \
     && rm -rf /tmp/nebula.tar.gz /tmp/nebula /tmp/nebula-linux-amd64
 
 ENV NEBULA_COMMANDER_SERVER=""
-ENV NEBULA_NETWORK_ID=""
 ENV NEBULA_DNS_POLL_INTERVAL="60"
 ENV NEBULA_OUTPUT_DIR="/etc/nebula"
-ENV NEBULA_DEVICE_TOKEN_FILE="/etc/nebula-commander/token"
+# NEBULA_DEVICE_TOKEN_FILE: set at runtime; path to device token file (default in s6 scripts: /etc/nebula-commander/token). Not set in image to avoid ENV-secrets linter.
 
 # s6-overlay services for ncclient and dnsmasq
 RUN mkdir -p /etc/s6-overlay/s6-rc.d/ncclient /etc/s6-overlay/s6-rc.d/dnsmasq /etc/s6-overlay/s6-rc.d/user/contents.d

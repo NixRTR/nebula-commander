@@ -373,6 +373,47 @@ def _build_dnsmasq_config(
     return "\n".join(lines)
 
 
+async def get_dnsmasq_config_for_node(
+    session: AsyncSession, node: Node
+) -> tuple[str, str]:
+    """
+    Build dnsmasq config for the node's network. Returns (body, etag).
+    Raises HTTPException if DNS not enabled for the network or node has no Nebula IP.
+    Used by both the network-scoped and device-scoped dnsmasq endpoints.
+    """
+    if not node.ip_address or not node.ip_address.strip():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Node has no Nebula IP yet; DNS config will be available after the node is assigned an IP",
+        )
+    network_id = node.network_id
+    cfg_result = await session.execute(
+        select(NetworkDNSConfig).where(NetworkDNSConfig.network_id == network_id)
+    )
+    cfg = cfg_result.scalar_one_or_none()
+    if not cfg or not cfg.enabled:
+        raise HTTPException(
+            status_code=404, detail="DNS not enabled for this network"
+        )
+    nodes_result = await session.execute(
+        select(Node).where(Node.network_id == network_id)
+    )
+    nodes = nodes_result.scalars().all()
+    aliases_result = await session.execute(
+        select(NetworkDNSAlias).where(NetworkDNSAlias.network_id == network_id)
+    )
+    aliases = aliases_result.scalars().all()
+    body = _build_dnsmasq_config(
+        cfg.domain,
+        nodes,
+        aliases,
+        upstream_servers=cfg.upstream_servers if cfg.upstream_servers is not None else [],
+        listen_ip=node.ip_address,
+    )
+    etag = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    return body, etag
+
+
 @router.get("/dnsmasq.conf")
 async def get_dnsmasq_config(
     network_id: int,
@@ -396,37 +437,8 @@ async def get_dnsmasq_config(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Device is not part of this network",
         )
-    if not node.ip_address:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Node has no Nebula IP yet; DNS config will be available after the node is assigned an IP",
-        )
 
-    cfg_result = await session.execute(
-        select(NetworkDNSConfig).where(NetworkDNSConfig.network_id == network_id)
-    )
-    cfg = cfg_result.scalar_one_or_none()
-    if not cfg or not cfg.enabled:
-        raise HTTPException(status_code=404, detail="DNS not enabled for this network")
-
-    nodes_result = await session.execute(
-        select(Node).where(Node.network_id == network_id)
-    )
-    nodes = nodes_result.scalars().all()
-
-    aliases_result = await session.execute(
-        select(NetworkDNSAlias).where(NetworkDNSAlias.network_id == network_id)
-    )
-    aliases = aliases_result.scalars().all()
-
-    body = _build_dnsmasq_config(
-        cfg.domain,
-        nodes,
-        aliases,
-        upstream_servers=cfg.upstream_servers if cfg.upstream_servers is not None else [],
-        listen_ip=node.ip_address,
-    )
-    etag = hashlib.sha256(body.encode("utf-8")).hexdigest()
+    body, etag = await get_dnsmasq_config_for_node(session, node)
 
     if_match = request.headers.get("If-None-Match")
     if if_match and if_match.strip('"') == etag:

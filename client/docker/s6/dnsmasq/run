@@ -3,7 +3,6 @@
 set -eu
 
 SERVER="${NEBULA_COMMANDER_SERVER:-}"
-NETWORK_ID="${NEBULA_NETWORK_ID:-}"
 POLL_INTERVAL="${NEBULA_DNS_POLL_INTERVAL:-60}"
 OUTPUT_DIR="${NEBULA_OUTPUT_DIR:-/etc/nebula}"
 TOKEN_FILE="${NEBULA_DEVICE_TOKEN_FILE:-/etc/nebula-commander/token}"
@@ -75,7 +74,7 @@ while true; do
     *) SERVE_DNS_INT=0 ;;
   esac
 
-  if [ "${SERVE_DNS_INT}" -eq 1 ] && [ -n "${NETWORK_ID}" ] && is_lighthouse_from_config "${CONFIG_YAML}"; then
+  if [ "${SERVE_DNS_INT}" -eq 1 ] && is_lighthouse_from_config "${CONFIG_YAML}"; then
     LIGHTHOUSE=1
   fi
 
@@ -96,7 +95,7 @@ while true; do
     continue
   fi
 
-  URL="${SERVER%/}/api/networks/${NETWORK_ID}/dns/dnsmasq.conf"
+  URL="${SERVER%/}/api/device/dnsmasq.conf"
   TMP_HEADERS="$(mktemp)"
   TMP_BODY="$(mktemp)"
 

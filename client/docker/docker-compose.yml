@@ -13,13 +13,9 @@ services:
 
       # Enable DNS service for this client. When true, and when this node is a
       # lighthouse, the container will poll Nebula Commander for dnsmasq config
-      # and run dnsmasq on the Nebula IP:53. When false or unset, the container
-      # does not serve DNS.
+      # (network is determined from the device token) and run dnsmasq on the
+      # Nebula IP:53. When false or unset, the container does not serve DNS.
       # SERVE_DNS: "true"
-
-      # Numeric Nebula Commander network ID whose DNS config should be served
-      # when SERVE_DNS is enabled. Required only if SERVE_DNS is true.
-      # NEBULA_NETWORK_ID: "1"
 
       # How often (in seconds) to poll the dnsmasq config endpoint when this node
       # is a lighthouse. If the config has not changed (ETag / hash matches),

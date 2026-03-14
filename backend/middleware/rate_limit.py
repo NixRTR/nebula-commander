@@ -29,6 +29,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/api/device/config": (600, 3600),  # ~10 requests per minute per device
             "/api/device/certs": (20, 3600),  # infrequent cert downloads per device
             "/api/device/dns-client-config": (600, 3600),  # same as config, per device
+            "/api/device/dnsmasq.conf": (600, 3600),  # dnsmasq config poll, per device
             # Auth / login flows
             "/api/auth/dev-token": (10, 60),  # 10 requests per minute
             "/api/auth/login": (10, 60),  # 10 requests per minute
@@ -61,7 +62,12 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # - For device-token–protected endpoints, prefer the Authorization header so
             #   multiple devices behind one IP are tracked separately.
             # - For everything else, fall back to client IP.
-            if endpoint_id in ("/api/device/config", "/api/device/certs", "/api/device/dns-client-config"):
+            if endpoint_id in (
+                "/api/device/config",
+                "/api/device/certs",
+                "/api/device/dns-client-config",
+                "/api/device/dnsmasq.conf",
+            ):
                 auth_header = (request.headers.get("authorization") or "").strip()
                 if auth_header:
                     client_id = auth_header
