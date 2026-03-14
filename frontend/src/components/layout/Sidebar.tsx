@@ -1,6 +1,7 @@
 /**
  * Sidebar navigation with Flowbite - Mobile responsive with hamburger menu
  */
+import { useState } from 'react';
 import { Sidebar as FlowbiteSidebar } from 'flowbite-react';
 import { Link, useLocation } from 'react-router-dom';
 import {
@@ -13,8 +14,10 @@ import {
   HiUsers,
   HiMail,
   HiClipboardList,
+  HiInformationCircle,
 } from 'react-icons/hi';
 import { FaGithub, FaComments } from 'react-icons/fa';
+import { AboutModal } from '../AboutModal';
 import { usePermissions } from '../../contexts/PermissionContext';
 
 interface SidebarProps {
@@ -24,6 +27,7 @@ interface SidebarProps {
 }
 
 export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
+  const [showAboutModal, setShowAboutModal] = useState(false);
   const location = useLocation();
   const { isSystemAdmin, isNetworkOwner } = usePermissions();
 
@@ -195,10 +199,18 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               >
                 GitHub
               </FlowbiteSidebar.Item>
+              <FlowbiteSidebar.Item
+                icon={HiInformationCircle}
+                style={{ cursor: 'pointer' }}
+                onClick={() => setShowAboutModal(true)}
+              >
+                About
+              </FlowbiteSidebar.Item>
             </FlowbiteSidebar.ItemGroup>
           </FlowbiteSidebar.Items>
         </FlowbiteSidebar>
       </div>
+      <AboutModal show={showAboutModal} onClose={() => setShowAboutModal(false)} />
     </>
   );
 }
