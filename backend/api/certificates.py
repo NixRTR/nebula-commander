@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.oidc import require_user, UserInfo
+from ..auth.permissions import check_network_permission
 from ..config import settings
 from ..database import get_session
 from pathlib import Path
@@ -20,6 +21,35 @@ from ..services.ip_allocator import IPAllocator
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/certificates", tags=["certificates"])
+
+
+async def _require_manage_nodes(
+    user: UserInfo,
+    network_id: int,
+    session: AsyncSession,
+) -> Optional[User]:
+    """
+    Ensure the current user may issue certificates for this network.
+
+    System admins are always allowed. Other users must have the
+    manage_nodes permission (or be owner) on the network, mirroring the
+    node-requests approval workflow. Raises 403 otherwise.
+    Returns the DB user (or None for system admins without a DB row).
+    """
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
+
+    if user.system_role == "system-admin":
+        return db_user
+
+    if db_user is None or not await check_network_permission(
+        db_user.id, network_id, "manage_nodes", session
+    ):
+        raise HTTPException(
+            status_code=403,
+            detail="You don't have permission to issue certificates for this network",
+        )
+    return db_user
 
 
 class SignRequest(BaseModel):
@@ -92,6 +122,8 @@ async def sign_certificate(
     network = result.scalar_one_or_none()
     if not network:
         raise HTTPException(status_code=404, detail="Network not found")
+
+    await _require_manage_nodes(user, body.network_id, session)
 
     cert_manager = CertManager(session)
     duration = body.duration_days or settings.default_cert_expiry_days
@@ -186,6 +218,8 @@ async def create_certificate(
     network = result.scalar_one_or_none()
     if not network:
         raise HTTPException(status_code=404, detail="Network not found")
+
+    await _require_manage_nodes(user, body.network_id, session)
 
     # First node in network must be a lighthouse
     count_result = await session.execute(
