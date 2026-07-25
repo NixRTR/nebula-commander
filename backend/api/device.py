@@ -17,6 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import require_user, require_device_token, UserInfo, create_device_token
+from ..auth.permissions import get_user_nodes
 from ..config import settings
 from ..database import get_session
 from ..models import Network, NetworkDNSConfig, Node, EnrollmentCode, User
@@ -60,6 +61,12 @@ async def create_enrollment_code(
     result = await session.execute(select(Node).where(Node.id == body.node_id))
     node = result.scalar_one_or_none()
     if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    # An enrollment code is redeemable for a device token, which grants access to this
+    # node's config and certificate bundle. Apply the same access check that
+    # GET /api/nodes/{node_id}/certs uses before serving that same material.
+    node_ids = await get_user_nodes(user, session, network_id=node.network_id)
+    if node.id not in node_ids:
         raise HTTPException(status_code=404, detail="Node not found")
     if not node.ip_address:
         raise HTTPException(
