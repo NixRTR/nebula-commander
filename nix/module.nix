@@ -12,7 +12,6 @@ let
     websockets
     sqlalchemy
     aiosqlite
-    alembic
     pydantic
     pydantic-settings
     email-validator
