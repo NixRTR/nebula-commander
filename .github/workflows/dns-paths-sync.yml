@@ -1,0 +1,34 @@
+name: DNS paths sync check
+
+on:
+  push:
+    paths:
+      - 'client/dns_apply.py'
+      - 'client/contrib/dns-apply-linux.sh'
+      - 'client/contrib/dns-apply-windows.ps1'
+      - 'client/contrib/check_dns_paths_sync.py'
+      - '.github/workflows/dns-paths-sync.yml'
+  pull_request:
+    paths:
+      - 'client/dns_apply.py'
+      - 'client/contrib/dns-apply-linux.sh'
+      - 'client/contrib/dns-apply-windows.ps1'
+      - 'client/contrib/check_dns_paths_sync.py'
+      - '.github/workflows/dns-paths-sync.yml'
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check dns_apply.py paths match fallback scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Run drift check
+        run: python client/contrib/check_dns_paths_sync.py

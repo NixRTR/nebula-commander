@@ -79,7 +79,7 @@ With `--accept-dns`, ncclient applies split-horizon DNS so the Nebula domain (e.
 4. **systemd-networkd** – `.network` file for the Nebula interface (only when systemd-resolved is active)
 5. **/etc/resolv.conf** – append nameserver and search domain (best-effort; not true split-horizon; first nameserver often gets all queries)
 
-If no backend succeeds, ncclient reports the failure. The **resolv.conf** fallback does not guarantee that only the Nebula domain is sent to the Nebula DNS server; for proper split-horizon, use a system with systemd-resolved or dnsmasq. Manual apply/remove scripts: `client/contrib/dns-apply-linux.sh` and `client/contrib/dns-apply-windows.ps1`.
+If no backend succeeds, ncclient reports the failure. The **resolv.conf** fallback does not guarantee that only the Nebula domain is sent to the Nebula DNS server; for proper split-horizon, use a system with systemd-resolved or dnsmasq. Manual apply/remove scripts (for when ncclient itself isn't run with enough privilege to self-apply): `client/contrib/dns-apply-linux.sh` and `client/contrib/dns-apply-windows.ps1`. **Note:** the Linux fallback script only covers the systemd-resolved, dnsmasq, and resolv.conf backends (not NetworkManager or systemd-networkd) - on those setups, run `ncclient --accept-dns` directly instead.
 
 ## Troubleshooting
 

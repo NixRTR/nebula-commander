@@ -18,7 +18,13 @@ import sys
 # When calling systemctl, avoid passing PyInstaller lib path (same as ncclient)
 _SYSTEM_LIBRARY_ENV_STRIP = ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LIBPATH")
 
-# Linux paths for idempotent apply/remove
+# Linux paths for idempotent apply/remove.
+# LINUX_DROPIN, LINUX_DNSMASQ_CONF, LINUX_RESOLV_CONF, LINUX_RESOLV_BACKUP, and RESOLV_MARKER
+# are duplicated in contrib/dns-apply-linux.sh, a manual fallback script for when this daemon
+# lacks privilege to self-apply (see _elevation_message() below). That script only covers the
+# systemd-resolved/dnsmasq/resolv.conf backends (not NetworkManager or systemd-networkd), so
+# LINUX_NETWORKD_NETWORK below is NOT mirrored there. contrib/check_dns_paths_sync.py checks
+# the ones that should match stay in sync - update both places if you change a path here.
 LINUX_DROPIN = "/etc/systemd/resolved.conf.d/nebula-dns.conf"
 LINUX_DNSMASQ_CONF = "/etc/dnsmasq.d/nebula-commander.conf"
 LINUX_NETWORKD_NETWORK = "/etc/systemd/network/70-nebula-commander.network"
@@ -26,6 +32,7 @@ LINUX_RESOLV_CONF = "/etc/resolv.conf"
 LINUX_RESOLV_BACKUP = "/etc/resolv.conf.nebula-commander.bak"
 RESOLV_MARKER = "# nebula-commander"
 
+# Mirrored in contrib/dns-apply-windows.ps1 - see contrib/check_dns_paths_sync.py.
 NRPT_RULE_NAME = "NebulaCommander"
 
 
@@ -56,7 +63,11 @@ def _can_apply() -> bool:
 def _elevation_message() -> str:
     if sys.platform == "win32":
         return "Run as Administrator to apply DNS with --accept-dns, or run the contrib script manually: contrib/dns-apply-windows.ps1"
-    return "Run as root to apply DNS with --accept-dns, or run the contrib script manually: contrib/dns-apply-linux.sh"
+    return (
+        "Run as root to apply DNS with --accept-dns, or run the contrib script manually: "
+        "contrib/dns-apply-linux.sh (covers systemd-resolved/dnsmasq/resolv.conf only, "
+        "not NetworkManager or systemd-networkd)"
+    )
 
 
 def apply_split_horizon_dns(config_path: str | None = None, config_dict: dict | None = None) -> bool:
