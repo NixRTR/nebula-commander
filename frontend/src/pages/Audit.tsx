@@ -20,9 +20,6 @@ const ACTION_OPTIONS = [
   'cert_signed',
   'cert_revoked',
   'node_reenrolled',
-  'node_request_created',
-  'node_request_approved',
-  'node_request_rejected',
   'network_created',
   'network_updated',
   'network_deleted',
@@ -41,7 +38,7 @@ const ACTION_OPTIONS = [
   'access_grant_revoked',
 ].filter(Boolean);
 
-const RESOURCE_TYPE_OPTIONS = ['', 'user', 'node', 'network', 'invitation', 'node_request'].filter(Boolean);
+const RESOURCE_TYPE_OPTIONS = ['', 'user', 'node', 'network', 'invitation'].filter(Boolean);
 
 function formatTimestamp(iso: string): string {
   try {

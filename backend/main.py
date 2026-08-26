@@ -22,7 +22,6 @@ from .api import (
     heartbeat,
     device,
     users,
-    node_requests,
     access_grants,
     invitations,
     network_permissions,
@@ -105,7 +104,6 @@ app.include_router(nodes.router)
 app.include_router(certificates.router)
 app.include_router(device.router)
 app.include_router(users.router)
-app.include_router(node_requests.router)
 app.include_router(access_grants.router)
 app.include_router(invitations.router)
 app.include_router(network_permissions.router)

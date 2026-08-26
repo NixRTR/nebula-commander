@@ -51,9 +51,6 @@ class Network(Base):
     settings: Mapped[Optional["NetworkSettings"]] = relationship(
         "NetworkSettings", back_populates="network", uselist=False, cascade="all, delete-orphan"
     )
-    node_requests: Mapped[list["NodeRequest"]] = relationship(
-        "NodeRequest", back_populates="network", cascade="all, delete-orphan"
-    )
 
 
 class NetworkGroupFirewall(Base):
@@ -145,9 +142,6 @@ class User(Base):
     )
     node_permissions: Mapped[list["NodePermission"]] = relationship(
         "NodePermission", back_populates="user", foreign_keys="NodePermission.user_id"
-    )
-    node_requests: Mapped[list["NodeRequest"]] = relationship(
-        "NodeRequest", back_populates="requested_by_user", foreign_keys="NodeRequest.requested_by_user_id"
     )
     granted_access: Mapped[list["AccessGrant"]] = relationship(
         "AccessGrant", back_populates="admin_user", foreign_keys="AccessGrant.admin_user_id"
@@ -241,31 +235,6 @@ class NodePermission(Base):
     __table_args__ = (
         UniqueConstraint("user_id", "node_id", name="uq_node_permission_user_node"),
     )
-
-
-class NodeRequest(Base):
-    """Node creation request from a user."""
-
-    __tablename__ = "node_requests"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    network_id: Mapped[int] = mapped_column(ForeignKey("networks.id"), nullable=False)
-    requested_by_user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
-    hostname: Mapped[str] = mapped_column(String(255), nullable=False)
-    groups: Mapped[Optional[list]] = mapped_column(JSON, default=list)
-    is_lighthouse: Mapped[bool] = mapped_column(Boolean, default=False)
-    is_relay: Mapped[bool] = mapped_column(Boolean, default=False)
-    status: Mapped[str] = mapped_column(String(32), default="pending")  # pending, approved, rejected
-    approved_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    rejection_reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    created_node_id: Mapped[Optional[int]] = mapped_column(ForeignKey("nodes.id"), nullable=True)
-
-    network: Mapped["Network"] = relationship("Network", back_populates="node_requests")
-    requested_by_user: Mapped["User"] = relationship("User", back_populates="node_requests", foreign_keys=[requested_by_user_id])
-    approved_by_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[approved_by_user_id])
-    created_node: Mapped[Optional["Node"]] = relationship("Node", foreign_keys=[created_node_id])
 
 
 class AccessGrant(Base):

@@ -196,30 +196,10 @@ def _run_sqlite_migrations() -> None:
             """)
             logger.info("Migration: created table node_permissions")
         
-        # Create node_requests table
-        cur.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='node_requests'"
-        )
-        if cur.fetchone() is None:
-            cur.execute("""
-                CREATE TABLE node_requests (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    network_id INTEGER NOT NULL REFERENCES networks(id),
-                    requested_by_user_id INTEGER NOT NULL REFERENCES users(id),
-                    hostname VARCHAR(255) NOT NULL,
-                    groups TEXT,
-                    is_lighthouse BOOLEAN DEFAULT 0,
-                    is_relay BOOLEAN DEFAULT 0,
-                    status VARCHAR(32) DEFAULT 'pending',
-                    approved_by_user_id INTEGER REFERENCES users(id),
-                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                    processed_at DATETIME,
-                    rejection_reason TEXT,
-                    created_node_id INTEGER REFERENCES nodes(id)
-                )
-            """)
-            logger.info("Migration: created table node_requests")
-        
+        # node_requests: removed (workflow was never functional - see backend/api/node_requests.py
+        # deletion). Drop the table on any DB that has it from an earlier version.
+        cur.execute("DROP TABLE IF EXISTS node_requests")
+
         # Create access_grants table
         cur.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='access_grants'"
