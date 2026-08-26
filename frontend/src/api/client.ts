@@ -12,15 +12,6 @@ const TOKEN_KEY = "token"; // Changed to match AuthContext
 
 let tokenRefreshTimer: number | null = null;
 
-function getAuthHeaders(): HeadersInit {
-  const token = localStorage.getItem(TOKEN_KEY);
-  const headers: HeadersInit = { "Content-Type": "application/json" };
-  if (token) {
-    (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
-  }
-  return headers;
-}
-
 /**
  * Decode JWT token to extract expiration time.
  * Returns null if token is invalid or cannot be decoded.
@@ -161,28 +152,36 @@ apiClient.interceptors.response.use(
   }
 );
 
+/** Extract the backend's `{ detail }` error message, falling back to the axios error message. */
+function axiosErrorMessage(error: unknown): string {
+  if (axios.isAxiosError(error)) {
+    const detail = (error.response?.data as { detail?: string } | undefined)?.detail;
+    return detail || error.message;
+  }
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Typed JSON request through the shared apiClient (axios), so every call gets the same
+ * auth-header injection and 401-retry-via-dev-token behavior from the interceptors above.
+ * Signature/behavior matches the previous fetch-based implementation so callers (including
+ * api/dns.ts) don't need to change.
+ */
 export async function apiFetch<T>(
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  let res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: { ...getAuthHeaders(), ...options.headers },
-  });
-  if (res.status === 401 && !localStorage.getItem(TOKEN_KEY)) {
-    const got = await tryDevToken();
-    if (got) {
-      res = await fetch(`${API_BASE}${path}`, {
-        ...options,
-        headers: { ...getAuthHeaders(), ...options.headers },
-      });
-    }
+  try {
+    const res = await apiClient.request<T>({
+      url: path,
+      method: (options.method as string | undefined) || "GET",
+      data: options.body,
+      headers: options.body ? { "Content-Type": "application/json" } : undefined,
+    });
+    return res.data;
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
   }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error((err as { detail?: string }).detail || res.statusText);
-  }
-  return res.json() as Promise<T>;
 }
 
 export async function listNetworks() {
@@ -226,29 +225,12 @@ export async function deleteNetwork(
   reauthToken: string,
   confirmation: string
 ): Promise<void> {
-  const res = await fetch(`${API_BASE}/networks/${id}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(),
-    body: JSON.stringify({ reauth_token: reauthToken, confirmation }),
-  });
-  if (res.status === 401 && !localStorage.getItem(TOKEN_KEY)) {
-    const got = await tryDevToken();
-    if (got) {
-      const retry = await fetch(`${API_BASE}/networks/${id}`, {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-        body: JSON.stringify({ reauth_token: reauthToken, confirmation }),
-      });
-      if (!retry.ok && retry.status !== 204) {
-        const err = await retry.json().catch(() => ({ detail: retry.statusText }));
-        throw new Error((err as { detail?: string }).detail || retry.statusText);
-      }
-      return;
-    }
-  }
-  if (!res.ok && res.status !== 204) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error((err as { detail?: string }).detail || res.statusText);
+  try {
+    await apiClient.delete(`/networks/${id}`, {
+      data: { reauth_token: reauthToken, confirmation },
+    });
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
   }
 }
 
@@ -272,27 +254,10 @@ export async function updateGroupFirewall(
 
 export async function deleteGroupFirewall(networkId: number, groupName: string): Promise<void> {
   const encoded = encodeURIComponent(groupName);
-  const res = await fetch(`${API_BASE}/networks/${networkId}/group-firewall/${encoded}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(),
-  });
-  if (res.status === 401 && !localStorage.getItem(TOKEN_KEY)) {
-    const got = await tryDevToken();
-    if (got) {
-      const retry = await fetch(`${API_BASE}/networks/${networkId}/group-firewall/${encoded}`, {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-      });
-      if (!retry.ok) {
-        const err = await retry.json().catch(() => ({ detail: retry.statusText }));
-        throw new Error((err as { detail?: string }).detail || retry.statusText);
-      }
-      return;
-    }
-  }
-  if (!res.ok && res.status !== 204) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error((err as { detail?: string }).detail || res.statusText);
+  try {
+    await apiClient.delete(`/networks/${networkId}/group-firewall/${encoded}`);
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
   }
 }
 
@@ -337,27 +302,10 @@ export async function updateNode(id: number, data: NodeUpdateData) {
 }
 
 export async function deleteNode(nodeId: number): Promise<void> {
-  const res = await fetch(`${API_BASE}/nodes/${nodeId}`, {
-    method: "DELETE",
-    headers: getAuthHeaders(),
-  });
-  if (res.status === 401 && !localStorage.getItem(TOKEN_KEY)) {
-    const got = await tryDevToken();
-    if (got) {
-      const retry = await fetch(`${API_BASE}/nodes/${nodeId}`, {
-        method: "DELETE",
-        headers: getAuthHeaders(),
-      });
-      if (!retry.ok) {
-        const err = await retry.json().catch(() => ({ detail: retry.statusText }));
-        throw new Error((err as { detail?: string }).detail || retry.statusText);
-      }
-      return;
-    }
-  }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error((err as { detail?: string }).detail || res.statusText);
+  try {
+    await apiClient.delete(`/nodes/${nodeId}`);
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
   }
 }
 
@@ -375,20 +323,15 @@ export async function reenrollNode(nodeId: number): Promise<{ ok: boolean; node_
 
 /** Fetch a binary endpoint with auth; returns blob. Throws on error. */
 async function apiFetchBlob(path: string): Promise<Blob> {
-  let res = await fetch(`${API_BASE}${path}`, {
-    headers: getAuthHeaders(),
-  });
-  if (res.status === 401 && !localStorage.getItem(TOKEN_KEY)) {
-    const got = await tryDevToken();
-    if (got) {
-      res = await fetch(`${API_BASE}${path}`, { headers: getAuthHeaders() });
-    }
+  try {
+    const res = await apiClient.get<Blob>(path, { responseType: "blob" });
+    return res.data;
+  } catch (error) {
+    // Error responses come back as a Blob too (responseType: "blob"), not JSON - the
+    // {detail} extraction in axiosErrorMessage() only works for parsed JSON bodies, so
+    // errors here fall back to axios's generic status-code message.
+    throw new Error(axiosErrorMessage(error));
   }
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error((err as { detail?: string }).detail || res.statusText);
-  }
-  return res.blob();
 }
 
 export async function getNodeConfigBlob(nodeId: number): Promise<Blob> {
