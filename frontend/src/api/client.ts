@@ -295,7 +295,7 @@ export type NodeUpdateData = {
 };
 
 export async function updateNode(id: number, data: NodeUpdateData) {
-  return apiFetch<{ ok: boolean }>(`/nodes/${id}`, {
+  return apiFetch<{ ok: boolean; cert_resigned?: boolean }>(`/nodes/${id}`, {
     method: "PATCH",
     body: JSON.stringify(data),
   });

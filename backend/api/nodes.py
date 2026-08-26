@@ -369,6 +369,26 @@ async def update_node(
             "new": node.punchy_options,
         }
 
+    # A group change alters what's baked into the signed certificate (nebula-cert sign
+    # -groups), so re-sign it now rather than leaving the DB and the cert out of sync
+    # until someone thinks to re-enroll. Keeps the existing IP and keypair - the running
+    # device picks up the new cert on its next config poll, no re-enrollment needed.
+    cert_resigned = False
+    if "groups" in changed:
+        if node.public_key and node.ip_address:
+            net_result = await session.execute(select(Network).where(Network.id == node.network_id))
+            network = net_result.scalar_one_or_none()
+            if not network:
+                raise HTTPException(status_code=404, detail="Network not found")
+            cert_manager = CertManager(session)
+            try:
+                await cert_manager.resign_host_certificate(node, network)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=str(e)) from e
+            cert_resigned = True
+        # else: node has no certificate yet - nothing to resign. The new group will be
+        # used whenever a certificate is first issued for it.
+
     if changed:
         user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
         db_user = user_result.scalar_one_or_none()
@@ -382,8 +402,19 @@ async def update_node(
             client_ip=get_client_ip(request),
             details={"changed": changed},
         )
+        if cert_resigned:
+            await log_audit(
+                session,
+                "node_cert_resigned",
+                resource_type="node",
+                resource_id=node_id,
+                actor_user_id=db_user.id if db_user else None,
+                actor_identifier=user.email or user.sub,
+                client_ip=get_client_ip(request),
+                details={"reason": "group_changed", "new_groups": new_groups},
+            )
 
-    return {"ok": True}
+    return {"ok": True, "cert_resigned": cert_resigned}
 
 
 @router.delete("/{node_id}", status_code=status.HTTP_204_NO_CONTENT)

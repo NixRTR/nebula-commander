@@ -81,7 +81,8 @@ export function Nodes() {
     isEditing: boolean;
     showSaved: boolean;
     savedFading: boolean;
-  }>({ node: null, isEditing: false, showSaved: false, savedFading: false });
+    certResigned: boolean;
+  }>({ node: null, isEditing: false, showSaved: false, savedFading: false, certResigned: false });
   const [deviceDetailsForm, setDeviceDetailsForm] = useState<{
     group: string;
     is_lighthouse: boolean;
@@ -338,10 +339,10 @@ export function Nodes() {
 
   const toggleDeviceDetails = (node: Node) => {
     if (deviceDetailsModal.node?.id === node.id) {
-      setDeviceDetailsModal({ node: null, isEditing: false, showSaved: false, savedFading: false });
+      setDeviceDetailsModal({ node: null, isEditing: false, showSaved: false, savedFading: false, certResigned: false });
       return;
     }
-    setDeviceDetailsModal({ node, isEditing: false, showSaved: false, savedFading: false });
+    setDeviceDetailsModal({ node, isEditing: false, showSaved: false, savedFading: false, certResigned: false });
     const opts = node.lighthouse_options;
     const logOpts = node.logging_options;
     setDeviceDetailsForm({
@@ -362,7 +363,7 @@ export function Nodes() {
   };
 
   const closeDeviceDetailsModal = () => {
-    setDeviceDetailsModal({ node: null, isEditing: false, showSaved: false, savedFading: false });
+    setDeviceDetailsModal({ node: null, isEditing: false, showSaved: false, savedFading: false, certResigned: false });
   };
 
   const hasDeviceDetailsFormChanges = (): boolean => {
@@ -426,12 +427,12 @@ export function Nodes() {
       logging_options,
       punchy_options,
     })
-      .then(() => {
-        setDeviceDetailsModal((s) => ({ ...s, showSaved: true, savedFading: false }));
+      .then((result) => {
+        setDeviceDetailsModal((s) => ({ ...s, showSaved: true, savedFading: false, certResigned: !!result.cert_resigned }));
         setTimeout(() => setDeviceDetailsModal((s) => ({ ...s, savedFading: true })), 500);
         setTimeout(() => {
           getNode(node.id).then((updated) => {
-            setDeviceDetailsModal((s) => ({ ...s, node: updated, isEditing: false, showSaved: false, savedFading: false }));
+            setDeviceDetailsModal((s) => ({ ...s, node: updated, isEditing: false, showSaved: false, savedFading: false, certResigned: false }));
             setDeviceDetailsForm({
               group: (updated.groups && updated.groups[0]) ?? "",
               is_lighthouse: updated.is_lighthouse,
@@ -1390,7 +1391,7 @@ export function Nodes() {
                                             }`}
                                           >
                                             <HiCheckCircle className="w-5 h-5" />
-                                            Saved
+                                            {deviceDetailsModal.certResigned ? "Saved (certificate reissued)" : "Saved"}
                                           </span>
                                         ) : (
                                           <Button

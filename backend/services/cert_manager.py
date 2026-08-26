@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -182,6 +182,73 @@ class CertManager:
                 logger.error("Unexpected error reading CA cert from %s: %s", network.ca_cert_path, e)
 
         return ip, cert_pem, private_key_pem, ca_pem, public_key_pem
+
+    async def resign_host_certificate(
+        self,
+        node: Node,
+        network: Network,
+        duration_days: Optional[int] = None,
+    ) -> str:
+        """
+        Re-sign a node's certificate with its current groups, keeping its existing IP
+        and public/private keypair unchanged (e.g. after a group edit). Only the .crt
+        file is overwritten - no re-enrollment needed, since the running device picks
+        up the new cert on its next config poll (cert bytes change -> ETag changes ->
+        ncclient rewrites config.yaml and restarts Nebula).
+        Returns the new cert_pem. Raises ValueError if the node has no existing
+        certificate to re-sign (no public key or IP on file).
+        """
+        if not node.public_key or not node.ip_address:
+            raise ValueError("Node has no existing certificate to re-sign")
+
+        await self.ensure_ca(network)
+        duration_days = duration_days or settings.default_cert_expiry_days
+        duration_hours = duration_days * 24
+
+        base = Path(settings.cert_store_path) / str(network.id) / "hosts"
+        base.mkdir(parents=True, exist_ok=True)
+        out_crt = base / f"{node.hostname}.crt"
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".pub", delete=False) as f:
+            f.write(node.public_key)
+            pub_path = Path(f.name)
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                tmp = Path(tmpdir)
+                ca_crt_tmp = tmp / "ca.crt"
+                ca_key_tmp = tmp / "ca.key"
+                out_crt_tmp = tmp / "host.crt"
+                ca_crt_tmp.write_text(read_cert_store_file(Path(network.ca_cert_path)))
+                ca_key_tmp.write_text(read_cert_store_file(Path(network.ca_key_path)))
+                _roots = [Path(settings.cert_store_path), Path(tempfile.gettempdir())]
+                cert_sign(
+                    ca_crt_tmp,
+                    ca_key_tmp,
+                    name=node.hostname,
+                    ip=node.ip_address,
+                    out_crt=out_crt_tmp,
+                    groups=node.groups or [],
+                    duration_hours=duration_hours,
+                    in_pub=pub_path,
+                    subnet_cidr=network.subnet_cidr,
+                    allowed_roots=_roots,
+                )
+                cert_pem = out_crt_tmp.read_text()
+        finally:
+            pub_path.unlink(missing_ok=True)
+
+        write_cert_store_file(out_crt, cert_pem)
+
+        await self.session.execute(
+            update(Certificate)
+            .where(Certificate.node_id == node.id, Certificate.revoked_at.is_(None))
+            .values(revoked_at=datetime.utcnow())
+        )
+        expires_at = datetime.utcnow() + timedelta(days=duration_days)
+        self.session.add(Certificate(node_id=node.id, expires_at=expires_at))
+        await self.session.flush()
+
+        return cert_pem
 
     async def create_host_certificate_for_existing_node(
         self,

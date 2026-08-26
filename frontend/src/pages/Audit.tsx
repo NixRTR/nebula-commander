@@ -20,6 +20,7 @@ const ACTION_OPTIONS = [
   'cert_signed',
   'cert_revoked',
   'node_reenrolled',
+  'node_cert_resigned',
   'network_created',
   'network_updated',
   'network_deleted',
