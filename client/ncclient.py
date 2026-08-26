@@ -103,10 +103,11 @@ def cmd_enroll(server: str, code: str) -> None:
         sys.exit(1)
     data = r.json()
     token = data["device_token"]
+    node_id = data.get("node_id")
     from client.token_store import set_token
     from client.config import load_settings, save_settings
     set_token(token)
-    save_settings({**load_settings(), "server": base})
+    save_settings({**load_settings(), "server": base, "node_id": node_id})
     print("Enrolled. Token saved.")
     print("Run: ncclient run")
 
@@ -523,6 +524,24 @@ def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
     print("Done. Edit /etc/default/ncclient to change settings.")
 
 
+def _send_heartbeat(
+    base: str,
+    token: str,
+    node_id: int,
+    debug_log: Callable[[str], None] | None = None,
+) -> None:
+    """Best-effort liveness ping. Failures are logged (if a debug sink is provided) and ignored."""
+    try:
+        requests.post(
+            f"{base}/api/nodes/{node_id}/heartbeat",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+    except requests.RequestException as e:
+        if debug_log:
+            debug_log(f"heartbeat failed: {e}")
+
+
 def run_poll_loop(
     server: str,
     output_dir: str,
@@ -543,6 +562,7 @@ def run_poll_loop(
     DNS-related debug messages for troubleshooting.
     """
     from client.token_store import get_token
+    from client.config import load_settings
     from client.dns_apply import apply_split_horizon_dns, remove_split_horizon_dns
 
     base = _server_url(server)
@@ -554,6 +574,9 @@ def run_poll_loop(
             print("Token not found. Run 'ncclient enroll' first.", file=sys.stderr)
             sys.exit(1)
         return
+    node_id = load_settings().get("node_id")
+    if not node_id and dns_debug_log:
+        dns_debug_log("no node_id in settings (enrolled before heartbeat support); skipping heartbeat until re-enroll")
     url = f"{base}/api/device/config"
     dns_url = f"{base}/api/device/dns-client-config"
     output_dir = os.path.expanduser(output_dir)
@@ -595,6 +618,8 @@ def run_poll_loop(
                         return
                     print("Token invalid or expired. Re-enroll with a new code.", file=sys.stderr)
                     sys.exit(1)
+                if r.ok and node_id:
+                    _send_heartbeat(base, token, node_id, dns_debug_log)
                 if r.status_code == 304:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
                         nebula_proc = _start_nebula(nebula_bin, output_dir)
