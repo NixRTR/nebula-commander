@@ -52,6 +52,11 @@ ncclient = "client.ncclient:main"
 packages = ["client", "client.windows"]
 
 [tool.setuptools_scm]
+# pyproject.toml lives in client/, but the git repo (and its tags) is one level up -
+# without `root`, setuptools_scm can't find .git from here and silently falls back to
+# fallback_version below, which is why PyPI publishing has been failing with
+# "400 File already exists" (re-uploading the same fallback version on every tag push).
+root = ".."
 # Version from git tag (e.g. v0.1.5 -> 0.1.5); fallback when no git
 version_scheme = "guess-next-dev"
 local_scheme = "no-local-version"
