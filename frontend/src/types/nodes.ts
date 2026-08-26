@@ -21,7 +21,6 @@ export interface Node {
   network_id: number;
   hostname: string;
   ip_address: string | null;
-  cert_fingerprint: string | null;
   groups: string[];
   is_lighthouse: boolean;
   is_relay: boolean;

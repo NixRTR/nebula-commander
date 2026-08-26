@@ -16,7 +16,7 @@ from ..auth.oidc import require_user, UserInfo
 from ..auth.permissions import get_user_nodes
 from ..config import settings
 from ..database import get_session
-from ..models import Certificate, EnrollmentCode, Network, NetworkConfig, Node, User
+from ..models import Certificate, EnrollmentCode, Network, Node, User
 from ..services.audit import get_client_ip, log_audit
 from ..services.cert_store import read_cert_store_file
 from ..services.config_generator import generate_config_for_node
@@ -45,7 +45,6 @@ class NodeResponse(BaseModel):
     network_id: int
     hostname: str
     ip_address: Optional[str] = None
-    cert_fingerprint: Optional[str] = None
     groups: list = []
     is_lighthouse: bool = False
     is_relay: bool = False
@@ -97,7 +96,6 @@ async def list_nodes(
             network_id=n.network_id,
             hostname=n.hostname,
             ip_address=n.ip_address,
-            cert_fingerprint=n.cert_fingerprint,
             groups=n.groups or [],
             is_lighthouse=n.is_lighthouse,
             is_relay=n.is_relay,
@@ -253,7 +251,6 @@ async def get_node(
         network_id=node.network_id,
         hostname=node.hostname,
         ip_address=node.ip_address,
-        cert_fingerprint=node.cert_fingerprint,
         groups=node.groups or [],
         is_lighthouse=node.is_lighthouse,
         is_relay=node.is_relay,
@@ -431,9 +428,8 @@ async def delete_node(
         except OSError:
             pass
 
-    # 3. Delete related records (certificates, network_configs, enrollment_codes)
+    # 3. Delete related records (certificates, enrollment_codes)
     await session.execute(delete(Certificate).where(Certificate.node_id == node_id))
-    await session.execute(delete(NetworkConfig).where(NetworkConfig.node_id == node_id))
     await session.execute(delete(EnrollmentCode).where(EnrollmentCode.node_id == node_id))
 
     # 4. Delete the node
@@ -487,7 +483,6 @@ async def revoke_node_certificate(
 
     node.ip_address = None
     node.public_key = None
-    node.cert_fingerprint = None
     node.status = "revoked"
     await session.flush()
     user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
@@ -535,7 +530,6 @@ async def reenroll_node(
                 pass
         node.ip_address = None
         node.public_key = None
-        node.cert_fingerprint = None
         await session.flush()
 
     # Device is not enrolled until it polls with the new code

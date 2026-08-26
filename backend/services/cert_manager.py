@@ -240,7 +240,6 @@ class CertManager:
 
         node.ip_address = ip
         node.public_key = public_key_pem
-        node.cert_fingerprint = None  # Can be set when device first polls
         node.status = "active"
         await self.session.flush()
 
@@ -248,7 +247,6 @@ class CertManager:
         cert_record = Certificate(
             node_id=node.id,
             expires_at=expires_at,
-            cert_path=None,
         )
         self.session.add(cert_record)
         await self.session.flush()

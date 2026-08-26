@@ -30,10 +30,6 @@ class Network(Base):
     subnet_cidr: Mapped[str] = mapped_column(String(64), nullable=False)
     ca_cert_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     ca_key_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
-    firewall_outbound_action: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # drop | reject
-    firewall_inbound_action: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
-    firewall_outbound_rules: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
-    firewall_inbound_rules: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     nodes: Mapped[list["Node"]] = relationship(
@@ -81,7 +77,6 @@ class Node(Base):
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     ip_address: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
     public_key: Mapped[Optional[str]] = mapped_column(EncryptedText(), nullable=True)
-    cert_fingerprint: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     groups: Mapped[Optional[list]] = mapped_column(JSON, default=list)  # ["group1", "group2"]
     is_lighthouse: Mapped[bool] = mapped_column(Boolean, default=False)
     is_relay: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -98,9 +93,6 @@ class Node(Base):
     network: Mapped["Network"] = relationship("Network", back_populates="nodes")
     certificates: Mapped[list["Certificate"]] = relationship(
         "Certificate", back_populates="node", cascade="all, delete-orphan"
-    )
-    configs: Mapped[list["NetworkConfig"]] = relationship(
-        "NetworkConfig", back_populates="node", cascade="all, delete-orphan"
     )
     enrollment_codes: Mapped[list["EnrollmentCode"]] = relationship(
         "EnrollmentCode", back_populates="node", cascade="all, delete-orphan"
@@ -120,7 +112,6 @@ class Certificate(Base):
     issued_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-    cert_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
     node: Mapped["Node"] = relationship("Node", back_populates="certificates")
 
@@ -133,7 +124,6 @@ class User(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     oidc_sub: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-    role: Mapped[str] = mapped_column(String(64), default="user")  # admin, user, viewer (legacy)
     system_role: Mapped[str] = mapped_column(String(64), default="user")  # system-admin or user; network ownership is per-network
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
@@ -146,20 +136,6 @@ class User(Base):
     granted_access: Mapped[list["AccessGrant"]] = relationship(
         "AccessGrant", back_populates="admin_user", foreign_keys="AccessGrant.admin_user_id"
     )
-
-
-class NetworkConfig(Base):
-    """Generated Nebula config for a node."""
-
-    __tablename__ = "network_configs"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    node_id: Mapped[int] = mapped_column(ForeignKey("nodes.id"), nullable=False)
-    config_yaml: Mapped[str] = mapped_column(EncryptedText(), nullable=False)
-    version: Mapped[int] = mapped_column(Integer, default=1)
-    deployed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
-
-    node: Mapped["Node"] = relationship("Node", back_populates="configs")
 
 
 class EnrollmentCode(Base):

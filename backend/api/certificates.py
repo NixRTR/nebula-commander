@@ -134,7 +134,6 @@ async def sign_certificate(
     cert_record = Certificate(
         node_id=node.id,
         expires_at=expires_at,
-        cert_path=None,
     )
     session.add(cert_record)
     await session.flush()
@@ -257,7 +256,6 @@ async def create_certificate(
     cert_record = Certificate(
         node_id=node.id,
         expires_at=expires_at,
-        cert_path=None,
     )
     session.add(cert_record)
     await session.flush()

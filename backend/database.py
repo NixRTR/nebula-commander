@@ -103,17 +103,6 @@ def _run_sqlite_migrations() -> None:
             if col not in node_columns:
                 cur.execute(sql)
                 logger.info("Migration: added column nodes.%s", col)
-        cur.execute("PRAGMA table_info(networks)")
-        net_columns = {row[1] for row in cur.fetchall()}
-        for col, sql in [
-            ("firewall_outbound_action", "ALTER TABLE networks ADD COLUMN firewall_outbound_action VARCHAR(32)"),
-            ("firewall_inbound_action", "ALTER TABLE networks ADD COLUMN firewall_inbound_action VARCHAR(32)"),
-            ("firewall_outbound_rules", "ALTER TABLE networks ADD COLUMN firewall_outbound_rules TEXT"),
-            ("firewall_inbound_rules", "ALTER TABLE networks ADD COLUMN firewall_inbound_rules TEXT"),
-        ]:
-            if col not in net_columns:
-                cur.execute(sql)
-                logger.info("Migration: added column networks.%s", col)
         cur.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='network_group_firewall'"
         )
@@ -199,6 +188,10 @@ def _run_sqlite_migrations() -> None:
         # node_requests: removed (workflow was never functional - see backend/api/node_requests.py
         # deletion). Drop the table on any DB that has it from an earlier version.
         cur.execute("DROP TABLE IF EXISTS node_requests")
+
+        # network_configs: removed (config was always generated on the fly; this table was
+        # never inserted into, only ever deleted from on node deletion). Drop on upgrade.
+        cur.execute("DROP TABLE IF EXISTS network_configs")
 
         # Create access_grants table
         cur.execute(
