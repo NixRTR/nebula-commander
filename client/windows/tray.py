@@ -7,7 +7,6 @@ Terminal output: use --console, -v, or --verbose to print log messages to stderr
 Alternatively: set NCCLIENT_TRAY_VERBOSE=1, or run from a console (stdout is a TTY).
 """
 import atexit
-import json
 import os
 import queue
 import shutil
@@ -16,7 +15,6 @@ import sys
 import threading
 import tkinter as tk
 import webbrowser
-import zipfile
 from tkinter import filedialog, messagebox
 
 _console_flags = {"--console", "--verbose", "-v"}
@@ -60,6 +58,14 @@ from client.ncclient import (
     _default_output_dir,
     is_process_elevated,
     get_elevation_debug_info,
+)
+from client.nebula_download import (
+    NEBULA_VERSION_DEFAULT,
+    NEBULA_RELEASES_URL,
+    download_nebula_to_dir as _download_nebula_to_dir_base,
+    get_nebula_version as _get_nebula_version_base,
+    fetch_latest_nebula_tag as _fetch_latest_nebula_tag_base,
+    is_newer_version,
 )
 from client.token_store import get_token
 from client.windows import autostart
@@ -110,61 +116,12 @@ def _resolve_nebula_bin(path: str | None) -> str | None:
     return shutil.which(path)
 
 
-NEBULA_VERSION_DEFAULT = "v1.10.2"
-NEBULA_URL_TEMPLATE = "https://github.com/slackhq/nebula/releases/download/{version}/nebula-windows-amd64.zip"
-NEBULA_RELEASES_URL = "https://github.com/slackhq/nebula/releases"
-NEBULA_API_LATEST = "https://api.github.com/repos/slackhq/nebula/releases/latest"
-
+# Nebula download/version-check logic lives in client/nebula_download.py, shared with
+# windows/build.py's build-time bundling. These are thin wrappers that plug in tray's
+# own verbosity-gated logger.
 
 def _download_nebula_to_dir(version: str, dest_dir: str) -> tuple[bool, str | None, str]:
-    """
-    Download Nebula Windows binary and extract nebula.exe into dest_dir.
-    Returns (success, path_to_exe or None, error_message).
-    """
-    import tempfile
-    import traceback
-    import urllib.request
-    url = NEBULA_URL_TEMPLATE.format(version=version)
-    exe_path = os.path.join(dest_dir, "nebula.exe")
-    os.makedirs(dest_dir, exist_ok=True)
-    zip_path = os.path.join(tempfile.gettempdir(), "nebula-windows-amd64.zip")
-    _log(f"Download Nebula: version={version}, url={url}, dest_dir={dest_dir}")
-    try:
-        _log("Download Nebula: requesting URL...")
-        urllib.request.urlretrieve(url, zip_path)
-        _log(f"Download Nebula: saved to {zip_path}, size={os.path.getsize(zip_path)}")
-    except Exception as e:
-        err_msg = f"{type(e).__name__}: {e}"
-        _log(f"Download Nebula failed: {err_msg}")
-        if VERBOSE:
-            traceback.print_exc()
-        return False, None, err_msg
-    try:
-        _log("Download Nebula: opening zip...")
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            names = zf.namelist()
-            _log(f"Download Nebula: archive entries: {names}")
-            for name in names:
-                if name.endswith("nebula.exe"):
-                    with zf.open(name) as src:
-                        with open(exe_path, "wb") as dst:
-                            dst.write(src.read())
-                    _log(f"Download Nebula: extracted to {exe_path}")
-                    return True, exe_path, ""
-            _log("Download Nebula: nebula.exe not found in archive")
-            return False, None, "nebula.exe not found in archive"
-    except Exception as e:
-        err_msg = f"{type(e).__name__}: {e}"
-        _log(f"Download Nebula extract failed: {err_msg}")
-        if VERBOSE:
-            traceback.print_exc()
-        return False, None, err_msg
-    finally:
-        try:
-            os.remove(zip_path)
-            _log("Download Nebula: removed temp zip")
-        except OSError as e:
-            _log(f"Download Nebula: could not remove temp zip: {e}")
+    return _download_nebula_to_dir_base(version, dest_dir, log=_log)
 
 
 def _download_nebula_to_config(version: str) -> tuple[bool, str | None, str]:
@@ -176,58 +133,11 @@ def _download_nebula_to_config(version: str) -> tuple[bool, str | None, str]:
 
 
 def _get_nebula_version(nebula_bin: str) -> str | None:
-    """Run nebula -version (or --version) and parse version string. Returns e.g. '1.10.2' or None."""
-    import re
-    import subprocess
-    for flag in ("-version", "--version"):
-        try:
-            out = subprocess.run(
-                [nebula_bin, flag],
-                capture_output=True,
-                text=True,
-                timeout=10,
-            )
-            text = (out.stdout or "") + (out.stderr or "")
-            m = re.search(r"v?(\d+\.\d+\.\d+)", text)
-            if m:
-                return m.group(1)
-        except Exception as e:
-            _log(f"nebula {flag} failed: {e}")
-    return None
+    return _get_nebula_version_base(nebula_bin, log=_log)
 
 
 def _fetch_latest_nebula_tag() -> str | None:
-    """Fetch latest release tag from GitHub API. Returns e.g. 'v1.10.3' or None."""
-    import urllib.request
-    try:
-        req = urllib.request.Request(
-            NEBULA_API_LATEST,
-            headers={"Accept": "application/json"},
-        )
-        with urllib.request.urlopen(req, timeout=15) as resp:
-            data = json.loads(resp.read().decode())
-        tag = data.get("tag_name")
-        return tag if isinstance(tag, str) and tag else None
-    except Exception as e:
-        _log(f"Fetch latest Nebula tag failed: {e}")
-        return None
-
-
-def _parse_version_tuple(version_str: str) -> tuple[int, int, int]:
-    """Parse 'v1.10.2' or '1.10.2' to (1, 10, 2). Missing parts become 0."""
-    import re
-    m = re.search(r"v?(\d+)\.?(\d*)\.?(\d*)", (version_str or "").strip())
-    if not m:
-        return (0, 0, 0)
-    a, b, c = m.group(1), m.group(2) or "0", m.group(3) or "0"
-    return (int(a), int(b), int(c))
-
-
-def _is_newer_version(local_version: str, latest_tag: str) -> bool:
-    """True if latest_tag is newer than local_version (e.g. '1.10.2' vs 'v1.10.3')."""
-    local_t = _parse_version_tuple(local_version)
-    latest_t = _parse_version_tuple(latest_tag)
-    return latest_t > local_t
+    return _fetch_latest_nebula_tag_base(log=_log)
 
 
 def _add_dir_to_user_path(dir_path: str) -> bool:
@@ -519,7 +429,7 @@ def main() -> None:
 
         local_ver = _get_nebula_version(nebula_bin)
         latest_tag = _fetch_latest_nebula_tag()
-        if latest_tag and local_ver and _is_newer_version(local_ver, latest_tag):
+        if latest_tag and local_ver and is_newer_version(local_ver, latest_tag):
             upgrade = messagebox.askyesno(
                 "Upgrade Nebula",
                 f"A newer Nebula version ({latest_tag}) is available. Upgrade?",

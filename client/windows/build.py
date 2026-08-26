@@ -14,48 +14,22 @@ import os
 import shutil
 import subprocess
 import sys
-import zipfile
-
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
-NEBULA_VERSION_DEFAULT = "v1.10.2"
-NEBULA_URL_TEMPLATE = "https://github.com/slackhq/nebula/releases/download/{version}/nebula-windows-amd64.zip"
+sys.path.insert(0, REPO_ROOT)
+from client.nebula_download import NEBULA_VERSION_DEFAULT, download_nebula_to_dir  # noqa: E402
+
 NEBULA_DIR = os.path.join(SCRIPT_DIR, "nebula")
 NEBULA_EXE = os.path.join(NEBULA_DIR, "nebula.exe")
 
 
 def download_nebula(version: str) -> bool:
-    url = NEBULA_URL_TEMPLATE.format(version=version)
-    zip_path = os.path.join(SCRIPT_DIR, "nebula-windows-amd64.zip")
-    print(f"Downloading {url} ...")
-    try:
-        import urllib.request
-        urllib.request.urlretrieve(url, zip_path)
-    except Exception as e:
-        print(f"Download failed: {e}", file=sys.stderr)
+    ok, exe_path, err = download_nebula_to_dir(version, NEBULA_DIR, log=print)
+    if not ok:
+        print(f"Download failed: {err}", file=sys.stderr)
         return False
-    os.makedirs(NEBULA_DIR, exist_ok=True)
-    try:
-        with zipfile.ZipFile(zip_path, "r") as zf:
-            found = False
-            for name in zf.namelist():
-                if name.endswith("nebula.exe"):
-                    os.makedirs(NEBULA_DIR, exist_ok=True)
-                    with zf.open(name) as src:
-                        with open(NEBULA_EXE, "wb") as dst:
-                            dst.write(src.read())
-                    found = True
-                    break
-            if not found:
-                print("nebula.exe not found in archive", file=sys.stderr)
-                return False
-    finally:
-        try:
-            os.remove(zip_path)
-        except OSError:
-            pass
-    print(f"Extracted {NEBULA_EXE}")
+    print(f"Extracted {exe_path}")
     return True
 
 
