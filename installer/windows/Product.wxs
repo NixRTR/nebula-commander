@@ -132,7 +132,7 @@
                   Return="ignore" />
 
     <InstallExecuteSequence>
-      <Custom Action="GrantServiceControlAcl" After="StartServices">NOT Installed</Custom>
+      <Custom Action="GrantServiceControlAcl" After="StartServices" Condition="NOT Installed" />
     </InstallExecuteSequence>
 
     <DirectoryRef Id="INSTALLDIR">
