@@ -10,7 +10,13 @@ __all__ = ["config_dir", "settings_path", "load_settings", "save_settings"]
 
 
 def config_dir() -> str:
-    """Base directory for settings and other config (e.g. nebula downloads)."""
+    """Base directory for settings and other config (e.g. nebula downloads).
+    NEBULA_COMMANDER_CONFIG_DIR overrides this when set - used by the Windows
+    service/tray (see client/windows/shared_paths.py) to share a machine-wide
+    %ProgramData% location instead of the per-user default below."""
+    override = os.environ.get("NEBULA_COMMANDER_CONFIG_DIR", "").strip()
+    if override:
+        return override
     if sys.platform == "win32":
         appdata = os.environ.get("APPDATA", os.path.expanduser("~"))
         return os.path.join(appdata, "nebula-commander")

@@ -139,9 +139,11 @@ jobs:
           path: artifacts/${{ matrix.asset_name }}
           if-no-files-found: error
 
-  # Build Windows tray app with bundled Nebula
+  # Build Windows tray app (unelevated control UI) and service exe (the
+  # NebulaCommanderService that actually runs as LocalSystem), with bundled Nebula
+  # in the tray build.
   build-windows-tray:
-    name: Build Windows Tray App
+    name: Build Windows Tray + Service
     runs-on: windows-latest
     needs: build  # Wait for CLI build to complete
     permissions:
@@ -149,44 +151,53 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-      
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           architecture: x64
-      
+
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r client/requirements.txt
           pip install -r client/windows/requirements.txt
           pip install pyinstaller
-      
-      - name: Build tray app
+
+      - name: Build tray app and service exe
         working-directory: client/windows
-        run: python build.py
-      
-      - name: Prepare artifact
+        run: python build.py --target both
+
+      - name: Prepare artifacts
         shell: bash
         run: |
           mkdir -p artifacts
           cp client/windows/dist/ncclient-tray.exe artifacts/ncclient-tray-windows-amd64.exe
-      
+          cp client/windows/dist/ncclient-service.exe artifacts/ncclient-service-windows-amd64.exe
+
       - name: Display file info
         shell: bash
         run: |
           ls -lh artifacts/
           file artifacts/ncclient-tray-windows-amd64.exe || true
-      
-      - name: Upload artifact
+          file artifacts/ncclient-service-windows-amd64.exe || true
+
+      - name: Upload tray artifact
         uses: actions/upload-artifact@v4
         with:
           name: ncclient-tray-windows-amd64.exe
           path: artifacts/ncclient-tray-windows-amd64.exe
           if-no-files-found: error
 
-  # Build Windows MSI installer (ncclient + ncclient-tray)
+      - name: Upload service artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ncclient-service-windows-amd64.exe
+          path: artifacts/ncclient-service-windows-amd64.exe
+          if-no-files-found: error
+
+  # Build Windows MSI installer (ncclient + ncclient-tray + ncclient-service)
   build-msi:
     name: Build Windows MSI
     runs-on: windows-latest
@@ -206,6 +217,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path installer\windows\redist
           Copy-Item "artifacts-in\ncclient-windows-amd64.exe\ncclient-windows-amd64.exe" "installer\windows\redist\ncclient.exe"
           Copy-Item "artifacts-in\ncclient-tray-windows-amd64.exe\ncclient-tray-windows-amd64.exe" "installer\windows\redist\ncclient-tray.exe"
+          Copy-Item "artifacts-in\ncclient-service-windows-amd64.exe\ncclient-service-windows-amd64.exe" "installer\windows\redist\ncclient-service.exe"
 
       - name: Install WiX 5
         run: dotnet tool install --global wix --version 5.0.2

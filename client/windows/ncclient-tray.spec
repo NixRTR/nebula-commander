@@ -29,10 +29,15 @@ a = Analysis(
     hiddenimports=[
         'client',
         'client.ncclient',
+        'client.config',
+        'client.token_store',
+        'client.nebula_download',
         'client.windows',
         'client.windows.dialogs',
         'client.windows.icons',
         'client.windows.autostart',
+        'client.windows.shared_paths',
+        'client.windows.pipe_protocol',
         'pystray',
         'PIL',
         'PIL._tkinter_finder',
@@ -42,6 +47,15 @@ a = Analysis(
         'charset_normalizer',
         'certifi',
         'idna',
+        # Needed for named-pipe control-channel client calls (pipe_protocol.py) and
+        # querying/controlling the Windows service (tray.py's service-menu items).
+        'win32pipe',
+        'win32file',
+        'win32serviceutil',
+        'win32service',
+        'win32timezone',
+        'pywintypes',
+        'winerror',
     ],
     hookspath=[],
     hooksconfig={},
@@ -75,6 +89,9 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    uac_admin=True,
+    # No uac_admin manifest: the tray is now a pure configuration/control UI that
+    # runs unelevated and talks to the Nebula Commander Windows Service (see
+    # service.py) for anything that needs privilege (launching Nebula, DNS-apply).
+    uac_admin=False,
     uac_uiaccess=False,
 )

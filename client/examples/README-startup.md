@@ -86,6 +86,13 @@ If you prefer to install the unit manually instead of using `ncclient install`:
 
 ## Windows 11
 
+If you installed via the MSI (`NebulaCommander-windows-amd64.msi`), a
+`NebulaCommanderService` Windows Service is already registered and running for
+you (start type: Automatic) - pair it with `ncclient-tray.exe` for a GUI to
+enroll/configure it, and you don't need anything on this page. The two options
+below are for a bare `pip install nebula-commander` CLI setup with no GUI, using
+generic OS tools to keep `ncclient run` alive in the background instead.
+
 ### Option A: Task Scheduler (built-in)
 
 1. **Install and enroll**

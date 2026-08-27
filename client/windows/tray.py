@@ -1,16 +1,23 @@
 """
-Nebula Commander Windows system-tray app. Enroll, poll for config/certs, optionally run Nebula.
-Run from repo root: python -m client.windows.tray
+Nebula Commander Windows system-tray app: configuration/control UI for the
+Nebula Commander Windows Service (see client/windows/service.py), which does the
+actual polling/config/cert/DNS/Nebula-process work as LocalSystem.
 
-Run with: python -m client.windows.tray  (from repo root)
+This process itself runs UNELEVATED - no UAC prompt to launch it. It enrolls,
+edits settings, manages the Nebula binary, and starts/stops/restarts the service,
+all by writing to a shared %ProgramData%\\nebula-commander\\ location (see
+client/windows/shared_paths.py) and sending small control commands to the service
+over a named pipe (client/windows/pipe_protocol.py); it reads the service's
+self-reported status from a shared status.json file rather than running any
+poll loop itself.
+
+Run from repo root: python -m client.windows.tray
 Terminal output: use --console, -v, or --verbose to print log messages to stderr.
 Alternatively: set NCCLIENT_TRAY_VERBOSE=1, or run from a console (stdout is a TTY).
 """
-import atexit
 import os
 import queue
 import shutil
-import signal
 import sys
 import threading
 import tkinter as tk
@@ -51,49 +58,53 @@ def _ensure_path() -> None:
 
 _ensure_path()
 
-from client.config import config_dir, load_settings, save_settings
-from client.ncclient import (
-    run_poll_loop,
-    cmd_enroll,
-    _default_output_dir,
-    is_process_elevated,
-    get_elevation_debug_info,
-)
-from client.nebula_download import (
-    NEBULA_VERSION_DEFAULT,
+# Must happen before any client.config/client.token_store access (directly or via
+# cmd_enroll) so this process reads/writes the same shared %ProgramData% location
+# the service uses, instead of the per-user default.
+from client.windows.shared_paths import enable_shared_mode, shared_root, load_status  # noqa: E402
+
+enable_shared_mode()
+
+from client.config import config_dir, load_settings, save_settings  # noqa: E402
+from client.ncclient import cmd_enroll  # noqa: E402
+from client.nebula_download import (  # noqa: E402
     NEBULA_RELEASES_URL,
     download_nebula_to_dir as _download_nebula_to_dir_base,
     get_nebula_version as _get_nebula_version_base,
     fetch_latest_nebula_tag as _fetch_latest_nebula_tag_base,
     is_newer_version,
 )
-from client.token_store import get_token
-from client.windows import autostart
-from client.windows import dialogs
-from client.windows import icons
+from client.token_store import get_token  # noqa: E402
+from client.windows import autostart  # noqa: E402
+from client.windows import dialogs  # noqa: E402
+from client.windows import icons  # noqa: E402
+from client.windows import pipe_protocol  # noqa: E402
 
 try:
     import pystray
     from pystray import MenuItem as Item
-    from PIL import Image
-except ImportError as e:
+except ImportError:
     print("Tray app requires pystray and Pillow. Install with: pip install pystray Pillow", file=sys.stderr)
     sys.exit(1)
 
+SERVICE_NAME = "NebulaCommanderService"
+
 
 def _nebula_download_dir() -> str:
-    """Directory where we install downloaded nebula.exe: config_dir/nebula/"""
+    """Directory where we install downloaded nebula.exe: config_dir/nebula/
+    (config_dir() is redirected to the shared %ProgramData% root above, so this
+    is the same location the service looks for the binary in.)"""
     return os.path.join(config_dir(), "nebula")
 
 
 def _downloaded_nebula_path() -> str:
-    """Path to nebula.exe in ~/.config/nebula-commander/nebula/ if it exists, else empty."""
+    """Path to nebula.exe in the shared nebula dir, if it exists, else empty."""
     exe = os.path.join(_nebula_download_dir(), "nebula.exe")
     return exe if os.path.isfile(exe) else ""
 
 
 def _default_nebula_path() -> str:
-    """Default: previously downloaded exe in config dir, or 'nebula' on PATH."""
+    """Default: previously downloaded exe in the shared dir, or 'nebula' on PATH."""
     return _downloaded_nebula_path() or "nebula"
 
 
@@ -112,7 +123,6 @@ def _resolve_nebula_bin(path: str | None) -> str | None:
         return None
     if os.path.isfile(path):
         return path
-    # e.g. "nebula" or "nebula.exe" on PATH
     return shutil.which(path)
 
 
@@ -122,14 +132,6 @@ def _resolve_nebula_bin(path: str | None) -> str | None:
 
 def _download_nebula_to_dir(version: str, dest_dir: str) -> tuple[bool, str | None, str]:
     return _download_nebula_to_dir_base(version, dest_dir, log=_log)
-
-
-def _download_nebula_to_config(version: str) -> tuple[bool, str | None, str]:
-    """
-    Download Nebula Windows binary and extract to config_dir/nebula/nebula.exe.
-    Returns (success, path_to_exe or None, error_message).
-    """
-    return _download_nebula_to_dir(version, _nebula_download_dir())
 
 
 def _get_nebula_version(nebula_bin: str) -> str | None:
@@ -180,72 +182,52 @@ def _add_dir_to_user_path(dir_path: str) -> bool:
         return False
 
 
+def _service_state() -> str:
+    """One of 'running', 'stopped', 'transitioning', or 'not_installed'."""
+    try:
+        import win32service
+        import win32serviceutil
+        status = win32serviceutil.QueryServiceStatus(SERVICE_NAME)
+        state = status[1]
+        if state == win32service.SERVICE_RUNNING:
+            return "running"
+        if state == win32service.SERVICE_STOPPED:
+            return "stopped"
+        return "transitioning"
+    except Exception:
+        return "not_installed"
+
+
+def _notify_service(cmd: str) -> None:
+    """Best-effort: ask the service to act immediately instead of waiting for its
+    next poll cycle. Failures (service not running/installed) are logged and
+    otherwise ignored - the change is already saved and will be picked up whenever
+    the service next starts or polls."""
+    result = pipe_protocol.send_command(cmd)
+    if not result.get("ok"):
+        _log(f"_notify_service({cmd!r}): {result.get('error')}")
+
+
 def main() -> None:
     if sys.platform != "win32":
         print("Windows tray app is Windows-only.", file=sys.stderr)
         sys.exit(1)
 
     _log(f"main thread id={threading.current_thread().ident}")
-    if sys.platform == "win32":
-        for line in get_elevation_debug_info():
-            _log(line)
-        _log("Process elevated: %s" % ("Yes" if is_process_elevated() else "No"))
+    _log(f"shared root: {shared_root()}")
 
     settings = load_settings()
     server = (settings.get("server") or "").strip() or "https://"
-    output_dir = (settings.get("output_dir") or "").strip() or _default_output_dir()
     interval = int(settings.get("interval") or 60)
-    if interval < 10:
-        interval = 10
-    elif interval > 3600:
-        interval = 3600
+    interval = max(10, min(3600, interval))
     nebula_path = _effective_nebula_path_from_settings(settings)
 
-    stop_event = threading.Event()
-    poll_thread: threading.Thread | None = None
     current_status = "idle"
     current_message = "Nebula Commander"
     icon_obj: pystray.Icon | None = None
     tk_root: tk.Tk | None = None
     # Queue for tray -> main thread: only main thread touches Tk (required on Windows)
     ui_queue: queue.Queue[str] = queue.Queue()
-
-    # Clean slate on startup: remove any NRPT rules left from a previous run
-    if bool(settings.get("accept_dns", False)):
-        try:
-            from client.dns_apply import remove_split_horizon_dns
-            if not remove_split_horizon_dns():
-                _log("remove split-horizon on startup: returned False")
-        except Exception as e:
-            _log(f"remove split-horizon on startup: {e}")
-            if not VERBOSE:
-                print(f"[tray] remove split-horizon on startup: {e}", file=sys.stderr, flush=True)
-
-    # On process exit (normal or atexit), remove NRPT rules if accept_dns was enabled
-    def _cleanup_dns_on_exit() -> None:
-        try:
-            s = load_settings()
-            if bool(s.get("accept_dns", False)):
-                from client.dns_apply import remove_split_horizon_dns
-                remove_split_horizon_dns()
-        except Exception:
-            pass
-
-    atexit.register(_cleanup_dns_on_exit)
-
-    # Ctrl+C: request graceful quit so main thread runs quit handler (cleanup + tk_root.quit())
-    def _signal_handler(signum: int, frame: object) -> None:
-        _log("SIGINT received, requesting graceful quit")
-        stop_event.set()
-        try:
-            ui_queue.put("quit")
-        except Exception:
-            pass
-
-    try:
-        signal.signal(signal.SIGINT, _signal_handler)
-    except (ValueError, OSError):
-        pass  # signal only valid in main thread on some platforms
 
     def update_ui(status: str, message: str) -> None:
         nonlocal current_status, current_message
@@ -254,67 +236,25 @@ def main() -> None:
         if icon_obj:
             try:
                 img = icons.icon_image(status)
-                # pystray expects PIL Image
                 icon_obj.icon = img
                 icon_obj.title = current_message[:128]
             except Exception:
                 pass
 
-    def run_poll() -> None:
-        nonlocal poll_thread, server, output_dir, interval, nebula_path
-        # Re-read settings so tray menu has latest
-        s = load_settings()
-        server = (s.get("server") or "").strip() or "https://"
-        output_dir = (s.get("output_dir") or "").strip() or _default_output_dir()
-        interval = int(s.get("interval") or 60)
-        interval = max(10, min(3600, interval))
-        nebula_path = _effective_nebula_path_from_settings(s)
-        accept_dns = bool(s.get("accept_dns", False))
-
-        if not server or server == "https://":
-            update_ui("error", "Set server URL in Settings")
-            return
-        if get_token() is None:
-            update_ui("error", "Enroll first")
-            return
-        # Only pass a nebula path if the binary exists or is on PATH; else poll without starting Nebula
-        nebula_bin = _resolve_nebula_bin(nebula_path)
-        # On Windows, Nebula must run elevated. If we're not elevated, poll config but do not start Nebula.
-        no_elevation_nebula = False
-        if sys.platform == "win32" and nebula_bin is not None and not is_process_elevated():
-            _log("Not elevated: polling config only; Nebula will not start. Run tray as Administrator.")
-            update_ui("error", "Run as Administrator for Nebula")
-            nebula_bin = None
-            no_elevation_nebula = True
-        stop_event.clear()
-        if VERBOSE:
-            os.environ["NCCLIENT_NEBULA_CONSOLE"] = "1"
-
-        def callback(s: str, m: str) -> None:
-            if no_elevation_nebula and s in ("idle", "connected"):
-                update_ui("error", "Run as Administrator for Nebula")
-            else:
-                update_ui(s, m)
-
-        if VERBOSE:
-            _log(f"dns: starting poll with output_dir={output_dir!r}, accept_dns={accept_dns}")
-        poll_thread = threading.Thread(
-            target=run_poll_loop,
-            args=(server, output_dir, interval, nebula_bin, None),
-            kwargs={
-                "stop_event": stop_event,
-                "status_callback": callback,
-                "accept_dns": accept_dns,
-                "dns_debug_log": (lambda msg: _log(f"dns: {msg}")) if VERBOSE else None,
-            },
-            daemon=True,
-        )
-        poll_thread.start()
-
-    def stop_poll() -> None:
-        stop_event.set()
-        if poll_thread and poll_thread.is_alive():
-            poll_thread.join(timeout=interval + 5)
+    def refresh_status() -> None:
+        """Poll the service's self-reported status + its SCM state on a timer,
+        replacing the old in-process status_callback push (there's no poll loop in
+        this process to push from anymore)."""
+        svc_state = _service_state()
+        if svc_state == "not_installed":
+            update_ui("error", "Service not installed - reinstall Nebula Commander")
+        elif svc_state == "stopped":
+            update_ui("idle", "Service stopped")
+        else:
+            status = load_status()
+            update_ui(status.get("state") or "idle", status.get("message") or "Nebula Commander")
+        if tk_root:
+            tk_root.after(2000, refresh_status)
 
     def on_enroll(icon: pystray.Icon, item: pystray.MenuItem) -> None:
         _log("on_enroll called (tray thread), putting 'enroll' in queue")
@@ -329,6 +269,7 @@ def main() -> None:
             try:
                 cmd_enroll(server_url, code)
                 messagebox.showinfo("Enroll", "Enrolled successfully.", parent=parent)
+                _notify_service(pipe_protocol.CMD_POLL_NOW)
             except SystemExit as e:
                 msg = "Enroll failed. Check server URL and code."
                 if e.code and str(e.code).strip():
@@ -342,43 +283,36 @@ def main() -> None:
         ui_queue.put("settings")
 
     def _do_settings(parent: tk.Tk | None) -> None:
-        nonlocal server, output_dir, interval, nebula_path
+        nonlocal server, interval, nebula_path
         _log("_do_settings: opening Settings dialog (parent=%s)" % (parent is not None))
         s = load_settings()
         raw_nebula = (s.get("nebula_path") or "").strip()
         if dialogs._is_stale_nebula_path(raw_nebula):
             raw_nebula = ""
         accept_dns = bool(s.get("accept_dns", False))
-        result = dialogs.settings_dialog(parent, server, output_dir, interval, raw_nebula, accept_dns)
+        result = dialogs.settings_dialog(parent, server, interval, raw_nebula, accept_dns)
         _log("_do_settings: dialog closed, result=%s" % (result is not None))
         if result:
-            server, output_dir, interval, nebula_path, accept_dns = result
+            server, interval, nebula_path, accept_dns = result
             save_settings({
                 "server": server,
-                "output_dir": output_dir,
                 "interval": interval,
                 "nebula_path": nebula_path,
                 "accept_dns": accept_dns,
+                "node_id": s.get("node_id"),
             })
-            update_ui(current_status, current_message)
+            _notify_service(pipe_protocol.CMD_RELOAD_SETTINGS)
 
-    def _do_start_poll(parent: tk.Tk | None) -> None:
-        """Run nebula check/install/upgrade flow on main thread, then start polling if OK."""
-        nonlocal server, output_dir, interval, nebula_path
+    def on_manage_nebula(icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        _log("on_manage_nebula: putting 'manage_nebula' in queue")
+        ui_queue.put("manage_nebula")
+
+    def _do_manage_nebula(parent: tk.Tk | None) -> None:
+        """Check/install/upgrade the Nebula binary. The service (not this process)
+        actually runs it - after a change here we just tell the service to reload."""
+        nonlocal nebula_path
         s = load_settings()
-        server = (s.get("server") or "").strip() or "https://"
-        output_dir = (s.get("output_dir") or "").strip() or _default_output_dir()
-        interval = int(s.get("interval") or 60)
-        interval = max(10, min(3600, interval))
         nebula_path = _effective_nebula_path_from_settings(s)
-
-        if not server or server == "https://":
-            update_ui("error", "Set server URL in Settings")
-            return
-        if get_token() is None:
-            update_ui("error", "Enroll first")
-            return
-
         nebula_bin = _resolve_nebula_bin(nebula_path)
 
         if nebula_bin is None:
@@ -396,10 +330,10 @@ def main() -> None:
                 )
                 webbrowser.open(NEBULA_RELEASES_URL)
                 return
-            default_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "nebula-commander", "bin")
+            default_dir = _nebula_download_dir()
             dir_path = filedialog.askdirectory(
                 title="Choose install directory for Nebula",
-                initialdir=default_dir if os.path.isdir(default_dir) else os.path.expanduser("~"),
+                initialdir=default_dir if os.path.isdir(default_dir) else _nebula_download_dir(),
                 parent=parent,
             )
             if not dir_path:
@@ -412,17 +346,16 @@ def main() -> None:
             if not ok:
                 messagebox.showerror("Install Nebula", err or "Download failed.", parent=parent)
                 return
-            _add_dir_to_user_path(dir_path)
+            if dir_path != _nebula_download_dir():
+                _add_dir_to_user_path(dir_path)
             nebula_path = exe_path
-            save_settings({"server": server, "output_dir": output_dir, "interval": interval, "nebula_path": nebula_path})
-            if parent:
-                messagebox.showinfo(
-                    "Nebula installed",
-                    f"Nebula installed to:\n{exe_path}\n\nThe directory was added to your user PATH. "
-                    "You may need to restart the tray or open a new terminal for it to take effect.",
-                    parent=parent,
-                )
-            run_poll()
+            save_settings({**load_settings(), "nebula_path": nebula_path})
+            messagebox.showinfo(
+                "Nebula installed",
+                f"Nebula installed to:\n{exe_path}",
+                parent=parent,
+            )
+            _notify_service(pipe_protocol.CMD_RELOAD_SETTINGS)
             if icon_obj and hasattr(icon_obj, "update_menu"):
                 icon_obj.update_menu()
             return
@@ -442,51 +375,69 @@ def main() -> None:
                 except Exception:
                     writable = False
                 if not writable:
-                    default_dir = os.path.join(os.environ.get("LOCALAPPDATA", os.path.expanduser("~")), "nebula-commander", "bin")
                     dest_dir = filedialog.askdirectory(
                         title="Choose directory for Nebula upgrade",
-                        initialdir=default_dir if os.path.isdir(default_dir) else os.path.dirname(nebula_bin),
+                        initialdir=_nebula_download_dir(),
                         parent=parent,
                     )
                     if not dest_dir:
-                        run_poll()
-                        if icon_obj and hasattr(icon_obj, "update_menu"):
-                            icon_obj.update_menu()
                         return
                 ok, exe_path, err = _download_nebula_to_dir(latest_tag, dest_dir)
                 if ok:
                     if dest_dir != os.path.dirname(nebula_bin):
                         _add_dir_to_user_path(dest_dir)
                     nebula_path = exe_path
-                    save_settings({"server": server, "output_dir": output_dir, "interval": interval, "nebula_path": nebula_path})
-                    if parent:
-                        messagebox.showinfo("Nebula upgraded", f"Nebula updated to {latest_tag} at:\n{exe_path}", parent=parent)
+                    save_settings({**load_settings(), "nebula_path": nebula_path})
+                    messagebox.showinfo("Nebula upgraded", f"Nebula updated to {latest_tag} at:\n{exe_path}", parent=parent)
+                    _notify_service(pipe_protocol.CMD_RELOAD_SETTINGS)
                     if icon_obj and hasattr(icon_obj, "update_menu"):
                         icon_obj.update_menu()
                 else:
-                    if parent:
-                        messagebox.showerror("Upgrade Nebula", err or "Download failed.", parent=parent)
+                    messagebox.showerror("Upgrade Nebula", err or "Download failed.", parent=parent)
+                return
 
-        run_poll()
+        messagebox.showinfo("Nebula", f"Nebula is up to date ({local_ver or 'unknown version'}).", parent=parent)
+
+    def on_start_service(icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        ui_queue.put("start_service")
+
+    def _do_start_service(parent: tk.Tk | None) -> None:
+        try:
+            import win32serviceutil
+            win32serviceutil.StartService(SERVICE_NAME)
+        except Exception as e:
+            messagebox.showerror("Service", f"Could not start the service:\n{e}", parent=parent)
         if icon_obj and hasattr(icon_obj, "update_menu"):
             icon_obj.update_menu()
 
-    def on_start_stop(icon: pystray.Icon, item: pystray.MenuItem) -> None:
-        if poll_thread and poll_thread.is_alive():
-            stop_poll()
-            update_ui("idle", "Stopped")
-        else:
-            ui_queue.put("start_poll")
+    def on_stop_service(icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        ui_queue.put("stop_service")
+
+    def _do_stop_service(parent: tk.Tk | None) -> None:
+        try:
+            import win32serviceutil
+            win32serviceutil.StopService(SERVICE_NAME)
+        except Exception as e:
+            messagebox.showerror("Service", f"Could not stop the service:\n{e}", parent=parent)
+        if icon_obj and hasattr(icon_obj, "update_menu"):
+            icon_obj.update_menu()
+
+    def on_restart_service(icon: pystray.Icon, item: pystray.MenuItem) -> None:
+        ui_queue.put("restart_service")
+
+    def _do_restart_service(parent: tk.Tk | None) -> None:
+        try:
+            import win32serviceutil
+            win32serviceutil.RestartService(SERVICE_NAME)
+        except Exception as e:
+            messagebox.showerror("Service", f"Could not restart the service:\n{e}", parent=parent)
         if icon_obj and hasattr(icon_obj, "update_menu"):
             icon_obj.update_menu()
 
     def on_open_folder(icon: pystray.Icon, item: pystray.MenuItem) -> None:
-        os.makedirs(output_dir, exist_ok=True)
-        if sys.platform == "win32":
-            os.startfile(output_dir)
-        else:
-            import subprocess
-            subprocess.run(["xdg-open", output_dir], check=False)
+        folder = shared_root()
+        os.makedirs(folder, exist_ok=True)
+        os.startfile(folder)
 
     def on_autostart(icon: pystray.Icon, item: pystray.MenuItem) -> None:
         if autostart.is_autostart_enabled():
@@ -511,36 +462,8 @@ def main() -> None:
         if icon_obj and hasattr(icon_obj, "update_menu"):
             icon_obj.update_menu()
 
-    def on_download_nebula(icon: pystray.Icon, item: pystray.MenuItem) -> None:
-        _log("on_download_nebula: putting 'download_nebula' in queue")
-        ui_queue.put("download_nebula")
-
-    def _do_download_nebula(parent: tk.Tk | None) -> None:
-        nonlocal nebula_path
-        _log("_do_download_nebula: starting download (may take a moment)")
-        ok, exe_path, error_msg = _download_nebula_to_config(NEBULA_VERSION_DEFAULT)
-        if ok and exe_path:
-            # Use downloaded path; if user had no custom path, this becomes the default
-            nebula_path = exe_path
-            save_settings({
-                "server": server,
-                "output_dir": output_dir,
-                "interval": interval,
-                "nebula_path": nebula_path,
-            })
-            update_ui(current_status, current_message)
-            if icon_obj and hasattr(icon_obj, "update_menu"):
-                icon_obj.update_menu()
-            if parent:
-                messagebox.showinfo("Download Nebula", f"Nebula installed to:\n{exe_path}", parent=parent)
-        else:
-            if parent:
-                detail = f"Check your connection and try again.\n\n{error_msg}" if error_msg else "Check your connection and try again."
-                messagebox.showerror("Download Nebula", detail, parent=parent)
-
     def on_exit(icon: pystray.Icon, item: pystray.MenuItem) -> None:
-        _log("on_exit called (tray thread): stop_poll, put 'quit', icon.stop()")
-        stop_poll()
+        _log("on_exit called (tray thread): put 'quit', icon.stop()")
         ui_queue.put("quit")
         icon.stop()
         _log("on_exit: icon.stop() returned")
@@ -553,29 +476,31 @@ def main() -> None:
         if server and server != "https://":
             webbrowser.open(server)
 
-    def _nebula_found() -> bool:
-        effective = (nebula_path or "").strip() or _default_nebula_path()
-        return _resolve_nebula_bin(effective) is not None
-
     def make_menu() -> pystray.Menu:
-        nonlocal server, output_dir, interval, nebula_path
-        # Re-read settings so tray menu has latest (e.g. server URL for Nebula Commander link)
+        nonlocal server, interval, nebula_path
         s = load_settings()
         server = (s.get("server") or "").strip() or "https://"
-        output_dir = (s.get("output_dir") or "").strip() or _default_output_dir()
-        interval = int(s.get("interval") or 60)
-        interval = max(10, min(3600, interval))
+        interval = max(10, min(3600, int(s.get("interval") or 60)))
         nebula_path = _effective_nebula_path_from_settings(s)
 
-        polling = poll_thread is not None and poll_thread.is_alive()
-        start_stop_label = "Stop polling" if polling else "Start polling"
+        svc_state = _service_state()
         items = [
             Item("Settings", on_configure, default=True),
             Item("Enroll", on_enroll),
-            Item(start_stop_label, on_start_stop),
+            Item("Manage Nebula", on_manage_nebula),
         ]
+        if svc_state == "running":
+            items.append(Item("Stop Service", on_stop_service))
+            items.append(Item("Restart Service", on_restart_service))
+        elif svc_state == "stopped":
+            items.append(Item("Start Service", on_start_service))
+        elif svc_state == "transitioning":
+            items.append(Item("Service starting/stopping...", lambda icon, item: None, enabled=False))
+        else:
+            items.append(Item("Service not installed", lambda icon, item: None, enabled=False))
         if get_token() is not None and server and server != "https://":
             items.append(Item("Nebula Commander", on_nebula_commander))
+        items.append(Item("Open Data Folder", on_open_folder))
         items.append(Item("Run On Startup", on_autostart, checked=lambda item: autostart.is_autostart_enabled()))
         items.append(Item("Exit", on_exit))
         return pystray.Menu(*items)
@@ -602,14 +527,6 @@ def main() -> None:
             return
         _log(f"process_ui_queue: got message '{msg}' (main thread id={threading.current_thread().ident})")
         if msg == "quit":
-            # Remove split-horizon DNS on exit so NRPT rules are cleared even if poll thread's finally didn't run
-            s = load_settings()
-            if bool(s.get("accept_dns", False)):
-                try:
-                    from client.dns_apply import remove_split_horizon_dns
-                    remove_split_horizon_dns()
-                except Exception as e:
-                    _log(f"remove split-horizon on exit: {e}")
             _log("process_ui_queue: calling tk_root.quit()")
             tk_root.quit()
             return
@@ -617,10 +534,14 @@ def main() -> None:
             _do_settings(tk_root)
         if msg == "enroll":
             _do_enroll(tk_root)
-        if msg == "download_nebula":
-            _do_download_nebula(tk_root)
-        if msg == "start_poll":
-            _do_start_poll(tk_root)
+        if msg == "manage_nebula":
+            _do_manage_nebula(tk_root)
+        if msg == "start_service":
+            _do_start_service(tk_root)
+        if msg == "stop_service":
+            _do_stop_service(tk_root)
+        if msg == "restart_service":
+            _do_restart_service(tk_root)
         if tk_root:
             tk_root.after(100, process_ui_queue)
 
@@ -633,19 +554,11 @@ def main() -> None:
     icon_thread.start()
     _log("scheduled first process_ui_queue in 100ms, entering mainloop")
     tk_root.after(100, process_ui_queue)
-    # Auto-start polling when the tray starts (e.g. at login when Run On Startup is enabled)
-    tk_root.after(500, lambda: ui_queue.put("start_poll"))
+    tk_root.after(500, refresh_status)
     try:
         tk_root.mainloop()
     except KeyboardInterrupt:
         _log("Ctrl+C received, exiting gracefully")
-        if bool(load_settings().get("accept_dns", False)):
-            try:
-                from client.dns_apply import remove_split_horizon_dns
-                remove_split_horizon_dns()
-            except Exception as e:
-                _log(f"remove split-horizon on Ctrl+C: {e}")
-        stop_poll()
         try:
             icon_obj.stop()
         except Exception:
