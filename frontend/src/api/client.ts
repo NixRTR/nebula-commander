@@ -292,6 +292,7 @@ export type NodeUpdateData = {
   lighthouse_options?: import("../types/nodes").LighthouseOptions | null;
   logging_options?: import("../types/nodes").LoggingOptions | null;
   punchy_options?: import("../types/nodes").PunchyOptions | null;
+  platform?: import("../types/nodes").NodePlatform;
 };
 
 export async function updateNode(id: number, data: NodeUpdateData) {

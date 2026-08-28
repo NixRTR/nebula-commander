@@ -96,6 +96,7 @@ export function Nodes() {
     punchy_respond: boolean;
     punchy_delay: string;
     punchy_respond_delay: string;
+    platform: NodePlatform;
   }>({
     group: "",
     is_lighthouse: false,
@@ -109,6 +110,7 @@ export function Nodes() {
     punchy_respond: true,
     punchy_delay: "",
     punchy_respond_delay: "",
+    platform: "desktop",
   });
   const [saving, setSaving] = useState(false);
   const [reEnrollModal, setReEnrollModal] = useState<{
@@ -392,6 +394,7 @@ export function Nodes() {
       punchy_respond: node.punchy_options?.respond ?? true,
       punchy_delay: node.punchy_options?.delay ?? "",
       punchy_respond_delay: node.punchy_options?.respond_delay ?? "",
+      platform: node.platform,
     });
     setDownloadError(null);
   };
@@ -410,6 +413,7 @@ export function Nodes() {
     const logOpts = node.logging_options;
     return (
       !groupEqual ||
+      deviceDetailsForm.platform !== node.platform ||
       deviceDetailsForm.is_lighthouse !== node.is_lighthouse ||
       deviceDetailsForm.is_relay !== node.is_relay ||
       (deviceDetailsForm.public_endpoint ?? "") !== (node.public_endpoint ?? "") ||
@@ -436,6 +440,14 @@ export function Nodes() {
       setError("Cannot remove the only lighthouse. Designate another node as lighthouse first.");
       return;
     }
+    if (
+      deviceDetailsForm.platform !== "desktop" &&
+      (deviceDetailsForm.is_lighthouse || deviceDetailsForm.is_relay)
+    ) {
+      setError("Mobile nodes cannot be a lighthouse or relay. Unset those first.");
+      return;
+    }
+    const convertedToMobile = node.platform === "desktop" && deviceDetailsForm.platform !== "desktop";
     setSaving(true);
     const group = deviceDetailsForm.group?.trim() || null;
     const lighthouse_options: LighthouseOptions = {
@@ -460,11 +472,25 @@ export function Nodes() {
       lighthouse_options,
       logging_options,
       punchy_options,
+      platform: deviceDetailsForm.platform,
     })
       .then((result) => {
         setDeviceDetailsModal((s) => ({ ...s, showSaved: true, savedFading: false, certResigned: !!result.cert_resigned }));
         setTimeout(() => setDeviceDetailsModal((s) => ({ ...s, savedFading: true })), 500);
         setTimeout(() => {
+          if (convertedToMobile) {
+            closeDeviceDetailsModal();
+            setMobileConfigPanel({
+              open: true,
+              nodeId: node.id,
+              hostname: node.hostname,
+              platform: deviceDetailsForm.platform,
+              enableDns: false,
+              reissued: false,
+            });
+            loadNodes();
+            return;
+          }
           getNode(node.id).then((updated) => {
             setDeviceDetailsModal((s) => ({ ...s, node: updated, isEditing: false, showSaved: false, savedFading: false, certResigned: false }));
             setDeviceDetailsForm({
@@ -480,6 +506,7 @@ export function Nodes() {
               punchy_respond: updated.punchy_options?.respond ?? true,
               punchy_delay: updated.punchy_options?.delay ?? "",
               punchy_respond_delay: updated.punchy_options?.respond_delay ?? "",
+              platform: updated.platform,
             });
           });
           loadNodes();
@@ -1280,6 +1307,35 @@ export function Nodes() {
 
                                   <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
                                     <div className="min-w-0">
+                                      <Label htmlFor="dd_platform" value="Platform" className="text-gray-500 dark:text-gray-400" />
+                                      <Select
+                                        id="dd_platform"
+                                        value={deviceDetailsForm.platform}
+                                        onChange={(e) => {
+                                          const platform = e.target.value as NodePlatform;
+                                          setDeviceDetailsForm((f) => ({
+                                            ...f,
+                                            platform,
+                                            is_lighthouse: platform === "desktop" ? f.is_lighthouse : false,
+                                            is_relay: platform === "desktop" ? f.is_relay : false,
+                                          }));
+                                        }}
+                                        disabled={!deviceDetailsModal.isEditing}
+                                        className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 cursor-default" : ""}`}
+                                      >
+                                        <option value="desktop">Desktop (runs ncclient)</option>
+                                        <option value="ios">iOS (Mobile Nebula app)</option>
+                                        <option value="android">Android (Mobile Nebula app)</option>
+                                      </Select>
+                                      {deviceDetailsModal.isEditing && deviceDetailsForm.platform !== deviceDetailsModal.node.platform && (
+                                        <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                                          {deviceDetailsForm.platform === "desktop"
+                                            ? "Converting to desktop - the node will show normal Enroll/Re-Enroll actions again."
+                                            : "Converting to mobile - the existing certificate is kept as-is; you'll get a config file to download for Mobile Nebula."}
+                                        </p>
+                                      )}
+                                    </div>
+                                    <div className="min-w-0">
                                       <Label htmlFor="dd_group" value="Group (one role)" className="text-gray-500 dark:text-gray-400" />
                                       {editGroupOptions.length === 0 ? (
                                         <>
@@ -1325,7 +1381,7 @@ export function Nodes() {
                                           onChange={(e) =>
                                             setDeviceDetailsForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
                                           }
-                                          disabled={!deviceDetailsModal.isEditing}
+                                          disabled={!deviceDetailsModal.isEditing || deviceDetailsForm.platform !== "desktop"}
                                         />
                                         <Label htmlFor="dd_is_lighthouse">Lighthouse</Label>
                                       </div>
@@ -1336,10 +1392,15 @@ export function Nodes() {
                                           onChange={(e) =>
                                             setDeviceDetailsForm((f) => ({ ...f, is_relay: e.target.checked }))
                                           }
-                                          disabled={!deviceDetailsModal.isEditing}
+                                          disabled={!deviceDetailsModal.isEditing || deviceDetailsForm.platform !== "desktop"}
                                         />
                                         <Label htmlFor="dd_is_relay">Relay</Label>
                                       </div>
+                                      {deviceDetailsForm.platform !== "desktop" && deviceDetailsModal.isEditing && (
+                                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                                          Mobile nodes cannot be a lighthouse or relay.
+                                        </span>
+                                      )}
                                     </div>
                                     {deviceDetailsModal.isEditing &&
                                       deviceDetailsModal.node &&
@@ -1539,6 +1600,7 @@ export function Nodes() {
                                                 punchy_respond: node.punchy_options?.respond ?? true,
                                                 punchy_delay: node.punchy_options?.delay ?? "",
                                                 punchy_respond_delay: node.punchy_options?.respond_delay ?? "",
+                                                platform: node.platform,
                                               });
                                               setDeviceDetailsModal((s) => ({ ...s, isEditing: false }));
                                             }

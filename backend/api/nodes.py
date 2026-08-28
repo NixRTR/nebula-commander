@@ -38,6 +38,7 @@ class NodeUpdate(BaseModel):
     lighthouse_options: Optional[dict[str, Any]] = None
     logging_options: Optional[dict[str, Any]] = None
     punchy_options: Optional[dict[str, Any]] = None
+    platform: Optional[str] = None  # desktop, ios, android - for converting pre-existing nodes
 
 
 class NodeResponse(BaseModel):
@@ -325,6 +326,7 @@ async def update_node(
         if isinstance(node.punchy_options, dict)
         else node.punchy_options
     )
+    original_platform = node.platform
     if body.group is not None:
         node.groups = [body.group] if (body.group and body.group.strip()) else []
     if body.is_lighthouse is not None:
@@ -353,6 +355,16 @@ async def update_node(
         node.logging_options = body.logging_options
     if body.punchy_options is not None:
         node.punchy_options = body.punchy_options
+    if body.platform is not None:
+        platform = body.platform.strip().lower()
+        if platform not in ("desktop", "ios", "android"):
+            raise HTTPException(status_code=400, detail="platform must be one of: desktop, ios, android")
+        if platform != "desktop" and (node.is_lighthouse or node.is_relay):
+            raise HTTPException(
+                status_code=400,
+                detail="Mobile nodes cannot be a lighthouse or relay. Unset those first.",
+            )
+        node.platform = platform
 
     await session.flush()
 
@@ -394,6 +406,9 @@ async def update_node(
             "old": original_punchy_options,
             "new": node.punchy_options,
         }
+
+    if original_platform != node.platform:
+        changed["platform"] = {"old": original_platform, "new": node.platform}
 
     # A group change alters what's baked into the signed certificate (nebula-cert sign
     # -groups), so re-sign it now rather than leaving the DB and the cert out of sync
