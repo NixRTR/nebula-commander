@@ -290,6 +290,11 @@ export function DNS() {
 
             <div>
               <h2 className="text-xl font-semibold mb-2">Aliases</h2>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                Prefix an alias with <code>*.</code> (e.g. <code>*.api</code>) to match every subdomain
+                too - both <code>metis.{config?.domain ?? "domain"}</code> and anything under it, like{" "}
+                <code>foo.metis.{config?.domain ?? "domain"}</code>, will resolve to the selected node.
+              </p>
               <div className="overflow-x-auto mb-2">
                 <Table>
                   <Table.Head>
@@ -333,7 +338,7 @@ export function DNS() {
                         <TextInput
                           value={newAlias}
                           onChange={(e) => setNewAlias(e.target.value)}
-                          placeholder="Alias (e.g. api)"
+                          placeholder="Alias (e.g. api or *.metis)"
                         />
                       </Table.Cell>
                       <Table.Cell>

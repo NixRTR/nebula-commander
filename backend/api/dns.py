@@ -26,6 +26,10 @@ router = APIRouter(prefix="/api/networks/{network_id}/dns", tags=["dns"])
 
 # Pydantic v2 uses `pattern` instead of `regex` for constrained strings.
 HostnameLabel = constr(pattern=r"^[a-zA-Z0-9-]+$")
+# Alias labels additionally allow a leading "*." to mark a wildcard alias
+# (e.g. "*.metis" matches metis.<domain> and every *.metis.<domain> subdomain -
+# see the "*." handling in _build_dnsmasq_config).
+AliasLabel = constr(pattern=r"^(\*\.)?[a-zA-Z0-9-]+$")
 
 
 class DNSConfigResponse(BaseModel):
@@ -55,12 +59,12 @@ class DNSAliasResponse(BaseModel):
 
 
 class DNSAliasCreate(BaseModel):
-    alias: HostnameLabel
+    alias: AliasLabel
     node_id: int
 
 
 class DNSAliasUpdate(BaseModel):
-    alias: Optional[HostnameLabel] = None
+    alias: Optional[AliasLabel] = None
     node_id: Optional[int] = None
 
 
@@ -362,8 +366,15 @@ def _build_dnsmasq_config(
         node = node_by_id.get(a.node_id)
         if not node or not node.hostname or not node.ip_address:
             continue
-        fqdn = f"{a.alias}.{domain}"
-        lines.append(f"host-record={fqdn},{node.ip_address}")
+        if a.alias.startswith("*."):
+            # address=/domain/ip matches the domain itself AND every subdomain,
+            # which is dnsmasq's native equivalent of a wildcard - unlike
+            # host-record=, which is exact-match only.
+            base = a.alias[2:]
+            lines.append(f"address=/{base}.{domain}/{node.ip_address}")
+        else:
+            fqdn = f"{a.alias}.{domain}"
+            lines.append(f"host-record={fqdn},{node.ip_address}")
     lines.append("")
     # Upstream servers last: used only for queries not in our local zone
     for s in upstream_servers or []:
