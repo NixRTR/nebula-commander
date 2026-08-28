@@ -198,6 +198,65 @@ def _service_state() -> str:
         return "not_installed"
 
 
+def _open_service(access: int):
+    """Open the service handle using minimal SCM-level rights (SC_MANAGER_CONNECT),
+    which Windows grants to any authenticated user by default - unlike
+    SC_MANAGER_ALL_ACCESS (what win32serviceutil.StartService/StopService/
+    RestartService request), which only admins have and which this unelevated
+    tray can never obtain. The service's own security descriptor (set via
+    `sc sdset` in the MSI installer, GrantServiceControlAcl) grants Authenticated
+    Users exactly the START/STOP/QUERY_STATUS rights requested here - so opening
+    the *service* with a minimal-rights SCM handle succeeds where the
+    all-or-nothing convenience wrappers fail outright at the OpenSCManager step."""
+    import win32service
+
+    hscm = win32service.OpenSCManager(None, None, win32service.SC_MANAGER_CONNECT)
+    try:
+        return win32service.OpenService(hscm, SERVICE_NAME, access)
+    finally:
+        win32service.CloseServiceHandle(hscm)
+
+
+def _wait_for_service_state(hs, target_state: int, timeout: float = 15.0) -> bool:
+    import time
+    import win32service
+
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        if win32service.QueryServiceStatus(hs)[1] == target_state:
+            return True
+        time.sleep(0.3)
+    return False
+
+
+def _start_service_now() -> None:
+    import win32service
+
+    hs = _open_service(win32service.SERVICE_START | win32service.SERVICE_QUERY_STATUS)
+    try:
+        win32service.StartService(hs, None)
+        _wait_for_service_state(hs, win32service.SERVICE_RUNNING)
+    finally:
+        win32service.CloseServiceHandle(hs)
+
+
+def _stop_service_now() -> None:
+    import pywintypes
+    import win32service
+    import winerror
+
+    hs = _open_service(win32service.SERVICE_STOP | win32service.SERVICE_QUERY_STATUS)
+    try:
+        try:
+            win32service.ControlService(hs, win32service.SERVICE_CONTROL_STOP)
+        except pywintypes.error as e:
+            if e.winerror != winerror.ERROR_SERVICE_NOT_ACTIVE:
+                raise
+        _wait_for_service_state(hs, win32service.SERVICE_STOPPED)
+    finally:
+        win32service.CloseServiceHandle(hs)
+
+
 def _notify_service(cmd: str) -> None:
     """Best-effort: ask the service to act immediately instead of waiting for its
     next poll cycle. Failures (service not running/installed) are logged and
@@ -403,8 +462,7 @@ def main() -> None:
 
     def _do_start_service(parent: tk.Tk | None) -> None:
         try:
-            import win32serviceutil
-            win32serviceutil.StartService(SERVICE_NAME)
+            _start_service_now()
         except Exception as e:
             messagebox.showerror("Service", f"Could not start the service:\n{e}", parent=parent)
         if icon_obj and hasattr(icon_obj, "update_menu"):
@@ -415,8 +473,7 @@ def main() -> None:
 
     def _do_stop_service(parent: tk.Tk | None) -> None:
         try:
-            import win32serviceutil
-            win32serviceutil.StopService(SERVICE_NAME)
+            _stop_service_now()
         except Exception as e:
             messagebox.showerror("Service", f"Could not stop the service:\n{e}", parent=parent)
         if icon_obj and hasattr(icon_obj, "update_menu"):
@@ -427,8 +484,8 @@ def main() -> None:
 
     def _do_restart_service(parent: tk.Tk | None) -> None:
         try:
-            import win32serviceutil
-            win32serviceutil.RestartService(SERVICE_NAME)
+            _stop_service_now()
+            _start_service_now()
         except Exception as e:
             messagebox.showerror("Service", f"Could not restart the service:\n{e}", parent=parent)
         if icon_obj and hasattr(icon_obj, "update_menu"):
