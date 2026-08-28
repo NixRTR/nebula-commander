@@ -334,8 +334,9 @@ async function apiFetchBlob(path: string): Promise<Blob> {
   }
 }
 
-export async function getNodeConfigBlob(nodeId: number): Promise<Blob> {
-  return apiFetchBlob(`/nodes/${nodeId}/config`);
+export async function getNodeConfigBlob(nodeId: number, options?: { enableDns?: boolean }): Promise<Blob> {
+  const query = options?.enableDns ? "?enable_dns=true" : "";
+  return apiFetchBlob(`/nodes/${nodeId}/config${query}`);
 }
 
 export async function getNodeCertsBlob(nodeId: number): Promise<Blob> {
@@ -397,6 +398,7 @@ export interface CreateCertificateRequest {
     interval_seconds?: number;
   };
   punchy_options?: import("../types/nodes").PunchyOptions;
+  platform?: import("../types/nodes").NodePlatform;
 }
 
 export interface CreateCertificateResponse {

@@ -20,8 +20,9 @@ from ..auth.oidc import require_user, require_device_token, UserInfo, create_dev
 from ..auth.permissions import get_user_nodes
 from ..config import settings
 from ..database import get_session
-from ..models import Network, NetworkDNSConfig, Node, EnrollmentCode, User
+from ..models import Network, Node, EnrollmentCode, User
 from ..services.audit import get_client_ip, log_audit
+from ..services.config_generator import get_dns_client_config
 from ..api.dns import get_dnsmasq_config_for_node
 from ..services.cert_store import read_cert_store_file
 from ..services.config_generator import generate_config_for_node
@@ -213,31 +214,14 @@ async def device_dns_client_config(
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
-    network_id = node.network_id
 
-    cfg_result = await session.execute(
-        select(NetworkDNSConfig).where(NetworkDNSConfig.network_id == network_id)
-    )
-    cfg = cfg_result.scalar_one_or_none()
-    if not cfg or not cfg.enabled:
+    dns_config = await get_dns_client_config(session, node.network_id)
+    if dns_config is None:
         raise HTTPException(status_code=404, detail="DNS not enabled for this network")
-
-    # Lighthouses serve DNS (dnsmasq in ncclient container); collect their Nebula IPs.
-    lighthouses_result = await session.execute(
-        select(Node).where(
-            Node.network_id == network_id,
-            Node.is_lighthouse == True,
-            Node.ip_address.isnot(None),
-        )
-    )
-    dns_servers = [
-        n.ip_address
-        for n in lighthouses_result.scalars().all()
-        if n.ip_address and n.ip_address.strip()
-    ]
+    domain, dns_servers = dns_config
 
     return DNSClientConfigResponse(
-        domain=cfg.domain,
+        domain=domain,
         dns_servers=dns_servers,
     )
 

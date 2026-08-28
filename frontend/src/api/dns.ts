@@ -4,6 +4,7 @@ export interface DNSConfig {
   domain: string;
   enabled: boolean;
   upstream_servers: string[];
+  extra_dns_resolvers: string[];
 }
 
 export interface DNSAlias {
@@ -19,7 +20,7 @@ export async function getDNSConfig(networkId: number): Promise<DNSConfig> {
 
 export async function upsertDNSConfig(
   networkId: number,
-  body: { domain: string; enabled: boolean; upstream_servers?: string[] }
+  body: { domain: string; enabled: boolean; upstream_servers?: string[]; extra_dns_resolvers?: string[] }
 ): Promise<DNSConfig> {
   return apiFetch<DNSConfig>(`/networks/${networkId}/dns`, {
     method: "PUT",

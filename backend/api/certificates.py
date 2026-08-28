@@ -82,6 +82,7 @@ class CreateRequest(BaseModel):
     public_endpoint: Optional[str] = None
     lighthouse_options: Optional[dict[str, Any]] = None  # interval_seconds; DNS is via ncclient dnsmasq only
     punchy_options: Optional[dict[str, Any]] = None  # respond, delay, respond_delay
+    platform: Optional[str] = "desktop"  # desktop, ios, android - mobile nodes skip enrollment
 
 
 class CreateResponse(BaseModel):
@@ -220,12 +221,26 @@ async def create_certificate(
 
     await _require_manage_nodes(user, body.network_id, session)
 
+    platform = (body.platform or "desktop").strip().lower()
+    if platform not in ("desktop", "ios", "android"):
+        raise HTTPException(status_code=400, detail="platform must be one of: desktop, ios, android")
+    if platform != "desktop" and (body.is_lighthouse or body.is_relay):
+        raise HTTPException(
+            status_code=400,
+            detail="Mobile nodes cannot be a lighthouse or relay.",
+        )
+
     # First node in network must be a lighthouse
     count_result = await session.execute(
         select(func.count(Node.id)).where(Node.network_id == body.network_id)
     )
     node_count = count_result.scalar() or 0
     if node_count == 0:
+        if platform != "desktop":
+            raise HTTPException(
+                status_code=400,
+                detail="The first node in a network must be a lighthouse; create a desktop lighthouse node first.",
+            )
         if body.is_lighthouse is False:
             raise HTTPException(
                 status_code=400,
@@ -282,6 +297,7 @@ async def create_certificate(
         public_endpoint=body.public_endpoint.strip() if body.public_endpoint else None,
         lighthouse_options=body.lighthouse_options,
         punchy_options=body.punchy_options,
+        platform=platform,
     )
     session.add(node)
     await session.flush()
@@ -303,6 +319,7 @@ async def create_certificate(
         actor_user_id=db_user.id if db_user else None,
         actor_identifier=user.email or user.sub,
         client_ip=get_client_ip(request),
+        details={"platform": platform},
     )
 
     return CreateResponse(

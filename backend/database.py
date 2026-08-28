@@ -99,6 +99,7 @@ def _run_sqlite_migrations() -> None:
             ("is_relay", "ALTER TABLE nodes ADD COLUMN is_relay BOOLEAN DEFAULT 0"),
             ("first_polled_at", "ALTER TABLE nodes ADD COLUMN first_polled_at DATETIME"),
             ("punchy_options", "ALTER TABLE nodes ADD COLUMN punchy_options TEXT"),
+            ("platform", "ALTER TABLE nodes ADD COLUMN platform VARCHAR(16) DEFAULT 'desktop'"),
         ]:
             if col not in node_columns:
                 cur.execute(sql)
@@ -314,7 +315,12 @@ def _run_sqlite_migrations() -> None:
                     "ALTER TABLE network_dns_configs ADD COLUMN upstream_servers TEXT"
                 )
                 logger.info("Migration: added column network_dns_configs.upstream_servers")
-        
+            if "extra_dns_resolvers" not in dns_cfg_columns:
+                cur.execute(
+                    "ALTER TABLE network_dns_configs ADD COLUMN extra_dns_resolvers TEXT"
+                )
+                logger.info("Migration: added column network_dns_configs.extra_dns_resolvers")
+
         conn.commit()
     finally:
         conn.close()

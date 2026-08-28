@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..models import Network, Node, NetworkGroupFirewall
+from ..models import Network, Node, NetworkDNSConfig, NetworkGroupFirewall
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,41 @@ DEFAULT_PKI_CA = "/etc/nebula/ca.crt"
 DEFAULT_PKI_CERT = "/etc/nebula/host.crt"
 DEFAULT_PKI_KEY = "/etc/nebula/host.key"
 DEFAULT_LISTEN_PORT = 4242
+
+
+async def get_dns_client_config(
+    session: AsyncSession, network_id: int
+) -> Optional[tuple[str, list[str]]]:
+    """
+    Split-horizon DNS config for a network: (domain, dns_servers), or None if
+    DNS is not enabled. dns_servers is every lighthouse's Nebula IP followed
+    by the network's extra_dns_resolvers (external/fallback resolvers) - used
+    both by the device-facing /dns-client-config endpoint and by mobile config
+    generation, so both platforms get any configured redundancy the same way.
+    """
+    cfg_result = await session.execute(
+        select(NetworkDNSConfig).where(NetworkDNSConfig.network_id == network_id)
+    )
+    cfg = cfg_result.scalar_one_or_none()
+    if not cfg or not cfg.enabled:
+        return None
+
+    lighthouses_result = await session.execute(
+        select(Node).where(
+            Node.network_id == network_id,
+            Node.is_lighthouse == True,
+            Node.ip_address.isnot(None),
+        )
+    )
+    dns_servers = [
+        n.ip_address
+        for n in lighthouses_result.scalars().all()
+        if n.ip_address and n.ip_address.strip()
+    ]
+    dns_servers.extend(
+        s.strip() for s in (cfg.extra_dns_resolvers or []) if s and s.strip()
+    )
+    return cfg.domain, dns_servers
 
 
 def _default_pki() -> dict[str, str]:
@@ -227,11 +262,14 @@ def build_config(
     peer_nodes: list[Node],
     group_firewalls: list[Any],
     inline_pki: Optional[tuple[str, str, str]] = None,
+    mobile_dns: Optional[dict[str, list[str]]] = None,
 ) -> str:
     """
     Build Nebula YAML config for the given node.
     peer_nodes: all other nodes in the same network (for lighthouses list and static_host_map).
     inline_pki: optional (ca_pem, cert_pem, key_pem) to embed certs in config (OS-independent; no file paths).
+    mobile_dns: optional {"dns_resolvers": [...], "match_domains": [...]} - adds the Mobile Nebula
+    app's split-horizon DNS extension block (mobile_nebula:) for iOS/Android nodes.
     """
     # Lighthouses and relays with public_endpoint (for static_host_map)
     hosts_with_endpoint = [
@@ -276,6 +314,12 @@ def build_config(
     if not config["static_host_map"]:
         del config["static_host_map"]
 
+    if mobile_dns and mobile_dns.get("dns_resolvers"):
+        config["mobile_nebula"] = {
+            "dns_resolvers": mobile_dns["dns_resolvers"],
+            "match_domains": mobile_dns.get("match_domains") or [],
+        }
+
     return yaml.dump(config, default_flow_style=False, sort_keys=False, allow_unicode=True)
 
 
@@ -283,10 +327,13 @@ async def generate_config_for_node(
     session: AsyncSession,
     node_id: int,
     inline_pki: Optional[tuple[str, str, str]] = None,
+    mobile_dns: Optional[dict[str, list[str]]] = None,
 ) -> Optional[str]:
     """
     Load node + network + peers and return generated YAML config, or None if node not found.
     inline_pki: optional (ca_pem, cert_pem, key_pem) to embed in config (no file paths).
+    mobile_dns: optional {"dns_resolvers": [...], "match_domains": [...]} for mobile nodes;
+    see build_config().
     """
     result = await session.execute(
         select(Node).where(Node.id == node_id)
@@ -313,4 +360,6 @@ async def generate_config_for_node(
     )
     group_firewalls = list(result.scalars().all())
 
-    return build_config(node, network, peer_nodes, group_firewalls, inline_pki=inline_pki)
+    return build_config(
+        node, network, peer_nodes, group_firewalls, inline_pki=inline_pki, mobile_dns=mobile_dns
+    )

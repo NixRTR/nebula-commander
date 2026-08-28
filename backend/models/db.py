@@ -85,6 +85,7 @@ class Node(Base):
     logging_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # level, format, disable_timestamp, timestamp_format
     punchy_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # respond, delay, respond_delay
     status: Mapped[str] = mapped_column(String(32), default="pending")  # pending, active, revoked, offline
+    platform: Mapped[str] = mapped_column(String(16), default="desktop")  # desktop, ios, android
     device_token_version: Mapped[int] = mapped_column(Integer, default=1)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     first_polled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # set when device first fetches config/bundle
@@ -261,6 +262,12 @@ class NetworkDNSConfig(Base):
     enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     # Upstream DNS servers for non-local queries (e.g. ["8.8.8.8", "1.1.1.1"])
     upstream_servers: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
+    # Additional resolvers for this network's own zone, beyond the automatic
+    # lighthouse-IP list - e.g. an externally-reachable DNS server that's also
+    # authoritative for the domain, or extra fallback redundancy. Appended
+    # after lighthouse IPs wherever dns_servers is built (see
+    # config_generator.get_dns_client_config).
+    extra_dns_resolvers: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
 
     network: Mapped["Network"] = relationship("Network")
 

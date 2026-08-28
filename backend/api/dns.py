@@ -36,6 +36,7 @@ class DNSConfigResponse(BaseModel):
     domain: str
     enabled: bool
     upstream_servers: List[str] = []
+    extra_dns_resolvers: List[str] = []
 
     class Config:
         from_attributes = True
@@ -46,6 +47,7 @@ class DNSConfigUpdate(BaseModel):
     domain: Optional[HostnameLabel | str] = None
     enabled: Optional[bool] = None
     upstream_servers: Optional[List[str]] = None
+    extra_dns_resolvers: Optional[List[str]] = None
 
 
 class DNSAliasResponse(BaseModel):
@@ -124,6 +126,7 @@ async def get_dns_config(
         domain=cfg.domain,
         enabled=cfg.enabled,
         upstream_servers=cfg.upstream_servers if cfg.upstream_servers is not None else [],
+        extra_dns_resolvers=cfg.extra_dns_resolvers if cfg.extra_dns_resolvers is not None else [],
     )
 
 
@@ -153,6 +156,8 @@ async def upsert_dns_config(
             cfg.enabled = body.enabled
         if body.upstream_servers is not None:
             cfg.upstream_servers = body.upstream_servers
+        if body.extra_dns_resolvers is not None:
+            cfg.extra_dns_resolvers = body.extra_dns_resolvers
     else:
         domain = (body.domain.strip() if body.domain and str(body.domain).strip() else network.name)
         cfg = NetworkDNSConfig(
@@ -160,6 +165,7 @@ async def upsert_dns_config(
             domain=domain,
             enabled=body.enabled if body.enabled is not None else True,
             upstream_servers=body.upstream_servers if body.upstream_servers is not None else [],
+            extra_dns_resolvers=body.extra_dns_resolvers if body.extra_dns_resolvers is not None else [],
         )
         session.add(cfg)
 
@@ -181,6 +187,7 @@ async def upsert_dns_config(
         domain=cfg.domain,
         enabled=cfg.enabled,
         upstream_servers=cfg.upstream_servers if cfg.upstream_servers is not None else [],
+        extra_dns_resolvers=cfg.extra_dns_resolvers if cfg.extra_dns_resolvers is not None else [],
     )
 
 

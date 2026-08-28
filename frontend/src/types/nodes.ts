@@ -16,6 +16,8 @@ export interface PunchyOptions {
   respond_delay?: string;
 }
 
+export type NodePlatform = "desktop" | "ios" | "android";
+
 export interface Node {
   id: number;
   network_id: number;
@@ -29,6 +31,7 @@ export interface Node {
   logging_options: LoggingOptions | null;
   punchy_options: PunchyOptions | null;
   status: string;
+  platform: NodePlatform;
   last_seen: string | null;
   first_polled_at: string | null;
   created_at: string;

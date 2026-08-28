@@ -19,7 +19,7 @@ from ..database import get_session
 from ..models import Certificate, EnrollmentCode, Network, Node, User
 from ..services.audit import get_client_ip, log_audit
 from ..services.cert_store import read_cert_store_file
-from ..services.config_generator import generate_config_for_node
+from ..services.config_generator import generate_config_for_node, get_dns_client_config
 from ..services.ip_allocator import IPAllocator
 from ..services.cert_manager import CertManager
 
@@ -53,6 +53,7 @@ class NodeResponse(BaseModel):
     logging_options: Optional[dict[str, Any]] = None
     punchy_options: Optional[dict[str, Any]] = None
     status: str = "pending"
+    platform: str = "desktop"
     last_seen: Optional[str] = None
     first_polled_at: Optional[str] = None
     created_at: str
@@ -104,6 +105,7 @@ async def list_nodes(
             logging_options=n.logging_options,
             punchy_options=n.punchy_options,
             status=n.status,
+            platform=n.platform,
             last_seen=n.last_seen.isoformat() if n.last_seen else None,
             first_polled_at=n.first_polled_at.isoformat() if n.first_polled_at else None,
             created_at=n.created_at.isoformat() if n.created_at else "",
@@ -116,6 +118,7 @@ async def list_nodes(
 async def get_node_config(
     node_id: int,
     request: Request,
+    enable_dns: bool = Query(False, description="Android only: include a full-override mobile_nebula DNS block"),
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -148,7 +151,29 @@ async def get_node_config(
         inline_pki = (ca_content, host_cert_content, host_key_content)
     else:
         inline_pki = None
-    yaml_config = await generate_config_for_node(session, node_id, inline_pki=inline_pki)
+
+    mobile_dns = None
+    if node.platform == "ios":
+        # Automatic whenever the network has DNS enabled - iOS's matchDomains
+        # makes this a genuinely scoped, safe default (see Nodes.tsx/plan notes).
+        dns_config = await get_dns_client_config(session, node.network_id)
+        if dns_config:
+            domain, dns_servers = dns_config
+            if dns_servers:
+                mobile_dns = {"dns_resolvers": dns_servers, "match_domains": [domain]}
+    elif node.platform == "android" and enable_dns:
+        # Opt-in only: no domain-scoping on Android, so this is a full DNS
+        # override while connected. match_domains=[""] tells the app "all
+        # domains" (Mobile Nebula's own convention for a blanket resolver).
+        dns_config = await get_dns_client_config(session, node.network_id)
+        if dns_config:
+            _domain, dns_servers = dns_config
+            if dns_servers:
+                mobile_dns = {"dns_resolvers": dns_servers, "match_domains": [""]}
+
+    yaml_config = await generate_config_for_node(
+        session, node_id, inline_pki=inline_pki, mobile_dns=mobile_dns
+    )
     if yaml_config is None:
         raise HTTPException(status_code=404, detail="Node not found")
     user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
@@ -259,6 +284,7 @@ async def get_node(
         logging_options=node.logging_options,
         punchy_options=node.punchy_options,
         status=node.status,
+        platform=node.platform,
         last_seen=node.last_seen.isoformat() if node.last_seen else None,
         first_polled_at=node.first_polled_at.isoformat() if node.first_polled_at else None,
         created_at=node.created_at.isoformat() if node.created_at else "",

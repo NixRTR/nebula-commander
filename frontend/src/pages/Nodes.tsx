@@ -12,7 +12,7 @@ import {
   Alert,
 } from "flowbite-react";
 import { HiCheckCircle, HiXCircle, HiClock, HiDownload, HiPencil, HiPlus, HiTrash, HiClipboard, HiChevronDown, HiChevronRight } from "react-icons/hi";
-import type { Node, LighthouseOptions, LoggingOptions, PunchyOptions } from "../types/nodes";
+import type { Node, LighthouseOptions, LoggingOptions, PunchyOptions, NodePlatform } from "../types/nodes";
 import type { Network } from "../types/networks";
 import {
   listNodes,
@@ -141,7 +141,17 @@ export function Nodes() {
     is_relay: false,
     public_endpoint: "",
     interval_seconds: "60",
+    platform: "desktop" as NodePlatform,
+    android_dns_opt_in: false,
   });
+  const [mobileConfigPanel, setMobileConfigPanel] = useState<{
+    open: boolean;
+    nodeId: number | null;
+    hostname: string;
+    platform: NodePlatform;
+    enableDns: boolean;
+    reissued: boolean;
+  }>({ open: false, nodeId: null, hostname: "", platform: "desktop", enableDns: false, reissued: false });
   const [nodeNameError, setNodeNameError] = useState<string | null>(null);
   const [suggestedIpError, setSuggestedIpError] = useState<string | null>(null);
   const [createSubmitting, setCreateSubmitting] = useState(false);
@@ -259,20 +269,27 @@ export function Nodes() {
     e.preventDefault();
     setError(null);
     if (nodeNameError || suggestedIpError) return;
-    setCreateSubmitting(true);
+    const platform = createNodeForm.platform;
     const firstInNetwork = isFirstNodeInNetwork(createNodeForm.network_id);
+    if (platform !== "desktop" && firstInNetwork) {
+      setError("The first node in a network must be a lighthouse; create a desktop lighthouse node first.");
+      return;
+    }
+    setCreateSubmitting(true);
+    const isMobile = platform !== "desktop";
     const body = {
       network_id: createNodeForm.network_id,
       name: createNodeForm.name.trim(),
       group: createNodeForm.group.trim() || undefined,
       suggested_ip: createNodeForm.suggested_ip.trim() || undefined,
       duration_days: createNodeForm.duration_days ? parseInt(createNodeForm.duration_days, 10) : undefined,
-      is_lighthouse: firstInNetwork ? true : createNodeForm.is_lighthouse,
-      is_relay: createNodeForm.is_relay,
-      public_endpoint: createNodeForm.public_endpoint.trim() || undefined,
-      lighthouse_options: createNodeForm.is_lighthouse
+      is_lighthouse: isMobile ? false : firstInNetwork ? true : createNodeForm.is_lighthouse,
+      is_relay: isMobile ? false : createNodeForm.is_relay,
+      public_endpoint: isMobile ? undefined : createNodeForm.public_endpoint.trim() || undefined,
+      lighthouse_options: !isMobile && createNodeForm.is_lighthouse
         ? { interval_seconds: parseInt(createNodeForm.interval_seconds, 10) || 60 }
         : undefined,
+      platform,
     };
     createCertificate(body)
       .then((res) => {
@@ -281,15 +298,25 @@ export function Nodes() {
         setSuggestedIpError(null);
         loadNodes();
         setShowCreateNodeForm(false);
-        return createEnrollmentCode(res.node_id, 24);
-      })
-      .then((enrollData) => {
-        setEnrollmentCodeModal({
-          open: true,
-          data: enrollData,
-          nodeId: enrollData.node_id,
-          loading: false,
-          enrollmentSuccess: false,
+        if (isMobile) {
+          setMobileConfigPanel({
+            open: true,
+            nodeId: res.node_id,
+            hostname: res.hostname,
+            platform,
+            enableDns: createNodeForm.android_dns_opt_in,
+            reissued: false,
+          });
+          return;
+        }
+        return createEnrollmentCode(res.node_id, 24).then((enrollData) => {
+          setEnrollmentCodeModal({
+            open: true,
+            data: enrollData,
+            nodeId: enrollData.node_id,
+            loading: false,
+            enrollmentSuccess: false,
+          });
         });
       })
       .catch((e) => setError(e.message))
@@ -328,10 +355,17 @@ export function Nodes() {
   useEffect(() => {
     // When creating a node and this is the first node in the selected network,
     // default Lighthouse to checked so the public endpoint field is visible.
-    if (showCreateNodeForm && isFirstNodeInNetwork(createNodeForm.network_id) && !createNodeForm.is_lighthouse) {
+    // Mobile platforms can't be a lighthouse at all - see the blocking
+    // validation in handleCreateNodeSubmit for that case instead.
+    if (
+      showCreateNodeForm &&
+      createNodeForm.platform === "desktop" &&
+      isFirstNodeInNetwork(createNodeForm.network_id) &&
+      !createNodeForm.is_lighthouse
+    ) {
       setCreateNodeForm((f) => ({ ...f, is_lighthouse: true }));
     }
-  }, [showCreateNodeForm, createNodeForm.network_id]);
+  }, [showCreateNodeForm, createNodeForm.network_id, createNodeForm.platform]);
 
   const isOnlyLighthouseInNetwork = (node: Node): boolean =>
     !!node?.is_lighthouse &&
@@ -466,21 +500,32 @@ export function Nodes() {
   const handleReEnrollConfirm = () => {
     const node = reEnrollModal.node;
     if (!node) return;
+    const isMobile = node.platform !== "desktop";
     setReEnrollModal((s) => ({ ...s, processing: true }));
     reenrollNode(node.id)
       .then(() => {
         closeReEnrollModal();
         closeDeviceDetailsModal();
         loadNodes();
-        return createEnrollmentCode(node.id, 24);
-      })
-      .then((enrollData) => {
-        setEnrollmentCodeModal({
-          open: true,
-          data: enrollData,
-          nodeId: enrollData.node_id,
-          loading: false,
-          enrollmentSuccess: false,
+        if (isMobile) {
+          setMobileConfigPanel({
+            open: true,
+            nodeId: node.id,
+            hostname: node.hostname,
+            platform: node.platform,
+            enableDns: false,
+            reissued: true,
+          });
+          return;
+        }
+        return createEnrollmentCode(node.id, 24).then((enrollData) => {
+          setEnrollmentCodeModal({
+            open: true,
+            data: enrollData,
+            nodeId: enrollData.node_id,
+            loading: false,
+            enrollmentSuccess: false,
+          });
         });
       })
       .catch((e) => setError(e.message))
@@ -510,10 +555,29 @@ export function Nodes() {
   };
 
   const handleDownloadConfig = async (node: Node) => {
+    // Plain re-download: iOS's DNS block is automatic (no opt-in needed) so
+    // this already gets it; Android's DNS override is opt-in and isn't
+    // persisted anywhere, so a bare re-download never silently re-enables it -
+    // use the mobile config panel's checkbox (creation or re-enroll) for that.
     setDownloadError(null);
     try {
       const blob = await getNodeConfigBlob(node.id);
       downloadBlob(blob, `${node.hostname}.yaml`);
+    } catch (e) {
+      setDownloadError(e instanceof Error ? e.message : "Download failed");
+    }
+  };
+
+  const closeMobileConfigPanel = () => {
+    setMobileConfigPanel({ open: false, nodeId: null, hostname: "", platform: "desktop", enableDns: false, reissued: false });
+  };
+
+  const handleDownloadMobileConfig = async () => {
+    if (!mobileConfigPanel.nodeId) return;
+    setDownloadError(null);
+    try {
+      const blob = await getNodeConfigBlob(mobileConfigPanel.nodeId, { enableDns: mobileConfigPanel.enableDns });
+      downloadBlob(blob, `${mobileConfigPanel.hostname}.yaml`);
     } catch (e) {
       setDownloadError(e instanceof Error ? e.message : "Download failed");
     }
@@ -693,6 +757,34 @@ export function Nodes() {
                     </Select>
                   </div>
                   <div>
+                    <Label htmlFor="create_node_platform" value="Platform" />
+                    <Select
+                      id="create_node_platform"
+                      value={createNodeForm.platform}
+                      onChange={(e) => {
+                        const platform = e.target.value as NodePlatform;
+                        setCreateNodeForm((f) => ({
+                          ...f,
+                          platform,
+                          // Mobile devices can't be a lighthouse or relay.
+                          is_lighthouse: platform === "desktop" ? f.is_lighthouse : false,
+                          is_relay: platform === "desktop" ? f.is_relay : false,
+                          android_dns_opt_in: platform === "android" ? f.android_dns_opt_in : false,
+                        }));
+                      }}
+                    >
+                      <option value="desktop">Desktop (runs ncclient)</option>
+                      <option value="ios">iOS (Mobile Nebula app)</option>
+                      <option value="android">Android (Mobile Nebula app)</option>
+                    </Select>
+                    {createNodeForm.platform !== "desktop" && (
+                      <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                        Mobile nodes skip enrollment - after creation you'll download a config file
+                        to import into the Mobile Nebula app (Add Site → From file).
+                      </p>
+                    )}
+                  </div>
+                  <div>
                     <Label htmlFor="create_node_name" value="Node name (hostname)" />
                     <TextInput
                       id="create_node_name"
@@ -775,28 +867,58 @@ export function Nodes() {
                       <Checkbox
                         id="create_node_lighthouse"
                         checked={createNodeForm.is_lighthouse}
+                        disabled={createNodeForm.platform !== "desktop"}
                         onChange={(e) =>
                           setCreateNodeForm((f) => ({ ...f, is_lighthouse: e.target.checked }))
                         }
                       />
                       <Label htmlFor="create_node_lighthouse">Lighthouse</Label>
-                      {isFirstNodeInNetwork(createNodeForm.network_id) && (
+                      {createNodeForm.platform !== "desktop" ? (
                         <span className="text-sm text-gray-500 dark:text-gray-400">
-                          The first node in this network should be a lighthouse so it can accept inbound connections.
+                          Mobile nodes cannot be a lighthouse.
                         </span>
+                      ) : (
+                        isFirstNodeInNetwork(createNodeForm.network_id) && (
+                          <span className="text-sm text-gray-500 dark:text-gray-400">
+                            The first node in this network should be a lighthouse so it can accept inbound connections.
+                          </span>
+                        )
                       )}
                     </div>
                     <div className="flex items-center gap-2">
                       <Checkbox
                         id="create_node_relay"
                         checked={createNodeForm.is_relay}
+                        disabled={createNodeForm.platform !== "desktop"}
                         onChange={(e) =>
                           setCreateNodeForm((f) => ({ ...f, is_relay: e.target.checked }))
                         }
                       />
                       <Label htmlFor="create_node_relay">Relay</Label>
+                      {createNodeForm.platform !== "desktop" && (
+                        <span className="text-sm text-gray-500 dark:text-gray-400">
+                          Mobile nodes cannot be a relay.
+                        </span>
+                      )}
                     </div>
                   </div>
+                  {createNodeForm.platform === "android" && (
+                    <div className="flex items-start gap-2">
+                      <Checkbox
+                        id="create_node_android_dns"
+                        checked={createNodeForm.android_dns_opt_in}
+                        onChange={(e) =>
+                          setCreateNodeForm((f) => ({ ...f, android_dns_opt_in: e.target.checked }))
+                        }
+                        className="mt-1"
+                      />
+                      <Label htmlFor="create_node_android_dns" className="font-normal">
+                        Enable split-horizon DNS (full override - Android has no domain-scoping, so
+                        <strong> all</strong> device DNS routes through this network's lighthouse(s)
+                        while connected, and breaks entirely if they're unreachable). Off by default.
+                      </Label>
+                    </div>
+                  )}
                   {(createNodeForm.is_lighthouse || createNodeForm.is_relay) && (
                     <>
                       <div>
@@ -935,6 +1057,52 @@ export function Nodes() {
             </Card>
           )}
 
+          {mobileConfigPanel.open && (
+            <Card className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                {mobileConfigPanel.reissued ? "Certificate reissued for " : "Mobile config ready for "}
+                {mobileConfigPanel.hostname} ({mobileConfigPanel.platform === "ios" ? "iOS" : "Android"})
+              </h3>
+              <div className="pt-2 space-y-4">
+                {mobileConfigPanel.reissued && (
+                  <p className="text-sm text-gray-600 dark:text-gray-400">
+                    The old config file is no longer valid - download the new one below and
+                    re-import it into Mobile Nebula (Add Site → From file), replacing the old site.
+                  </p>
+                )}
+                {mobileConfigPanel.platform === "android" && (
+                  <div className="flex items-start gap-2">
+                    <Checkbox
+                      id="mobile_panel_android_dns"
+                      checked={mobileConfigPanel.enableDns}
+                      onChange={(e) =>
+                        setMobileConfigPanel((s) => ({ ...s, enableDns: e.target.checked }))
+                      }
+                      className="mt-1"
+                    />
+                    <Label htmlFor="mobile_panel_android_dns" className="font-normal">
+                      Enable split-horizon DNS (full override - all device DNS routes through this
+                      network's lighthouse(s) while connected). Off by default.
+                    </Label>
+                  </div>
+                )}
+                <p className="text-sm text-gray-600 dark:text-gray-400">
+                  Download the config file, then in Mobile Nebula: <strong>Add Site → From file</strong>{" "}
+                  and select the downloaded file.
+                </p>
+                <Button color="purple" onClick={handleDownloadMobileConfig}>
+                  <HiDownload className="w-4 h-4 mr-1" />
+                  Download config.yaml
+                </Button>
+              </div>
+              <div className="flex flex-wrap gap-2 pt-4 border-t border-gray-200 dark:border-gray-700 mt-4">
+                <Button color="gray" onClick={closeMobileConfigPanel}>
+                  Close
+                </Button>
+              </div>
+            </Card>
+          )}
+
           <div className="overflow-x-auto">
             <Table>
               <Table.Head>
@@ -988,37 +1156,55 @@ export function Nodes() {
                               Relay
                             </Badge>
                           )}
-                          {!n.is_lighthouse && !n.is_relay && (
+                          {n.platform === "ios" && (
+                            <Badge color="cyan" size="sm">
+                              iOS
+                            </Badge>
+                          )}
+                          {n.platform === "android" && (
+                            <Badge color="lime" size="sm">
+                              Android
+                            </Badge>
+                          )}
+                          {!n.is_lighthouse && !n.is_relay && n.platform === "desktop" && (
                             <span className="text-gray-600 dark:text-gray-400">Node</span>
                           )}
                         </div>
                       </Table.Cell>
                       <Table.Cell>
-                        {enrollState.type === "enroll" && (
-                          <Button size="xs" color="purple" onClick={() => openEnrollmentCodeModal(n)}>
-                            Enroll
-                          </Button>
-                        )}
-                        {enrollState.type === "re-enroll" && (
-                          <Button size="xs" color="warning" onClick={() => openEnrollmentCodeModal(n)}>
-                            Re-Enroll
-                          </Button>
-                        )}
-                        {enrollState.type === "active" && (
-                          <Badge color="success">Active</Badge>
-                        )}
-                        {enrollState.type === "idle" && (
-                          <Badge
-                            color={
-                              enrollState.severity === "success"
-                                ? "success"
-                                : enrollState.severity === "warning"
-                                  ? "warning"
-                                  : "failure"
-                            }
-                          >
-                            Idle
+                        {n.platform !== "desktop" ? (
+                          <Badge color="gray" size="sm">
+                            Download only
                           </Badge>
+                        ) : (
+                          <>
+                            {enrollState.type === "enroll" && (
+                              <Button size="xs" color="purple" onClick={() => openEnrollmentCodeModal(n)}>
+                                Enroll
+                              </Button>
+                            )}
+                            {enrollState.type === "re-enroll" && (
+                              <Button size="xs" color="warning" onClick={() => openEnrollmentCodeModal(n)}>
+                                Re-Enroll
+                              </Button>
+                            )}
+                            {enrollState.type === "active" && (
+                              <Badge color="success">Active</Badge>
+                            )}
+                            {enrollState.type === "idle" && (
+                              <Badge
+                                color={
+                                  enrollState.severity === "success"
+                                    ? "success"
+                                    : enrollState.severity === "warning"
+                                      ? "warning"
+                                      : "failure"
+                                }
+                              >
+                                Idle
+                              </Badge>
+                            )}
+                          </>
                         )}
                       </Table.Cell>
                       <Table.Cell>
@@ -1368,7 +1554,7 @@ export function Nodes() {
                                             color="warning"
                                             onClick={() => openReEnrollModal(deviceDetailsModal.node!)}
                                           >
-                                            Re-Enroll
+                                            {deviceDetailsModal.node.platform !== "desktop" ? "Reissue Certificate" : "Re-Enroll"}
                                           </Button>
                                           {deviceDetailsModal.node.ip_address && (
                                             <Button
@@ -1428,12 +1614,13 @@ export function Nodes() {
       )}
 
       <Modal show={reEnrollModal.open} onClose={closeReEnrollModal} size="md">
-        <Modal.Header>Re-Enroll Device</Modal.Header>
+        <Modal.Header>
+          {reEnrollModal.node?.platform !== "desktop" ? "Reissue Certificate" : "Re-Enroll Device"}
+        </Modal.Header>
         <Modal.Body>
           <p className="text-gray-700 dark:text-gray-300">
             This will generate a new certificate for this device. The current certificate will be
-            revoked and any node currently enrolled with the old certificate will no longer function.
-            Do you want to continue?
+            revoked and the old config/certificate will no longer function. Do you want to continue?
           </p>
         </Modal.Body>
         <Modal.Footer>
@@ -1446,7 +1633,7 @@ export function Nodes() {
             isProcessing={reEnrollModal.processing}
             disabled={reEnrollModal.processing}
           >
-            Re-Enroll
+            {reEnrollModal.node?.platform !== "desktop" ? "Reissue Certificate" : "Re-Enroll"}
           </Button>
         </Modal.Footer>
       </Modal>

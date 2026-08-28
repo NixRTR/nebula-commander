@@ -305,14 +305,33 @@ export function ClientDownload() {
               </a>
             </div>
 
-            <h3 className="text-lg font-bold mb-2">Using certificates</h3>
+            <h3 className="text-lg font-bold mb-2">Setting up a mobile node</h3>
+            <p className="text-gray-700 dark:text-gray-300 mb-2">
+              On the <strong>Nodes</strong> page, click <strong>Create Node</strong> and set Platform
+              to <strong>iOS</strong> or <strong>Android</strong>. Mobile nodes skip enrollment
+              entirely (there's no ncclient agent to run) - once created, you'll get a{" "}
+              <strong>Download config.yaml</strong> button instead. That file is a complete,
+              self-contained Nebula config (certificate, key, and CA embedded) ready to import.
+            </p>
             <p className="text-gray-700 dark:text-gray-300 mb-4">
-              Create or sign the node in Nebula Commander (Nodes page), then obtain the certificate bundle (ca.crt, host certificate, host key). Import or paste these into the Nebula mobile app (iOS/Android) following that app’s instructions. The mobile app does not use ncclient or enrollment codes.
+              In the Mobile Nebula app: <strong>Add Site → From file</strong>, then select the
+              downloaded file. If the certificate is ever reissued (e.g. after a group change or a
+              manual "Reissue Certificate"), download the new file the same way and re-import it.
             </p>
 
-            <h3 className="text-lg font-bold mb-2">Magic DNS</h3>
+            <h3 className="text-lg font-bold mb-2">Split-horizon DNS</h3>
+            <p className="text-gray-700 dark:text-gray-300 mb-2">
+              <strong>iOS</strong> gets split-horizon DNS automatically whenever the network's DNS
+              is enabled (Network → DNS page) - Mobile Nebula uses Apple's domain-scoped DNS
+              matching, so only your mesh domain's queries route through the lighthouse; everything
+              else uses normal DNS. No extra configuration needed.
+            </p>
             <p className="text-gray-700 dark:text-gray-300">
-              Magic DNS (split-horizon DNS provided by ncclient on lighthouses) does not work on mobile clients. Mobile devices will resolve names using their normal DNS (e.g. cellular or Wi‑Fi DNS).
+              <strong>Android</strong> has no domain-scoping capability in the OS - enabling DNS
+              there is an explicit opt-in checkbox on the Create Node form, and it's a{" "}
+              <strong>full override</strong>: all device DNS routes through the network's
+              lighthouse(s) while connected, and breaks entirely if they're unreachable. Off by
+              default; only enable it if you understand that tradeoff.
             </p>
           </Card>
         </Tabs.Item>

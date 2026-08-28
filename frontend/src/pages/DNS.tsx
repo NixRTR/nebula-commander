@@ -8,6 +8,7 @@ interface DNSConfig {
   domain: string;
   enabled: boolean;
   upstream_servers: string[];
+  extra_dns_resolvers: string[];
 }
 
 interface NodeItem {
@@ -30,6 +31,7 @@ export function DNS() {
   const [domainInput, setDomainInput] = useState("");
   const [enabled, setEnabled] = useState(true);
   const [upstreamServersText, setUpstreamServersText] = useState("");
+  const [extraDnsResolversText, setExtraDnsResolversText] = useState("");
   const [nodes, setNodes] = useState<NodeItem[]>([]);
   const [aliases, setAliases] = useState<DNSAlias[]>([]);
   const [newAlias, setNewAlias] = useState("");
@@ -70,6 +72,7 @@ export function DNS() {
           setDomainInput(cfg.domain);
           setEnabled(cfg.enabled);
           setUpstreamServersText((cfg.upstream_servers ?? []).join("\n"));
+          setExtraDnsResolversText((cfg.extra_dns_resolvers ?? []).join("\n"));
         } else {
           setConfig(null);
           const defaultDomain =
@@ -77,6 +80,7 @@ export function DNS() {
           setDomainInput(defaultDomain);
           setEnabled(true);
           setUpstreamServersText("");
+          setExtraDnsResolversText("");
         }
         setNodes(nodeList);
         setAliases(aliasList);
@@ -104,14 +108,20 @@ export function DNS() {
         .split(/\n/)
         .map((s) => s.trim())
         .filter(Boolean);
+      const extraResolvers = extraDnsResolversText
+        .split(/\n/)
+        .map((s) => s.trim())
+        .filter(Boolean);
       const body = {
         domain: domainInput.trim(),
         enabled,
         upstream_servers: servers,
+        extra_dns_resolvers: extraResolvers,
       };
       const saved = await upsertDNSConfig(selectedNetworkId as number, body);
       setConfig(saved);
       setUpstreamServersText((saved.upstream_servers ?? []).join("\n"));
+      setExtraDnsResolversText((saved.extra_dns_resolvers ?? []).join("\n"));
     } catch (e: any) {
       setError(e.message || "Failed to save DNS config");
     } finally {
@@ -246,6 +256,24 @@ export function DNS() {
                   Used for non-local queries. Leave empty to use container default resolvers.
                 </p>
               </div>
+              <div className="mt-4">
+                <Label htmlFor="dns_extra_resolvers" value="Extra DNS resolvers (one per line)" />
+                <textarea
+                  id="dns_extra_resolvers"
+                  value={extraDnsResolversText}
+                  onChange={(e) => setExtraDnsResolversText(e.target.value)}
+                  placeholder="203.0.113.10"
+                  rows={3}
+                  className="mt-1 block w-full max-w-md rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
+                />
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                  Additional resolvers for this network's own domain, beyond your lighthouses -
+                  e.g. an externally-reachable DNS server that's also authoritative for this
+                  zone, or extra fallback redundancy. Used by both desktop split-horizon DNS and
+                  mobile config downloads. (This is the opposite direction from "Upstream DNS
+                  servers" above, which is where non-local queries get forwarded.)
+                </p>
+              </div>
             </div>
 
             <div className="mb-6">
@@ -292,8 +320,8 @@ export function DNS() {
               <h2 className="text-xl font-semibold mb-2">Aliases</h2>
               <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
                 Prefix an alias with <code>*.</code> (e.g. <code>*.api</code>) to match every subdomain
-                too - both <code>metis.{config?.domain ?? "domain"}</code> and anything under it, like{" "}
-                <code>foo.metis.{config?.domain ?? "domain"}</code>, will resolve to the selected node.
+                too - both <code>api.{config?.domain ?? "domain"}</code> and anything under it, like{" "}
+                <code>foo.api.{config?.domain ?? "domain"}</code>, will resolve to the selected node.
               </p>
               <div className="overflow-x-auto mb-2">
                 <Table>
@@ -338,7 +366,7 @@ export function DNS() {
                         <TextInput
                           value={newAlias}
                           onChange={(e) => setNewAlias(e.target.value)}
-                          placeholder="Alias (e.g. api or *.metis)"
+                          placeholder="Alias (e.g. api or *.api)"
                         />
                       </Table.Cell>
                       <Table.Cell>
