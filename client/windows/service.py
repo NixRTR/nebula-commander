@@ -202,4 +202,14 @@ class NebulaCommanderService(win32serviceutil.ServiceFramework):
 
 
 if __name__ == "__main__":
-    win32serviceutil.HandleCommandLine(NebulaCommanderService)
+    if len(sys.argv) == 1:
+        # No verb (install/start/debug/...) - this is how the SCM itself launches
+        # the service binary, so dispatch straight into the service framework
+        # instead of falling through to HandleCommandLine, which just prints a
+        # usage message and exits when there are no arguments (it never attempts
+        # to register with the SCM in that case).
+        servicemanager.Initialize()
+        servicemanager.PrepareToHostSingle(NebulaCommanderService)
+        servicemanager.StartServiceCtrlDispatcher()
+    else:
+        win32serviceutil.HandleCommandLine(NebulaCommanderService)
