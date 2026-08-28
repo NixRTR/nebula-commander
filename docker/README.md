@@ -162,13 +162,9 @@ docker compose -f docker-compose.yml -f docker-compose-keycloak.yml logs -f
 
 ### Zero-touch Keycloak setup (recommended)
 
-Keycloak can create the **nebula-commander** realm, client, roles, and theme at startup with **no Admin UI steps**. The compose file uses a **custom Keycloak image** that has the realm import and nebula theme baked in; no host mounts for `keycloak-import` or `keycloak-theme` are required.
+Keycloak can create the **nebula-commander** realm, client, roles, and theme at startup with **no Admin UI steps**. The compose file uses the **stock upstream Keycloak image** (`quay.io/keycloak/keycloak`) — no custom image to build. The realm import and nebula theme are delivered via read-only bind mounts (`docker/keycloak-import`, `docker/keycloak-theme/nebula`) defined in `docker-compose-keycloak.yml`, and an entrypoint override substitutes the placeholders below into the realm JSON before Keycloak starts.
 
-1. **Build the Keycloak image** (from the repository root):
-   ```bash
-   docker build -f docker/keycloak/Dockerfile -t nebula-commander-keycloak:latest .
-   ```
-   For the nebula login background, ensure `nebula-bg.webp` exists in `docker/keycloak-theme/nebula/login/resources/img/` (or copy it from `frontend/public/nebula-bg.webp`) before building.
+1. For the nebula login background, ensure `nebula-bg.webp` exists in `docker/keycloak-theme/nebula/login/resources/img/` (or copy it from `frontend/public/nebula-bg.webp`) before starting Keycloak.
 
 2. **Set backend OIDC variables** in `env.d/backend` (same file the backend uses):
    - **`NEBULA_COMMANDER_PUBLIC_URL`** — URL where users reach the app (FQDN or host:port), e.g. `https://nebula.example.com` or `http://192.168.1.1:9091`. Redirect URI is derived from this; all auth flows use the public interface (frontend and backend can be on different hosts).
@@ -182,7 +178,7 @@ Keycloak can create the **nebula-commander** realm, client, roles, and theme at 
    ```bash
    docker compose -f docker-compose.yml -f docker-compose-keycloak.yml up -d
    ```
-   On first start, the in-container startup script substitutes placeholders in the realm JSON from `env.d/backend`, then Keycloak imports the realm. The **nebula** login/account theme is already in the image. If the realm already exists, import is skipped.
+   On first start, the in-container startup script substitutes placeholders in the realm JSON from `env.d/backend`, then Keycloak imports the realm. The **nebula** login/account theme is bind-mounted in. If the realm already exists, import is skipped. Since the realm JSON and theme are mounted rather than baked into an image, editing either on the host takes effect on the next `docker compose up`/`restart keycloak` — no rebuild needed.
 
 4. **Create a user** in Keycloak Admin (e.g. `http://localhost:8080`) and assign client roles under the `nebula-commander` client (`system-admin`, `network-owner`, or `user`). No other Keycloak configuration is required.
 

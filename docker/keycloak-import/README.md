@@ -2,7 +2,7 @@
 
 The file `nebula-commander-realm.json` is imported by Keycloak at startup when using `start-dev --import-realm`. The realm is only created if it does not already exist.
 
-When using the **custom Keycloak image** (see docker/README.md), this realm JSON is baked into the image. At container startup, the image’s startup script substitutes the placeholders using environment variables, then Keycloak runs with `--import-realm`. No host mount is required.
+This directory is bind-mounted read-only into the Keycloak container (see `docker-compose-keycloak.yml` and docker/README.md — Keycloak uses the stock upstream image, no custom build). At container startup, the entrypoint script substitutes the placeholders below using environment variables and writes the result into Keycloak's internal import directory, then Keycloak runs with `--import-realm`. Editing `nebula-commander-realm.json` on the host takes effect on the next `docker compose up`/`restart keycloak` — no image rebuild needed.
 
 ## Required environment variables (for placeholders)
 

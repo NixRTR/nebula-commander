@@ -27,19 +27,30 @@ services:
       start_period: 10s
 
   # =============================================================================
-  # Keycloak OIDC Provider (custom image: realm + theme baked in, startup script in image)
+  # Keycloak OIDC Provider (stock upstream image; realm + theme delivered via
+  # read-only bind mounts, substitution done by the entrypoint override below)
   # =============================================================================
   keycloak:
-    build:
-      context: ..
-      dockerfile: docker/keycloak/Dockerfile
-    image: ghcr.io/nixrtr/nebula-commander-keycloak:latest
+    image: quay.io/keycloak/keycloak:${KEYCLOAK_VERSION:-26.5.3}
     container_name: keycloak
     restart: unless-stopped
     env_file:
       - env.d/keycloak/keycloak
       # Provide OIDC placeholders for realm import (client secret, redirect URI, public URL)
       - env.d/backend
+    # Strip CRLF at runtime (repo may be checked out with CRLF on Windows;
+    # .gitattributes already forces LF for this script, this is cheap insurance)
+    # then run the startup script, which substitutes env vars into the realm
+    # JSON and execs kc.sh - see docker/keycloak/nebula-commander-start.sh.
+    entrypoint: ["/bin/sh", "-c", "sed 's/\\r$//' /keycloak-entrypoint/nebula-commander-start.sh | /bin/sh"]
+    volumes:
+      # Realm import source (read-only) - the entrypoint script renders the
+      # substituted JSON into the container-internal /opt/keycloak/data/import,
+      # it never writes back into this mount.
+      - ./keycloak-import:/keycloak-import-src:ro
+      # Nebula login/account theme, used directly (no substitution needed).
+      - ./keycloak-theme/nebula:/opt/keycloak/themes/nebula:ro
+      - ./keycloak/nebula-commander-start.sh:/keycloak-entrypoint/nebula-commander-start.sh:ro
     ports:
       - "${KEYCLOAK_PORT:-8080}:8080"
       - "${KEYCLOAK_ADMIN_PORT:-9000}:9000"

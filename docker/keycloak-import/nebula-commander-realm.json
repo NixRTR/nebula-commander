@@ -12,7 +12,7 @@
       "name": "Nebula Commander",
       "enabled": true,
       "publicClient": false,
-      "secret": "JEWEwAgvDVVvBflaKLGLIIVPmaVGGD8I",
+      "secret": "${NEBULA_COMMANDER_OIDC_CLIENT_SECRET}",
       "standardFlowEnabled": true,
       "implicitFlowEnabled": false,
       "directAccessGrantsEnabled": false,
