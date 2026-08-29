@@ -20,7 +20,13 @@ const AuthCallback: React.FC = () => {
     exchangeAuthCode(code)
       .then((token) => {
         setToken(token);
-        navigate('/', { replace: true });
+        const returnUrl = localStorage.getItem('invitation_return_url');
+        if (returnUrl) {
+          localStorage.removeItem('invitation_return_url');
+          navigate(returnUrl, { replace: true });
+        } else {
+          navigate('/', { replace: true });
+        }
       })
       .catch(() => {
         navigate('/login?error=no_token', { replace: true });
