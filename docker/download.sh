@@ -34,6 +34,23 @@ curl -sSL -o env.d.example/backend "${BASE_URL}/env.d.example/backend"
 curl -sSL -o env.d.example/keycloak/keycloak "${BASE_URL}/env.d.example/keycloak/keycloak"
 curl -sSL -o env.d.example/keycloak/postgresql "${BASE_URL}/env.d.example/keycloak/postgresql"
 
+mkdir -p keycloak keycloak-import keycloak-theme/nebula/login/resources/css \
+         keycloak-theme/nebula/login/resources/img keycloak-theme/nebula/login/resources/js
+# Keycloak login theme - keep this file list in sync with docker/keycloak-theme/
+curl -sSL -o keycloak/nebula-commander-start.sh "${BASE_URL}/keycloak/nebula-commander-start.sh"
+curl -sSL -o keycloak-import/README.md "${BASE_URL}/keycloak-import/README.md"
+curl -sSL -o keycloak-import/nebula-commander-realm.json "${BASE_URL}/keycloak-import/nebula-commander-realm.json"
+curl -sSL -o keycloak-theme/README.md "${BASE_URL}/keycloak-theme/README.md"
+curl -sSL -o keycloak-theme/nebula/login/theme.properties "${BASE_URL}/keycloak-theme/nebula/login/theme.properties"
+curl -sSL -o keycloak-theme/nebula/login/login.ftl "${BASE_URL}/keycloak-theme/nebula/login/login.ftl"
+curl -sSL -o keycloak-theme/nebula/login/buttons.ftl "${BASE_URL}/keycloak-theme/nebula/login/buttons.ftl"
+curl -sSL -o keycloak-theme/nebula/login/resources/logo.svg "${BASE_URL}/keycloak-theme/nebula/login/resources/logo.svg"
+curl -sSL -o keycloak-theme/nebula/login/resources/css/login.css "${BASE_URL}/keycloak-theme/nebula/login/resources/css/login.css"
+curl -sSL -o keycloak-theme/nebula/login/resources/js/ensure-login-submit.js "${BASE_URL}/keycloak-theme/nebula/login/resources/js/ensure-login-submit.js"
+curl -sSL -o keycloak-theme/nebula/login/resources/img/logo.svg "${BASE_URL}/keycloak-theme/nebula/login/resources/img/logo.svg"
+curl -sSL -o keycloak-theme/nebula/login/resources/img/nebula-bg.webp "${BASE_URL}/keycloak-theme/nebula/login/resources/img/nebula-bg.webp"
+curl -sSL -o keycloak-theme/nebula/login/resources/img/nebula.webp "${BASE_URL}/keycloak-theme/nebula/login/resources/img/nebula.webp"
+
 echo "Done. Next steps:"
 echo "  1. cp .env.example .env"
 echo "  2. cp -r env.d.example env.d"
