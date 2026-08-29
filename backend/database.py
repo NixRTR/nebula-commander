@@ -369,11 +369,18 @@ def _run_sqlite_migrations() -> None:
         cur.execute("SELECT id FROM users WHERE is_placeholder = 1 LIMIT 1")
         sentinel_row = cur.fetchone()
         if sentinel_row is None:
+            # `role` was dropped from the ORM model long ago but some long-lived
+            # databases still have the physical column as NOT NULL with no
+            # default (it predates system_role and was never backfilled with a
+            # default) - supply a value for it too when it's still present, or
+            # this INSERT hits "NOT NULL constraint failed: users.role".
+            insert_cols = ["oidc_sub", "email", "system_role", "is_placeholder", "created_at"]
+            insert_vals = ["'system:deleted-user'", "'Deleted user'", "'user'", "1", "CURRENT_TIMESTAMP"]
+            if "role" in user_columns:
+                insert_cols.append("role")
+                insert_vals.append("'user'")
             cur.execute(
-                """
-                INSERT INTO users (oidc_sub, email, system_role, is_placeholder, created_at)
-                VALUES ('system:deleted-user', 'Deleted user', 'user', 1, CURRENT_TIMESTAMP)
-                """
+                f"INSERT INTO users ({', '.join(insert_cols)}) VALUES ({', '.join(insert_vals)})"
             )
             sentinel_id = cur.lastrowid
             logger.info("Migration: created sentinel placeholder user (id=%s)", sentinel_id)
