@@ -517,8 +517,8 @@ async def reauth_callback(request: Request, session: AsyncSession = Depends(get_
                 payload_b64 += "=" * (4 - len(payload_b64) % 4)
                 payload = json.loads(base64.urlsafe_b64decode(payload_b64))
                 user_sub = payload.get("sub")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("Failed to decode id_token payload during reauth: %s", e)
     if not user_sub and token_data.get("access_token"):
         # Fallback: userinfo endpoint
         client = get_oauth_client()
@@ -526,8 +526,8 @@ async def reauth_callback(request: Request, session: AsyncSession = Depends(get_
             try:
                 user_info = await client.userinfo(token=token_data)
                 user_sub = user_info.get("sub") if user_info else None
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("Userinfo fallback failed during reauth: %s", e)
     if not user_sub:
         frontend_url = get_safe_redirect_url(request)
         return RedirectResponse(url=f"{frontend_url}/reauth/complete?error=reauth_failed")

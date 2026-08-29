@@ -3,6 +3,7 @@ Database setup and session management for Nebula Commander
 """
 import logging
 import sqlite3
+from datetime import datetime
 from pathlib import Path
 
 from sqlalchemy import event
@@ -374,14 +375,19 @@ def _run_sqlite_migrations() -> None:
             # default (it predates system_role and was never backfilled with a
             # default) - supply a value for it too when it's still present, or
             # this INSERT hits "NOT NULL constraint failed: users.role".
-            insert_cols = ["oidc_sub", "email", "system_role", "is_placeholder", "created_at"]
-            insert_vals = ["'system:deleted-user'", "'Deleted user'", "'user'", "1", "CURRENT_TIMESTAMP"]
+            now = datetime.utcnow().isoformat(sep=" ")
             if "role" in user_columns:
-                insert_cols.append("role")
-                insert_vals.append("'user'")
-            cur.execute(
-                f"INSERT INTO users ({', '.join(insert_cols)}) VALUES ({', '.join(insert_vals)})"
-            )
+                cur.execute(
+                    "INSERT INTO users (oidc_sub, email, system_role, is_placeholder, created_at, role) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    ("system:deleted-user", "Deleted user", "user", 1, now, "user"),
+                )
+            else:
+                cur.execute(
+                    "INSERT INTO users (oidc_sub, email, system_role, is_placeholder, created_at) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    ("system:deleted-user", "Deleted user", "user", 1, now),
+                )
             sentinel_id = cur.lastrowid
             logger.info("Migration: created sentinel placeholder user (id=%s)", sentinel_id)
         else:
