@@ -29,7 +29,7 @@ def _check_path_under_roots(path: Path, allowed_roots: List[Path]) -> Path:
     for root in allowed_roots:
         try:
             root_resolved = root.resolve()
-        except OSEError:
+        except OSError:
             continue
         try:
             resolved.relative_to(root_resolved)
