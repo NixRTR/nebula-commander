@@ -2,7 +2,8 @@
 import time
 from collections import defaultdict
 from typing import Dict, Tuple
-from fastapi import Request, HTTPException
+from fastapi import Request
+from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import logging
 
@@ -95,9 +96,16 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                     "Rate limit exceeded for %s on %s (%d requests in %d seconds)",
                     client_id, endpoint_id, len(self.requests[key]), window_seconds
                 )
-                raise HTTPException(
+                # Return a response directly rather than raising HTTPException: an
+                # exception raised here (before call_next()) escapes Starlette's
+                # exception-handling middleware entirely and surfaces as an
+                # unhandled 500 instead of a clean 429 - a well-known
+                # BaseHTTPMiddleware gotcha, confirmed live in production.
+                return JSONResponse(
                     status_code=429,
-                    detail=f"Rate limit exceeded. Maximum {max_requests} requests per {window_seconds} seconds."
+                    content={
+                        "detail": f"Rate limit exceeded. Maximum {max_requests} requests per {window_seconds} seconds."
+                    },
                 )
             
             # Record this request
