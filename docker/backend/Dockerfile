@@ -45,4 +45,10 @@ EXPOSE 8081
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python3 -c "import urllib.request; urllib.request.urlopen('http://localhost:8081/api/health')" || exit 1
 
-CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8081"]
+
+# --proxy-headers trusts X-Forwarded-For/X-Forwarded-Proto to populate
+# request.client and the URL scheme. Safe to trust from any peer here: this
+# container has no published host port (see docker-compose.yml) and is only
+# ever reachable from the frontend/nginx container on the compose network,
+# which already sets these headers correctly from the real client IP.
+CMD ["python", "-m", "uvicorn", "backend.main:app", "--host", "0.0.0.0", "--port", "8081", "--proxy-headers", "--forwarded-allow-ips=*"]
