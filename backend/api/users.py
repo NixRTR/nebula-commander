@@ -3,14 +3,21 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import UserInfo
 from ..auth.permissions import require_system_admin
 from ..auth.reauth import clear_reauth_challenge, decode_reauth_token, verify_reauth
 from ..database import get_session
-from ..models import User, NetworkPermission
+from ..models import (
+    User,
+    NetworkPermission,
+    NodePermission,
+    AccessGrant,
+    Invitation,
+    AuditLog,
+)
 from ..services.audit import get_client_ip, log_audit
 
 router = APIRouter(prefix="/api/users", tags=["users"])
@@ -38,7 +45,9 @@ async def list_users(
     session: AsyncSession = Depends(get_session),
 ):
     """List all users (system admins only)."""
-    result = await session.execute(select(User).order_by(User.created_at.desc()))
+    result = await session.execute(
+        select(User).where(User.is_placeholder.is_(False)).order_by(User.created_at.desc())
+    )
     users = result.scalars().all()
     
     responses = []
@@ -186,6 +195,9 @@ async def delete_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
+    if user.is_placeholder:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete the system placeholder user")
+
     reauth_payload = decode_reauth_token(body.reauth_token)
     if not reauth_payload or reauth_payload.get("sub") != admin.sub:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired reauthentication")
@@ -195,6 +207,30 @@ async def delete_user(
     expected_confirmation = user.email or user.oidc_sub
     if body.confirmation != expected_confirmation:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Confirmation does not match user's email")
+
+    # Attribution ("who did this") columns aren't the user's own data - redirect
+    # them to the reserved placeholder (NOT NULL columns) or null them out
+    # (nullable columns) instead of leaving them dangling, so the delete below
+    # satisfies PRAGMA foreign_keys=ON. Permission/access-grant rows *owned by*
+    # this user are handled by ORM cascade on session.delete() (Network/Node
+    # permissions, AccessGrant.admin_user).
+    sentinel = await session.scalar(select(User).where(User.is_placeholder.is_(True)))
+    if sentinel is not None:
+        await session.execute(
+            update(Invitation).where(Invitation.invited_by_user_id == user.id).values(invited_by_user_id=sentinel.id)
+        )
+        await session.execute(
+            update(AccessGrant).where(AccessGrant.granted_by_user_id == user.id).values(granted_by_user_id=sentinel.id)
+        )
+    await session.execute(
+        update(NetworkPermission).where(NetworkPermission.invited_by_user_id == user.id).values(invited_by_user_id=None)
+    )
+    await session.execute(
+        update(NodePermission).where(NodePermission.granted_by_user_id == user.id).values(granted_by_user_id=None)
+    )
+    await session.execute(
+        update(AuditLog).where(AuditLog.actor_user_id == user.id).values(actor_user_id=None)
+    )
 
     await session.delete(user)
     await session.flush()

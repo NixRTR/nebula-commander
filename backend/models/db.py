@@ -110,6 +110,9 @@ class Node(Base):
     permissions: Mapped[list["NodePermission"]] = relationship(
         "NodePermission", back_populates="node", cascade="all, delete-orphan"
     )
+    dns_aliases: Mapped[list["NetworkDNSAlias"]] = relationship(
+        "NetworkDNSAlias", back_populates="node", cascade="all, delete-orphan"
+    )
 
 
 class Certificate(Base):
@@ -135,16 +138,23 @@ class User(Base):
     oidc_sub: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     system_role: Mapped[str] = mapped_column(String(64), default="user")  # system-admin or user; network ownership is per-network
+    # Marks the single reserved "deleted user" placeholder row (see backend/api/users.py::delete_user) -
+    # attribution columns that can't be NULL (Invitation.invited_by_user_id, AccessGrant.granted_by_user_id)
+    # get redirected here instead of the real user on delete, so PRAGMA foreign_keys=ON stays satisfiable.
+    is_placeholder: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     network_permissions: Mapped[list["NetworkPermission"]] = relationship(
-        "NetworkPermission", back_populates="user", foreign_keys="NetworkPermission.user_id"
+        "NetworkPermission", back_populates="user", foreign_keys="NetworkPermission.user_id",
+        cascade="all, delete-orphan"
     )
     node_permissions: Mapped[list["NodePermission"]] = relationship(
-        "NodePermission", back_populates="user", foreign_keys="NodePermission.user_id"
+        "NodePermission", back_populates="user", foreign_keys="NodePermission.user_id",
+        cascade="all, delete-orphan"
     )
     granted_access: Mapped[list["AccessGrant"]] = relationship(
-        "AccessGrant", back_populates="admin_user", foreign_keys="AccessGrant.admin_user_id"
+        "AccessGrant", back_populates="admin_user", foreign_keys="AccessGrant.admin_user_id",
+        cascade="all, delete-orphan"
     )
 
 
@@ -299,7 +309,7 @@ class NetworkDNSAlias(Base):
     alias: Mapped[str] = mapped_column(String(255), nullable=False)
 
     network: Mapped["Network"] = relationship("Network", back_populates="dns_aliases")
-    node: Mapped["Node"] = relationship("Node")
+    node: Mapped["Node"] = relationship("Node", back_populates="dns_aliases")
 
     __table_args__ = (
         UniqueConstraint(

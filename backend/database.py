@@ -35,6 +35,7 @@ if _db_url.startswith("sqlite"):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
         cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
 AsyncSessionLocal = async_sessionmaker(
@@ -353,6 +354,64 @@ def _run_sqlite_migrations() -> None:
                 )
             """)
             logger.info("Migration: created table reauth_challenges")
+
+        # Add is_placeholder column to users table (marks the reserved "deleted
+        # user" sentinel row - see backend/api/users.py::delete_user)
+        cur.execute("PRAGMA table_info(users)")
+        user_columns = {row[1] for row in cur.fetchall()}
+        if "is_placeholder" not in user_columns:
+            cur.execute("ALTER TABLE users ADD COLUMN is_placeholder BOOLEAN DEFAULT 0")
+            logger.info("Migration: added column users.is_placeholder")
+
+        # Ensure exactly one sentinel "deleted user" row exists, then repair any
+        # rows already left dangling by a user delete under the old code (FK
+        # enforcement has never been on, so this could already have happened).
+        cur.execute("SELECT id FROM users WHERE is_placeholder = 1 LIMIT 1")
+        sentinel_row = cur.fetchone()
+        if sentinel_row is None:
+            cur.execute(
+                """
+                INSERT INTO users (oidc_sub, email, system_role, is_placeholder, created_at)
+                VALUES ('system:deleted-user', 'Deleted user', 'user', 1, CURRENT_TIMESTAMP)
+                """
+            )
+            sentinel_id = cur.lastrowid
+            logger.info("Migration: created sentinel placeholder user (id=%s)", sentinel_id)
+        else:
+            sentinel_id = sentinel_row[0]
+
+        cur.execute(
+            "UPDATE invitations SET invited_by_user_id = ? "
+            "WHERE invited_by_user_id NOT IN (SELECT id FROM users)",
+            (sentinel_id,),
+        )
+        if cur.rowcount:
+            logger.info("Migration: repaired %d orphaned invitations.invited_by_user_id row(s)", cur.rowcount)
+        cur.execute(
+            "UPDATE access_grants SET granted_by_user_id = ? "
+            "WHERE granted_by_user_id NOT IN (SELECT id FROM users)",
+            (sentinel_id,),
+        )
+        if cur.rowcount:
+            logger.info("Migration: repaired %d orphaned access_grants.granted_by_user_id row(s)", cur.rowcount)
+        cur.execute(
+            "UPDATE network_permissions SET invited_by_user_id = NULL "
+            "WHERE invited_by_user_id IS NOT NULL AND invited_by_user_id NOT IN (SELECT id FROM users)"
+        )
+        if cur.rowcount:
+            logger.info("Migration: repaired %d orphaned network_permissions.invited_by_user_id row(s)", cur.rowcount)
+        cur.execute(
+            "UPDATE node_permissions SET granted_by_user_id = NULL "
+            "WHERE granted_by_user_id IS NOT NULL AND granted_by_user_id NOT IN (SELECT id FROM users)"
+        )
+        if cur.rowcount:
+            logger.info("Migration: repaired %d orphaned node_permissions.granted_by_user_id row(s)", cur.rowcount)
+        cur.execute(
+            "UPDATE audit_log SET actor_user_id = NULL "
+            "WHERE actor_user_id IS NOT NULL AND actor_user_id NOT IN (SELECT id FROM users)"
+        )
+        if cur.rowcount:
+            logger.info("Migration: repaired %d orphaned audit_log.actor_user_id row(s)", cur.rowcount)
 
         conn.commit()
     finally:
