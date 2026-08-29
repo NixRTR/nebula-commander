@@ -225,12 +225,19 @@ jobs:
       - name: Add WiX Util extension
         run: wix extension add -g WixToolset.Util.wixext/5.0.0
 
+      - name: Add WiX UI extension
+        run: wix extension add -g WixToolset.UI.wixext/5.0.2
+
       - name: Build MSI
         id: build-msi
         working-directory: installer/windows
         run: |
           $version = "${{ github.ref_name }}".TrimStart('v')
-          wix build Product.wxs -ext WixToolset.Util.wixext -o NebulaCommander-windows-amd64.msi -d "Version=$version" -arch x64
+          # MSI ProductVersion must be purely numeric dotted (major.minor.build); a semver
+          # pre-release suffix like "-rc1" is invalid there and produces an out-of-spec MSI
+          # (WiX only warns, never errors, so this must be stripped explicitly).
+          $msiVersion = $version -replace '-.*$', ''
+          wix build Product.wxs -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext -o NebulaCommander-windows-amd64.msi -d "Version=$msiVersion" -arch x64
           if (-not (Test-Path NebulaCommander-windows-amd64.msi)) { exit 1 }
           (Get-Item NebulaCommander-windows-amd64.msi).Length
 
@@ -277,7 +284,9 @@ jobs:
         with:
           files: artifacts/*
           draft: false
-          prerelease: false
+          # SemVer convention: a tag with a hyphen (e.g. v0.3.0-rc1) is a pre-release,
+          # so it won't be marked GitHub's "Latest" and displace a stable release.
+          prerelease: ${{ contains(github.ref_name, '-') }}
           generate_release_notes: false
           overwrite_files: true
         env:

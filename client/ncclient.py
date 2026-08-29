@@ -537,13 +537,19 @@ def _send_heartbeat(
     base: str,
     token: str,
     node_id: int,
+    interval: int,
     debug_log: Callable[[str], None] | None = None,
 ) -> None:
-    """Best-effort liveness ping. Failures are logged (if a debug sink is provided) and ignored."""
+    """Best-effort liveness ping. Failures are logged (if a debug sink is provided) and ignored.
+
+    Reports the configured poll interval so the server can flag a node offline relative to
+    its actual check-in cadence instead of a guessed default.
+    """
     try:
         requests.post(
             f"{base}/api/nodes/{node_id}/heartbeat",
             headers={"Authorization": f"Bearer {token}"},
+            json={"interval_seconds": interval},
             timeout=10,
         )
     except requests.RequestException as e:
@@ -628,7 +634,7 @@ def run_poll_loop(
                     print("Token invalid or expired. Re-enroll with a new code.", file=sys.stderr)
                     sys.exit(1)
                 if r.ok and node_id:
-                    _send_heartbeat(base, token, node_id, dns_debug_log)
+                    _send_heartbeat(base, token, node_id, interval, dns_debug_log)
                 if r.status_code == 304:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
                         nebula_proc = _start_nebula(nebula_bin, output_dir)

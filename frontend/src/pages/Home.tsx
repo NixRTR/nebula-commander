@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Card, Badge } from "flowbite-react";
-import { apiFetch } from "../api/client";
+import { apiFetch, listNetworks, listNodes } from "../api/client";
 import { useOnboarding } from "../contexts/OnboardingContext";
+import { GettingStarted } from "./GettingStarted";
+import { NetworkStatus } from "./NetworkStatus";
+import type { Network } from "../types/networks";
+import type { Node } from "../types/nodes";
 
 interface Health {
   status: string;
@@ -12,6 +16,9 @@ interface Health {
 export function Home() {
   const [health, setHealth] = useState<Health | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [overview, setOverview] = useState<
+    { status: "loading" } | { status: "error" } | { status: "ok"; networks: Network[]; nodes: Node[] }
+  >({ status: "loading" });
   const navigate = useNavigate();
   const { restart } = useOnboarding();
 
@@ -21,79 +28,66 @@ export function Home() {
       .catch((e) => setError(e.message));
   }, []);
 
+  useEffect(() => {
+    Promise.all([listNetworks(), listNodes()])
+      .then(([networks, nodes]) => setOverview({ status: "ok", networks, nodes }))
+      .catch(() => setOverview({ status: "error" }));
+  }, []);
+
   const handleRestartOnboarding = () => {
     restart();
     navigate("/");
   };
 
-  return (
-    <div>
-      <h1 className="text-3xl font-bold mb-6">Home</h1>
+  const hasEnrolledNode = overview.status === "ok" && overview.nodes.some((n) => !!n.first_polled_at);
+  const showGettingStarted =
+    overview.status !== "ok" ||
+    overview.networks.length === 0 ||
+    overview.nodes.length === 0 ||
+    !hasEnrolledNode;
 
-      {/* Optional API Status and debug: Restart onboarding */}
-      {(health || error) && (
-        <div className="mb-6 flex flex-wrap items-center gap-3">
-          {error && <Badge color="failure">API Error</Badge>}
-          {health && !error && (
-            <Badge color="success">API {health.status}</Badge>
-          )}
-          {health?.debug === true && (
-            <button
-              type="button"
-              onClick={handleRestartOnboarding}
-              className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
-            >
-              Restart onboarding
-            </button>
-          )}
-        </div>
+  const statusBadgeRow = (health || error) && (
+    <div className="mb-6 flex flex-wrap items-center gap-3">
+      {error && <Badge color="failure">API Error</Badge>}
+      {health && !error && <Badge color="success">API {health.status}</Badge>}
+      {health?.debug === true && (
+        <button
+          type="button"
+          onClick={handleRestartOnboarding}
+          className="text-sm text-purple-600 dark:text-purple-400 hover:underline"
+        >
+          Restart onboarding
+        </button>
       )}
+    </div>
+  );
 
-      <div className="space-y-8">
+  if (overview.status === "loading") {
+    return (
+      <div>
+        <h1 className="text-3xl font-bold mb-6">Home</h1>
+        {statusBadgeRow}
         <Card>
-          <h2 className="text-2xl font-bold mb-4">What is Nebula Commander?</h2>
-          <p className="text-gray-700 dark:text-gray-300 mb-4">
-            Nebula Commander is a self-hosted control plane for Nebula overlay networks.
-            You create networks (defining your overlay subnet), issue certificates for
-            nodes (hosts), and enroll devices using the <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> client.
-            Nebula Commander does not replace Nebula; it centralizes CA and config so
-            devices can pull their config and certs and run Nebula automatically.
-          </p>
-        </Card>
-
-        <Card>
-          <h2 className="text-2xl font-bold mb-4">How it works</h2>
-          <ol className="list-decimal list-inside space-y-2 text-gray-700 dark:text-gray-300">
-            <li>Create a network in Nebula Commander to define your overlay (e.g. subnet).</li>
-            <li>Create nodes (hosts) and get enrollment codes from the UI.</li>
-            <li>On each device, install <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code>, run enroll with the code, then run the daemon; ncclient pulls config and certs and runs Nebula.</li>
-          </ol>
-        </Card>
-
-        <Card>
-          <h2 className="text-2xl font-bold mb-4">Getting Started</h2>
-          <ul className="list-disc list-inside space-y-2 text-gray-700 dark:text-gray-300">
-            <li>
-              <Link to="/networks" className="text-purple-600 dark:text-purple-400 hover:underline">
-                Create a network
-              </Link>{" "}
-              to define your overlay subnet.
-            </li>
-            <li>
-              <Link to="/nodes" className="text-purple-600 dark:text-purple-400 hover:underline">
-                Create and enroll a node
-              </Link>{" "}
-              to get an enrollment code.
-            </li>
-            <li>
-              <Link to="/client-download" className="text-purple-600 dark:text-purple-400 hover:underline">
-                Install ncclient
-              </Link>{" "}
-              on your device (Linux, Windows, or Mac) and run enroll, then run.
-            </li>
-          </ul>
+          <p className="text-gray-600 dark:text-gray-400">Loading&hellip;</p>
         </Card>
       </div>
+    );
+  }
+
+  if (showGettingStarted) {
+    return (
+      <div>
+        <h1 className="text-3xl font-bold mb-6">Home</h1>
+        {statusBadgeRow}
+        <GettingStarted />
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {statusBadgeRow}
+      <NetworkStatus networks={overview.networks} nodes={overview.nodes} />
     </div>
   );
 }

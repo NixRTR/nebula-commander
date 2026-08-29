@@ -58,6 +58,7 @@ class NodeResponse(BaseModel):
     platform: str = "desktop"
     last_seen: Optional[str] = None
     first_polled_at: Optional[str] = None
+    checkin_interval_seconds: Optional[int] = None
     created_at: str
 
     class Config:
@@ -110,6 +111,7 @@ async def list_nodes(
             platform=n.platform,
             last_seen=n.last_seen.isoformat() if n.last_seen else None,
             first_polled_at=n.first_polled_at.isoformat() if n.first_polled_at else None,
+            checkin_interval_seconds=n.checkin_interval_seconds,
             created_at=n.created_at.isoformat() if n.created_at else "",
         )
         for n in nodes
@@ -289,6 +291,7 @@ async def get_node(
         platform=node.platform,
         last_seen=node.last_seen.isoformat() if node.last_seen else None,
         first_polled_at=node.first_polled_at.isoformat() if node.first_polled_at else None,
+        checkin_interval_seconds=node.checkin_interval_seconds,
         created_at=node.created_at.isoformat() if node.created_at else "",
     )
 

@@ -102,6 +102,7 @@ def _run_sqlite_migrations() -> None:
             ("first_polled_at", "ALTER TABLE nodes ADD COLUMN first_polled_at DATETIME"),
             ("punchy_options", "ALTER TABLE nodes ADD COLUMN punchy_options TEXT"),
             ("platform", "ALTER TABLE nodes ADD COLUMN platform VARCHAR(16) DEFAULT 'desktop'"),
+            ("checkin_interval_seconds", "ALTER TABLE nodes ADD COLUMN checkin_interval_seconds INTEGER"),
         ]:
             if col not in node_columns:
                 cur.execute(sql)

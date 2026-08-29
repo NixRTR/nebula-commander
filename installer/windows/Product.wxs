@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui"
      xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
+  <?ifndef Version?>
   <?define Version = "0.0.0" ?>
+  <?endif?>
   <Package Name="Nebula Commander"
            Manufacturer="NixRTR"
            Version="$(var.Version)"
@@ -17,6 +20,16 @@
     <Property Id="ARPHELPLINK" Value="https://github.com/NixRTR/nebula-commander" />
     <Property Id="ARPPRODUCTICON" Value="NcclientExe" />
     <Icon Id="NcclientExe" SourceFile="redist\ncclient.exe" />
+
+    <!-- Launch the tray app from the finish dialog's optional checkbox. -->
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Nebula Commander now" />
+    <Property Id="WixShellExecTarget" Value="[#NcclientTrayExe]" />
+    <CustomAction Id="LaunchApplication" DllEntry="WixShellExec" Impersonate="yes" BinaryRef="Wix4UtilCA_X86" />
+
+    <ui:WixUI Id="WixUI_Minimal" />
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT AND NOT Installed" />
+    </UI>
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLDIR" Name="Nebula Commander" />

@@ -83,7 +83,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.BACKEND_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ needs.get-version.outputs.version }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(needs.get-version.outputs.version, '-') }}
 
       - name: Build and push backend image
         uses: docker/build-push-action@v5
@@ -129,7 +129,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ needs.get-version.outputs.version }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(needs.get-version.outputs.version, '-') }}
 
       - name: Build and push frontend image
         uses: docker/build-push-action@v5
@@ -176,7 +176,7 @@ jobs:
           images: ${{ env.REGISTRY }}/${{ env.NCCLIENT_IMAGE_NAME }}
           tags: |
             type=raw,value=${{ needs.get-version.outputs.version }}
-            type=raw,value=latest
+            type=raw,value=latest,enable=${{ !contains(needs.get-version.outputs.version, '-') }}
 
       - name: Build and push ncclient image
         uses: docker/build-push-action@v5

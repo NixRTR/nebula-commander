@@ -34,5 +34,6 @@ export interface Node {
   platform: NodePlatform;
   last_seen: string | null;
   first_polled_at: string | null;
+  checkin_interval_seconds: number | null;
   created_at: string;
 }

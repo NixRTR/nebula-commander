@@ -12,6 +12,10 @@ export interface Network {
   subnet_cidr: string;
   ca_cert_path: string | null;
   created_at: string;
+  role?: string;
+  can_manage_nodes?: boolean;
+  can_invite_users?: boolean;
+  can_manage_firewall?: boolean;
 }
 
 export interface NetworkCreate {

@@ -98,6 +98,7 @@ class Node(Base):
     device_token_version: Mapped[int] = mapped_column(Integer, default=1)
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     first_polled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # set when device first fetches config/bundle
+    checkin_interval_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # reported by ncclient on heartbeat; null until first report
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     network: Mapped["Network"] = relationship("Network", back_populates="nodes")

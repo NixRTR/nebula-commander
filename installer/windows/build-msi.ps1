@@ -19,6 +19,6 @@ foreach ($exe in @("ncclient.exe", "ncclient-tray.exe", "ncclient-service.exe"))
 }
 
 $out = "NebulaCommander-windows-amd64.msi"
-& wix build Product.wxs -ext WixToolset.Util.wixext -o $out -d "Version=$Version" -arch x64
+& wix build Product.wxs -ext WixToolset.Util.wixext -ext WixToolset.UI.wixext -o $out -d "Version=$Version" -arch x64
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 Write-Host "Built $out"

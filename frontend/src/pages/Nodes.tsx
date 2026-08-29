@@ -29,37 +29,7 @@ import {
 } from "../api/client";
 import type { CreateEnrollmentCodeResponse } from "../api/client";
 import { startReauthFlow } from "./ReauthComplete";
-
-type EnrollmentState =
-  | { type: "enroll" }
-  | { type: "re-enroll" }
-  | { type: "active" }
-  | { type: "idle"; severity: "success" | "warning" | "failure" };
-
-function getEnrollmentState(node: Node): EnrollmentState {
-  if (!node.first_polled_at) {
-    return { type: "enroll" };
-  }
-  if (node.last_seen) {
-    const lastSeenDate = new Date(node.last_seen);
-    const now = new Date();
-    const minutesSinceLastSeen = (now.getTime() - lastSeenDate.getTime()) / (1000 * 60);
-    if (minutesSinceLastSeen > 24 * 60) {
-      return { type: "re-enroll" };
-    }
-    if (minutesSinceLastSeen <= 30) {
-      return { type: "active" };
-    }
-    if (minutesSinceLastSeen <= 60) {
-      return { type: "idle", severity: "success" };
-    }
-    if (minutesSinceLastSeen <= 180) {
-      return { type: "idle", severity: "warning" };
-    }
-    return { type: "idle", severity: "failure" };
-  }
-  return { type: "re-enroll" };
-}
+import { getEnrollmentState } from "../utils/nodeStatus";
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -1222,17 +1192,12 @@ export function Nodes() {
                               <Badge color="success">Active</Badge>
                             )}
                             {enrollState.type === "idle" && (
-                              <Badge
-                                color={
-                                  enrollState.severity === "success"
-                                    ? "success"
-                                    : enrollState.severity === "warning"
-                                      ? "warning"
-                                      : "failure"
-                                }
-                              >
+                              <Badge color={enrollState.severity === "success" ? "success" : "warning"}>
                                 Idle
                               </Badge>
+                            )}
+                            {enrollState.type === "offline" && (
+                              <Badge color="failure">Offline</Badge>
                             )}
                           </>
                         )}
