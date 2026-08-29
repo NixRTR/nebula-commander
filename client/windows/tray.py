@@ -38,8 +38,9 @@ if _verbose_flag and sys.platform == "win32" and getattr(sys, "frozen", False):
         kernel32.AllocConsole()
         sys.stderr = open("CON", "w", encoding="utf-8")
         sys.stdout = open("CON", "w", encoding="utf-8")
-    except Exception:
-        pass
+    except Exception as e:
+        # _log()/VERBOSE aren't defined yet at this point in module load - plain print.
+        print(f"[tray] Failed to attach console: {e}", file=sys.stderr)
 _verbose_env = os.environ.get("NCCLIENT_TRAY_VERBOSE", "").strip() in ("1", "true", "yes")
 VERBOSE = _verbose_flag or _verbose_env or (hasattr(sys.stdout, "isatty") and sys.stdout.isatty())
 
@@ -297,8 +298,8 @@ def main() -> None:
                 img = icons.icon_image(status)
                 icon_obj.icon = img
                 icon_obj.title = current_message[:128]
-            except Exception:
-                pass
+            except Exception as e:
+                _log(f"Failed to update tray icon: {e}")
 
     def refresh_status() -> None:
         """Poll the service's self-reported status + its SCM state on a timer,
@@ -494,7 +495,7 @@ def main() -> None:
     def on_open_folder(icon: pystray.Icon, item: pystray.MenuItem) -> None:
         folder = shared_root()
         os.makedirs(folder, exist_ok=True)
-        os.startfile(folder)
+        os.startfile(folder)  # nosec B606 - fixed internal path (ProgramData shared root), not external input
 
     def on_autostart(icon: pystray.Icon, item: pystray.MenuItem) -> None:
         if autostart.is_autostart_enabled():
@@ -618,12 +619,12 @@ def main() -> None:
         _log("Ctrl+C received, exiting gracefully")
         try:
             icon_obj.stop()
-        except Exception:
-            pass
+        except Exception as e:
+            _log(f"Failed to stop tray icon during shutdown: {e}")
         try:
             tk_root.destroy()
-        except Exception:
-            pass
+        except Exception as e:
+            _log(f"Failed to destroy tk root during shutdown: {e}")
         sys.exit(0)
     _log("mainloop() returned")
     try:

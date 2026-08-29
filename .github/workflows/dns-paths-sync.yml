@@ -17,6 +17,9 @@ on:
       - '.github/workflows/dns-paths-sync.yml'
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   check:
     name: Check dns_apply.py paths match fallback scripts

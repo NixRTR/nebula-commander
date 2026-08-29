@@ -12,7 +12,7 @@ import argparse
 import os
 import platform
 import shutil
-import subprocess
+import subprocess  # nosec B404 - used with shell=False and validated/fixed args
 import sys
 from pathlib import Path
 
@@ -67,7 +67,7 @@ def build():
     
     # Run PyInstaller (use python -m to avoid PATH issues)
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 - sys.executable is absolute, shell=False
             [sys.executable, "-m", "PyInstaller", "--clean", "ncclient.spec"],
             check=True,
             capture_output=False,
@@ -113,7 +113,7 @@ def test():
     # Test 1: Help command
     print("\nTest 1: --help")
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 - verified local artifact path, shell=False
             [str(exe_path), "--help"],
             capture_output=True,
             text=True,
@@ -133,7 +133,7 @@ def test():
     # Test 2: Version check (via help output)
     print("\nTest 2: Command structure")
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 - verified local artifact path, shell=False
             [str(exe_path), "enroll", "--help"],
             capture_output=True,
             text=True,

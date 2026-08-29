@@ -25,7 +25,7 @@ import hashlib
 import os
 import shutil
 import signal
-import subprocess
+import subprocess  # nosec B404 - used with shell=False and validated/fixed args
 import sys
 import threading
 import time
@@ -48,6 +48,13 @@ def _env_for_system_binaries() -> dict[str, str]:
     for key in _SYSTEM_LIBRARY_ENV_STRIP:
         env.pop(key, None)
     return env
+
+
+def _which(name: str) -> str:
+    """Resolve a system binary to an absolute path before spawning it, so we
+    don't rely on subprocess's own PATH search (falls back to the bare name
+    if not found, so behavior/error messages are unchanged when it's missing)."""
+    return shutil.which(name) or name
 
 
 # systemd unit template for ncclient install (ExecStart path is substituted)
@@ -262,10 +269,9 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
     if not os.path.exists(config):
         return None
     config_abs = os.path.abspath(config)
-    if sys.platform == "win32":
-        nebula_abs = os.path.abspath(nebula_bin) if os.path.dirname(nebula_bin) else (shutil.which(nebula_bin) or nebula_bin)
-    else:
-        nebula_abs = nebula_bin
+    # Resolve to an absolute path before spawning on every platform (not just Windows),
+    # so we don't rely on Popen's own PATH search at spawn time.
+    nebula_abs = os.path.abspath(nebula_bin) if os.path.dirname(nebula_bin) else _which(nebula_bin)
 
     if sys.platform == "win32":
         # Nebula MUST run elevated (TAP device, etc.). Only start via Popen so the child
@@ -291,7 +297,7 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
                     "start_new_session": True,
                     "cwd": output_dir,
                 }
-                proc = subprocess.Popen(
+                proc = subprocess.Popen(  # nosec B603 - path resolved above, shell=False
                     [nebula_abs, "-config", config_abs],
                     **kwargs,
                 )
@@ -310,7 +316,7 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
                     # NCCLIENT_NEBULA_CONSOLE is set (verbose/console mode).
                     "creationflags": subprocess.CREATE_NO_WINDOW,
                 }
-                proc = subprocess.Popen(
+                proc = subprocess.Popen(  # nosec B603 - path resolved above, shell=False
                     [nebula_abs, "-config", config_abs],
                     **kwargs,
                 )
@@ -333,8 +339,8 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
             "start_new_session": True,
             "cwd": output_dir,
         }
-        proc = subprocess.Popen(
-            [nebula_bin, "-config", config_abs],
+        proc = subprocess.Popen(  # nosec B603 - path resolved above, shell=False
+            [nebula_abs, "-config", config_abs],
             **kwargs,
         )
         print(f"Started Nebula (PID {proc.pid})")
@@ -355,32 +361,32 @@ def _stop_nebula(proc: subprocess.Popen | None) -> None:
         except subprocess.TimeoutExpired:
             proc.kill()
             proc.wait()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error stopping Nebula process: {e}", file=sys.stderr)
         if getattr(proc, "stderr", None) is not None and proc.stderr is not sys.stderr:
             try:
                 proc.stderr.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error closing Nebula stderr handle: {e}", file=sys.stderr)
         print("Stopped Nebula")
         return
     if sys.platform == "win32":
         # We started Nebula elevated (runas) so we have no handle; try to stop by name.
         try:
-            subprocess.run(
-                ["taskkill", "/IM", "nebula.exe", "/F"],
+            subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+                [_which("taskkill"), "/IM", "nebula.exe", "/F"],
                 capture_output=True,
                 timeout=10,
             )
             print("Stopped Nebula")
-        except (FileNotFoundError, subprocess.TimeoutExpired, Exception):
-            pass
+        except (FileNotFoundError, subprocess.TimeoutExpired, Exception) as e:
+            print(f"taskkill failed: {e}", file=sys.stderr)
 
 
 def _restart_systemd_service(service_name: str) -> bool:
     try:
-        subprocess.run(
-            ["systemctl", "restart", service_name],
+        subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("systemctl"), "restart", service_name],
             check=True,
             capture_output=True,
             timeout=30,
@@ -495,8 +501,9 @@ def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
 
     try:
         _sysenv = _env_for_system_binaries()
-        subprocess.run(["systemctl", "daemon-reload"], check=True, capture_output=True, timeout=30, env=_sysenv)
-        subprocess.run(["systemctl", "enable", "ncclient"], check=True, capture_output=True, timeout=30, env=_sysenv)
+        _systemctl = _which("systemctl")
+        subprocess.run([_systemctl, "daemon-reload"], check=True, capture_output=True, timeout=30, env=_sysenv)  # nosec B603 - fixed command resolved via shutil.which, shell=False
+        subprocess.run([_systemctl, "enable", "ncclient"], check=True, capture_output=True, timeout=30, env=_sysenv)  # nosec B603 - fixed command resolved via shutil.which, shell=False
         print("Enabled ncclient service.")
     except subprocess.CalledProcessError as e:
         print(f"systemctl failed: {e.stderr.decode() if e.stderr else e}", file=sys.stderr)
@@ -512,7 +519,9 @@ def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
             ans = _prompt("Start ncclient service now?", "Y").strip().upper()
             if ans in ("", "Y", "YES"):
                 try:
-                    subprocess.run(["systemctl", "start", "ncclient"], check=True, capture_output=True, timeout=30, env=_env_for_system_binaries())
+                    subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+                        [_which("systemctl"), "start", "ncclient"], check=True, capture_output=True, timeout=30, env=_env_for_system_binaries()
+                    )
                     print("Started ncclient service.")
                 except subprocess.CalledProcessError as e:
                     print(f"systemctl start failed: {e.stderr.decode() if e.stderr else e}", file=sys.stderr)
@@ -726,8 +735,8 @@ def cmd_run(
 
     try:
         signal.signal(signal.SIGTERM, lambda s, f: stop_event.set())
-    except (ValueError, OSError):
-        pass
+    except (ValueError, OSError) as e:
+        print(f"Could not register SIGTERM handler: {e}", file=sys.stderr)
     try:
         run_poll_loop(
             server,

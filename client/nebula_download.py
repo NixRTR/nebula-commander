@@ -8,7 +8,8 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
+import shutil
+import subprocess  # nosec B404 - used with shell=False and validated/fixed args
 import tempfile
 import zipfile
 from typing import Callable, Optional
@@ -17,6 +18,14 @@ NEBULA_VERSION_DEFAULT = "v1.10.2"
 NEBULA_URL_TEMPLATE = "https://github.com/slackhq/nebula/releases/download/{version}/nebula-windows-amd64.zip"
 NEBULA_RELEASES_URL = "https://github.com/slackhq/nebula/releases"
 NEBULA_API_LATEST = "https://api.github.com/repos/slackhq/nebula/releases/latest"
+
+
+def _validate_github_url(url: str) -> None:
+    """Reject anything that isn't a fixed, trusted GitHub host - defense in depth
+    for the urlretrieve/urlopen calls below, even though callers never pass a
+    non-GitHub URL today."""
+    if not (url.startswith("https://github.com/") or url.startswith("https://api.github.com/")):
+        raise ValueError(f"Refusing to fetch non-GitHub URL: {url}")
 
 
 def _noop_log(_msg: str) -> None:
@@ -36,13 +45,14 @@ def download_nebula_to_dir(
     import urllib.request
 
     url = NEBULA_URL_TEMPLATE.format(version=version)
+    _validate_github_url(url)
     exe_path = os.path.join(dest_dir, "nebula.exe")
     os.makedirs(dest_dir, exist_ok=True)
     zip_path = os.path.join(tempfile.gettempdir(), "nebula-windows-amd64.zip")
     log(f"Download Nebula: version={version}, url={url}, dest_dir={dest_dir}")
     try:
         log("Download Nebula: requesting URL...")
-        urllib.request.urlretrieve(url, zip_path)
+        urllib.request.urlretrieve(url, zip_path)  # nosec B310 - fixed https:// GitHub host, scheme validated above
         log(f"Download Nebula: saved to {zip_path}, size={os.path.getsize(zip_path)}")
     except Exception as e:
         err_msg = f"{type(e).__name__}: {e}"
@@ -80,8 +90,8 @@ def get_nebula_version(nebula_bin: str, log: Callable[[str], None] = _noop_log) 
     """Run nebula -version (or --version) and parse version string. Returns e.g. '1.10.2' or None."""
     for flag in ("-version", "--version"):
         try:
-            out = subprocess.run(
-                [nebula_bin, flag],
+            out = subprocess.run(  # nosec B603 - resolved via shutil.which, shell=False
+                [shutil.which(nebula_bin) or nebula_bin, flag],
                 capture_output=True,
                 text=True,
                 timeout=10,
@@ -100,11 +110,12 @@ def fetch_latest_nebula_tag(log: Callable[[str], None] = _noop_log) -> Optional[
     import urllib.request
 
     try:
+        _validate_github_url(NEBULA_API_LATEST)
         req = urllib.request.Request(
             NEBULA_API_LATEST,
             headers={"Accept": "application/json"},
         )
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosec B310 - fixed https:// GitHub host, scheme validated above
             data = json.loads(resp.read().decode())
         tag = data.get("tag_name")
         return tag if isinstance(tag, str) and tag else None

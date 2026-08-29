@@ -184,8 +184,8 @@ class NebulaCommanderService(win32serviceutil.ServiceFramework):
                 try:
                     win32pipe.DisconnectNamedPipe(pipe)
                     win32file.CloseHandle(pipe)
-                except Exception:
-                    pass
+                except Exception as e:
+                    servicemanager.LogWarningMsg(f"Pipe cleanup failed: {e}")
 
     def _run(self) -> None:
         save_status("starting", "Service starting")

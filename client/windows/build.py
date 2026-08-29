@@ -15,7 +15,7 @@ bundle Nebula either way - it's fetched by whichever process downloads it).
 import argparse
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404 - used with shell=False and validated/fixed args
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -48,7 +48,7 @@ def run_pyinstaller(spec_name: str) -> int:
         return 1
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", spec]
     print("Running:", " ".join(cmd))
-    return subprocess.call(cmd, cwd=SCRIPT_DIR)
+    return subprocess.call(cmd, cwd=SCRIPT_DIR)  # nosec B603 - sys.executable is absolute, shell=False
 
 
 def main() -> int:

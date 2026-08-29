@@ -142,7 +142,7 @@ def settings_dialog(
     try:
         style = ttk.Style()
         style.configure("Small.TLabel", font=("TkDefaultFont", 8))
-    except Exception:
+    except Exception:  # nosec B110 - cosmetic ttk styling, no functional impact
         pass
 
     # Show only the saved value; never auto-fill from bundled path so user's "empty" choice sticks.

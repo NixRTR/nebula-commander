@@ -11,8 +11,9 @@ or: ping <host>.nebula.example.com (uses system resolver, which respects NRPT).
 """
 import json
 import os
+import re
 import shutil
-import subprocess
+import subprocess  # nosec B404 - used with shell=False and validated/fixed args
 import sys
 
 # When calling systemctl, avoid passing PyInstaller lib path (same as ncclient)
@@ -34,6 +35,24 @@ RESOLV_MARKER = "# nebula-commander"
 
 # Mirrored in contrib/dns-apply-windows.ps1 - see contrib/check_dns_paths_sync.py.
 NRPT_RULE_NAME = "NebulaCommander"
+
+# Domain/DNS-server values come from the backend's dns-client-config response,
+# not a hardcoded literal - reject anything that isn't hostname/IP-shaped before
+# it reaches a PowerShell -Command string (interpolated, not passed as a separate
+# argv token) or gets written into a Linux resolver config file.
+_HOSTNAME_RE = re.compile(r"^[A-Za-z0-9.\-]+$")
+_IP_RE = re.compile(r"^[0-9A-Fa-f:.]+$")  # covers IPv4 and IPv6 literals
+
+
+def _is_safe_dns_value(value: str) -> bool:
+    return bool(_HOSTNAME_RE.match(value)) or bool(_IP_RE.match(value))
+
+
+def _which(name: str) -> str:
+    """Resolve a system binary to an absolute path before spawning it, so we
+    don't rely on subprocess's own PATH search (falls back to the bare name
+    if not found, so behavior/error messages are unchanged when it's missing)."""
+    return shutil.which(name) or name
 
 
 def _env_for_system_binaries():
@@ -95,6 +114,15 @@ def apply_split_horizon_dns(config_path: str | None = None, config_dict: dict | 
     if not domain or not servers:
         return False
     servers = [s.strip() for s in servers if isinstance(s, str) and s.strip()]
+    if not servers:
+        return False
+
+    if not _is_safe_dns_value(domain) or not all(_is_safe_dns_value(s) for s in servers):
+        print(
+            "Refusing to apply DNS: domain or server contains disallowed characters",
+            file=sys.stderr,
+        )
+        return False
 
     if sys.platform == "win32":
         return _apply_windows(domain, servers)
@@ -115,8 +143,8 @@ def remove_split_horizon_dns() -> bool:
 
 def _run_systemctl(*args: str) -> bool:
     try:
-        subprocess.run(
-            ["systemctl", *args],
+        subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("systemctl"), *args],
             check=True,
             capture_output=True,
             timeout=30,
@@ -141,8 +169,8 @@ def _linux_networkmanager_available() -> bool:
     if not shutil.which("nmcli"):
         return False
     try:
-        r = subprocess.run(
-            ["nmcli", "-t", "-f", "RUNNING", "general"],
+        r = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("nmcli"), "-t", "-f", "RUNNING", "general"],
             capture_output=True,
             timeout=5,
             env=_env_for_system_binaries(),
@@ -199,8 +227,8 @@ def _linux_dnsmasq_apply(domain: str, dns_servers: list[str]) -> bool:
             f.write("\n".join(lines) + "\n")
         if _run_systemctl("restart", "dnsmasq"):
             return True
-        r = subprocess.run(
-            ["service", "dnsmasq", "restart"],
+        r = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("service"), "dnsmasq", "restart"],
             capture_output=True,
             timeout=15,
             env=_env_for_system_binaries(),
@@ -217,14 +245,16 @@ def _linux_dnsmasq_remove() -> None:
     except OSError:
         pass
     _run_systemctl("restart", "dnsmasq")
-    subprocess.run(["service", "dnsmasq", "restart"], capture_output=True, timeout=15, env=_env_for_system_binaries())
+    subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+        [_which("service"), "dnsmasq", "restart"], capture_output=True, timeout=15, env=_env_for_system_binaries()
+    )
 
 
 def _linux_nebula_interface() -> str | None:
     """Return Nebula interface name (e.g. nebula0) if found."""
     try:
-        r = subprocess.run(
-            ["ip", "-o", "link", "show"],
+        r = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("ip"), "-o", "link", "show"],
             capture_output=True,
             timeout=5,
             text=True,
@@ -246,8 +276,8 @@ def _linux_networkmanager_apply(domain: str, dns_servers: list[str]) -> bool:
     if not iface:
         return False
     try:
-        r = subprocess.run(
-            ["nmcli", "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"],
+        r = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("nmcli"), "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"],
             capture_output=True,
             timeout=5,
             text=True,
@@ -263,8 +293,8 @@ def _linux_networkmanager_apply(domain: str, dns_servers: list[str]) -> bool:
                     conn_name = name.strip()
                     break
         if not conn_name:
-            r2 = subprocess.run(
-                ["nmcli", "connection", "add", "type", "ethernet", "con-name", "nebula-commander", "ifname", iface, "ipv4.method", "auto"],
+            r2 = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+                [_which("nmcli"), "connection", "add", "type", "ethernet", "con-name", "nebula-commander", "ifname", iface, "ipv4.method", "auto"],
                 capture_output=True,
                 timeout=10,
                 env=_env_for_system_binaries(),
@@ -273,15 +303,15 @@ def _linux_networkmanager_apply(domain: str, dns_servers: list[str]) -> bool:
                 return False
             conn_name = "nebula-commander"
         dns_str = " ".join(dns_servers)
-        subprocess.run(
-            ["nmcli", "connection", "modify", conn_name, "ipv4.dns", dns_str, "ipv4.dns-search", domain],
+        subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("nmcli"), "connection", "modify", conn_name, "ipv4.dns", dns_str, "ipv4.dns-search", domain],
             check=True,
             capture_output=True,
             timeout=10,
             env=_env_for_system_binaries(),
         )
-        subprocess.run(
-            ["nmcli", "connection", "reload", conn_name],
+        subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("nmcli"), "connection", "reload", conn_name],
             capture_output=True,
             timeout=5,
             env=_env_for_system_binaries(),
@@ -296,8 +326,8 @@ def _linux_networkmanager_remove() -> None:
     if not iface:
         return
     try:
-        r = subprocess.run(
-            ["nmcli", "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"],
+        r = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("nmcli"), "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"],
             capture_output=True,
             timeout=5,
             text=True,
@@ -309,8 +339,8 @@ def _linux_networkmanager_remove() -> None:
             if ":" in line:
                 name, device = line.split(":", 1)
                 if device.strip() == iface:
-                    subprocess.run(
-                        ["nmcli", "connection", "modify", name.strip(), "ipv4.dns", "", "ipv4.dns-search", ""],
+                    subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+                        [_which("nmcli"), "connection", "modify", name.strip(), "ipv4.dns", "", "ipv4.dns-search", ""],
                         capture_output=True,
                         timeout=5,
                         env=_env_for_system_binaries(),
@@ -443,8 +473,8 @@ $ConfirmPreference = 'None'
 Add-DnsClientNrptRule -Namespace '{namespace}' -DisplayName '{NRPT_RULE_NAME}' -NameServers @({addrs}) -Confirm:$false
 """
     try:
-        subprocess.run(
-            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_add],
+        subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("powershell.exe"), "-NoProfile", "-NonInteractive", "-Command", ps_add],
             check=True,
             capture_output=True,
             timeout=30,
@@ -472,8 +502,8 @@ for ($i = 0; $i -lt $max; $i++) {{
 }}
 """
     try:
-        subprocess.run(
-            ["powershell.exe", "-NoProfile", "-Command", ps],  # no -NonInteractive
+        subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+            [_which("powershell.exe"), "-NoProfile", "-Command", ps],  # no -NonInteractive
             check=True,
             capture_output=True,
             timeout=60,

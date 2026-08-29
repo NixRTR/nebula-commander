@@ -92,8 +92,8 @@ def _read_token_file(path: str) -> str | None:
             with open(path, "r", encoding="utf-8") as f:
                 value = f.read().strip()
             return value if value else None
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Failed to read token file {path}: {e}", file=sys.stderr)
     return None
 
 
@@ -117,7 +117,8 @@ def get_token() -> str | None:
         return value if value else None
     except (ImportError, ModuleNotFoundError):
         return _read_token_file(_default_token_path())
-    except Exception:
+    except Exception as e:
+        print(f"Keyring read failed: {e}", file=sys.stderr)
         return None
 
 
