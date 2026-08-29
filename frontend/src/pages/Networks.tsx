@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Card, Table, Button, TextInput, Label, Modal } from "flowbite-react";
 import { HiPlus, HiTrash } from "react-icons/hi";
+import { Link } from "react-router-dom";
 import type { Network, NetworkCreate } from "../types/networks";
 import { listNetworks, createNetwork } from "../api/client";
 import { startReauthFlow } from "./ReauthComplete";
@@ -140,7 +141,11 @@ export function Networks() {
                     <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
                       {n.id}
                     </Table.Cell>
-                    <Table.Cell>{n.name}</Table.Cell>
+                    <Table.Cell>
+                      <Link to={`/networks/${n.id}`} className="text-blue-600 hover:underline dark:text-blue-400">
+                        {n.name}
+                      </Link>
+                    </Table.Cell>
                     <Table.Cell>{n.subnet_cidr}</Table.Cell>
                     <Table.Cell>{new Date(n.created_at).toLocaleString()}</Table.Cell>
                     <Table.Cell>

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card, Table, Button, TextInput, Label, Select } from "flowbite-react";
 import { HiPlus, HiTrash, HiChevronDown, HiChevronRight } from "react-icons/hi";
 import type { Network, GroupFirewallConfig, InboundFirewallRule } from "../types/networks";
@@ -19,8 +20,12 @@ const emptyRule = (): InboundFirewallRule => ({
 });
 
 export function Groups() {
+  const [searchParams] = useSearchParams();
   const [networks, setNetworks] = useState<Network[]>([]);
-  const [selectedNetworkId, setSelectedNetworkId] = useState<number | "">("");
+  const [selectedNetworkId, setSelectedNetworkId] = useState<number | "">(() => {
+    const n = searchParams.get("network");
+    return n ? Number(n) : "";
+  });
   const [groupList, setGroupList] = useState<GroupFirewallConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);

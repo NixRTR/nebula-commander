@@ -21,7 +21,7 @@ const ClientDownload = lazy(() => import("./pages/ClientDownload").then(m => ({ 
 const Users = lazy(() => import("./pages/Users").then(m => ({ default: m.Users })));
 const Audit = lazy(() => import("./pages/Audit").then(m => ({ default: m.Audit })));
 const Invitations = lazy(() => import("./pages/Invitations").then(m => ({ default: m.Invitations })));
-const NetworkUsers = lazy(() => import("./pages/NetworkUsers").then(m => ({ default: m.NetworkUsers })));
+const NetworkDetail = lazy(() => import("./pages/NetworkDetail").then(m => ({ default: m.NetworkDetail })));
 const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation").then(m => ({ default: m.AcceptInvitation })));
 const ReauthComplete = lazy(() => import("./pages/ReauthComplete").then(m => ({ default: m.ReauthComplete })));
 const Login = lazy(() => import("./pages/Login"));
@@ -71,7 +71,7 @@ function AppContent() {
                 <Routes>
                   <Route path="/" element={<Home />} />
                   <Route path="/networks" element={<Networks />} />
-                  <Route path="/networks/:networkId/users" element={<NetworkUsers />} />
+                  <Route path="/networks/:networkId" element={<NetworkDetail />} />
                   <Route path="/groups" element={<Groups />} />
                   <Route path="/dns" element={<DNS />} />
                   <Route path="/nodes" element={<Nodes />} />

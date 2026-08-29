@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, Fragment } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Card,
   Table,
@@ -70,9 +71,13 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export function Nodes() {
+  const [searchParams] = useSearchParams();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [networks, setNetworks] = useState<Network[]>([]);
-  const [filterNetworkId, setFilterNetworkId] = useState<number | "">("");
+  const [filterNetworkId, setFilterNetworkId] = useState<number | "">(() => {
+    const n = searchParams.get("network");
+    return n ? Number(n) : "";
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deviceDetailsModal, setDeviceDetailsModal] = useState<{

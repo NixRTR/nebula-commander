@@ -1,9 +1,16 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Card, Table, Badge, Button, Modal, Label, Select, Checkbox } from 'flowbite-react';
-import { HiArrowLeft, HiPlus, HiPencil, HiTrash } from 'react-icons/hi';
+import { HiArrowLeft, HiPlus, HiPencil, HiTrash, HiServer, HiUserGroup, HiGlobe } from 'react-icons/hi';
 import { RequireNetworkOwner } from '../components/permissions/RequireNetworkOwner';
 import { apiClient } from '../api/client';
+
+interface NetworkInfo {
+  id: number;
+  name: string;
+  subnet_cidr: string;
+  created_at: string;
+}
 
 interface NetworkUser {
   user_id: number;
@@ -21,24 +28,24 @@ interface User {
   email: string;
 }
 
-export const NetworkUsers: React.FC = () => {
+export const NetworkDetail: React.FC = () => {
   const { networkId } = useParams<{ networkId: string }>();
   const navigate = useNavigate();
+  const [network, setNetwork] = useState<NetworkInfo | null>(null);
   const [users, setUsers] = useState<NetworkUser[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
   const [selectedUser, setSelectedUser] = useState<NetworkUser | null>(null);
-  const [networkName, setNetworkName] = useState('');
-  
+
   // Add user form
   const [selectedUserId, setSelectedUserId] = useState<number | ''>('');
   const [addRole, setAddRole] = useState('member');
   const [addCanManageNodes, setAddCanManageNodes] = useState(false);
   const [addCanInviteUsers, setAddCanInviteUsers] = useState(false);
   const [addCanManageFirewall, setAddCanManageFirewall] = useState(false);
-  
+
   // Edit form
   const [editRole, setEditRole] = useState('member');
   const [editCanManageNodes, setEditCanManageNodes] = useState(false);
@@ -56,7 +63,7 @@ export const NetworkUsers: React.FC = () => {
       ]);
       setUsers(usersRes.data);
       setAllUsers(allUsersRes.data);
-      setNetworkName(networkRes.data.name);
+      setNetwork(networkRes.data);
     } catch (error) {
       console.error('Failed to fetch data:', error);
     } finally {
@@ -72,7 +79,7 @@ export const NetworkUsers: React.FC = () => {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!selectedUserId) {
       alert('Please select a user');
       return;
@@ -86,7 +93,7 @@ export const NetworkUsers: React.FC = () => {
         can_invite_users: addCanInviteUsers,
         can_manage_firewall: addCanManageFirewall,
       });
-      
+
       setShowAddModal(false);
       setSelectedUserId('');
       setAddRole('member');
@@ -119,7 +126,7 @@ export const NetworkUsers: React.FC = () => {
         can_invite_users: editCanInviteUsers,
         can_manage_firewall: editCanManageFirewall,
       });
-      
+
       setShowEditModal(false);
       setSelectedUser(null);
       fetchData();
@@ -161,13 +168,32 @@ export const NetworkUsers: React.FC = () => {
             <HiArrowLeft className="mr-2 h-4 w-4" />
             Back to Networks
           </Button>
-          <h1 className="text-3xl font-bold">Network Users</h1>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
-            Manage users for network: <strong>{networkName}</strong>
-          </p>
+          <h1 className="text-3xl font-bold">{network?.name || 'Network'}</h1>
+          {network && (
+            <p className="mt-2 text-gray-600 dark:text-gray-400">
+              Subnet: <strong>{network.subnet_cidr}</strong> &middot; Created{' '}
+              {new Date(network.created_at).toLocaleDateString()}
+            </p>
+          )}
         </div>
 
-        <div className="mb-4">
+        <div className="mb-6 flex flex-wrap gap-2">
+          <Button as={Link} to={`/nodes?network=${networkId}`} color="light">
+            <HiServer className="mr-2 h-5 w-5" />
+            Nodes
+          </Button>
+          <Button as={Link} to={`/groups?network=${networkId}`} color="light">
+            <HiUserGroup className="mr-2 h-5 w-5" />
+            Groups
+          </Button>
+          <Button as={Link} to={`/dns?network=${networkId}`} color="light">
+            <HiGlobe className="mr-2 h-5 w-5" />
+            DNS
+          </Button>
+        </div>
+
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-xl font-semibold">Users</h2>
           <Button color="purple" onClick={() => setShowAddModal(true)}>
             <HiPlus className="mr-2 h-5 w-5" />
             Add Existing User

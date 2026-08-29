@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card, Table, Button, TextInput, Label, Select, ToggleSwitch } from "flowbite-react";
 import type { Network } from "../types/networks";
 import { listNetworks } from "../api/client";
@@ -25,8 +26,12 @@ interface DNSAlias {
 }
 
 export function DNS() {
+  const [searchParams] = useSearchParams();
   const [networks, setNetworks] = useState<Network[]>([]);
-  const [selectedNetworkId, setSelectedNetworkId] = useState<number | "">("");
+  const [selectedNetworkId, setSelectedNetworkId] = useState<number | "">(() => {
+    const n = searchParams.get("network");
+    return n ? Number(n) : "";
+  });
   const [config, setConfig] = useState<DNSConfig | null>(null);
   const [domainInput, setDomainInput] = useState("");
   const [enabled, setEnabled] = useState(true);
@@ -253,7 +258,7 @@ export function DNS() {
                   className="mt-1 block w-full max-w-md rounded-lg border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-900 focus:border-blue-500 focus:ring-blue-500 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
                 />
                 <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                  Used for non-local queries. Leave empty to use container default resolvers.
+                  Used for non-local queries. Leave empty to disable outside resolution — only this network's own mesh zone will resolve.
                 </p>
               </div>
               <div className="mt-4">
