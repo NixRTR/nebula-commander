@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
+import { exchangeAuthCode } from '../api/client';
 
 const AuthCallback: React.FC = () => {
   const { setToken } = useAuth();
@@ -8,19 +9,22 @@ const AuthCallback: React.FC = () => {
   const [searchParams] = useSearchParams();
 
   useEffect(() => {
-    // Get token from URL query params (set by backend redirect)
-    const token = searchParams.get('token');
-    
-    if (token) {
-      // Store token and update auth state
-      setToken(token);
-      
-      // Redirect to home
-      navigate('/', { replace: true });
-    } else {
-      // No token, redirect to login with error
+    // Get the one-time exchange code from URL query params (set by backend redirect)
+    const code = searchParams.get('code');
+
+    if (!code) {
       navigate('/login?error=no_token', { replace: true });
+      return;
     }
+
+    exchangeAuthCode(code)
+      .then((token) => {
+        setToken(token);
+        navigate('/', { replace: true });
+      })
+      .catch(() => {
+        navigate('/login?error=no_token', { replace: true });
+      });
   }, [searchParams, setToken, navigate]);
 
   return (

@@ -2,6 +2,7 @@
 import base64
 import json
 import logging
+import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 from urllib.parse import urlencode, urlparse
@@ -17,7 +18,7 @@ from ..config import settings
 from ..auth.oidc import get_current_user_optional, require_user, UserInfo
 from ..auth.reauth import create_reauth_challenge, mark_reauth_completed, create_reauth_token
 from ..database import get_session
-from ..models.db import User
+from ..models.db import AuthExchangeCode, User
 from ..services.audit import get_client_ip, log_audit
 from jose import jwt
 from sqlalchemy import select
@@ -75,6 +76,20 @@ def get_safe_redirect_url(request: Request) -> str:
     return f"{request.url.scheme}://{request_host}"
 
 
+async def _create_exchange_code(token: str, session: AsyncSession) -> str:
+    """Store a JWT server-side and return a one-time opaque code to hand to the
+    frontend instead, so the token never appears in a redirect URL."""
+    code = secrets.token_urlsafe(32)
+    row = AuthExchangeCode(
+        code=code,
+        token=token,
+        expires_at=datetime.utcnow() + timedelta(seconds=60),
+    )
+    session.add(row)
+    await session.flush()
+    return code
+
+
 def get_oauth_client():
     """Get or create OAuth client for OIDC."""
     if not settings.oidc_issuer_url:
@@ -111,17 +126,27 @@ async def dev_token(
     session: AsyncSession = Depends(get_session),
 ):
     """
-    Return a JWT for development when debug is enabled or when OIDC is not configured.
-    When OIDC is not set, this allows the UI to work in standalone/Docker mode.
-    No authentication required. Disabled in production when OIDC is configured.
-    
+    Return a JWT for development (debug mode, loopback only) or for standalone
+    (no-OIDC) admin bootstrap when explicitly enabled via
+    NEBULA_COMMANDER_STANDALONE_ADMIN_BOOTSTRAP. No authentication required.
+    Disabled whenever OIDC is configured, and disabled by default otherwise.
+
     WARNING: This endpoint grants full admin access without authentication.
-    Only use in development or when OIDC is not configured.
+    Only use in development or for an explicitly opted-in standalone deployment.
     """
-    # Allow when debug is on, or when no OIDC (standalone mode)
-    if not settings.debug and settings.oidc_issuer_url:
+    if settings.oidc_issuer_url:
+        # OIDC configured: this endpoint is never available, regardless of debug/bootstrap.
         raise HTTPException(status_code=404, detail="Not found")
-    
+
+    standalone_bootstrap = settings.standalone_admin_bootstrap
+    if not settings.debug and not standalone_bootstrap:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    if settings.debug and not standalone_bootstrap:
+        client_host = request.client.host if request.client else None
+        if client_host not in ("127.0.0.1", "::1"):
+            raise HTTPException(status_code=404, detail="Not found")
+
     # Log warning when dev-token is accessed
     # nosemgrep: python.lang.security.audit.logging.logger-credential-leak.python-logger-credential-disclosure
     # This is intentional security logging, not a credential leak. "DEV-TOKEN" is a label, not an actual token.
@@ -153,6 +178,32 @@ async def dev_token(
         token=token,
         expires_in=settings.jwt_expiration_minutes * 60,
     )
+
+
+class ExchangeRequest(BaseModel):
+    code: str
+
+
+class ExchangeResponse(BaseModel):
+    token: str
+
+
+@router.post("/exchange", response_model=ExchangeResponse)
+async def exchange_code(body: ExchangeRequest, session: AsyncSession = Depends(get_session)):
+    """
+    Exchange a one-time code (received via the /auth/callback or /reauth/complete
+    redirect) for the real JWT. Single-use, short-lived.
+    """
+    result = await session.execute(
+        select(AuthExchangeCode).where(AuthExchangeCode.code == body.code)
+    )
+    row = result.scalar_one_or_none()
+    if row is None or row.used_at is not None or datetime.utcnow() > row.expires_at:
+        raise HTTPException(status_code=400, detail="Invalid or expired code")
+
+    row.used_at = datetime.utcnow()
+    await session.flush()
+    return ExchangeResponse(token=row.token)
 
 
 @router.get("/me")
@@ -287,11 +338,13 @@ async def callback(request: Request, session: AsyncSession = Depends(get_session
         )
         await session.commit()
         
-        # Redirect to frontend with token in URL query params
+        # Redirect to frontend with a one-time exchange code, not the token itself -
+        # avoids the JWT ending up in the URL/browser history/referrer/logs.
         # Use validated redirect URL to prevent open redirect attacks
+        code = await _create_exchange_code(our_token, session)
         frontend_url = get_safe_redirect_url(request)
-        redirect_url = f"{frontend_url}/auth/callback?token={our_token}"
-        
+        redirect_url = f"{frontend_url}/auth/callback?code={code}"
+
         return RedirectResponse(url=redirect_url)
         
     except Exception as e:
@@ -358,12 +411,13 @@ class ReauthChallengeResponse(BaseModel):
 async def create_reauth(
     request: Request,
     user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
 ):
     """
     Create a reauthentication challenge for critical operations.
     Returns a challenge token and URL to redirect to for reauthentication.
     """
-    challenge = create_reauth_challenge(user.sub)
+    challenge = await create_reauth_challenge(user.sub, session)
     
     if not settings.oidc_issuer_url:
         # No OIDC, return a simple challenge (for dev mode)
@@ -405,7 +459,7 @@ def _get_reauth_redirect_uri(request: Request) -> str:
 
 
 @router.get("/reauth/callback")
-async def reauth_callback(request: Request):
+async def reauth_callback(request: Request, session: AsyncSession = Depends(get_session)):
     """
     Reauthentication callback endpoint. Keycloak redirects here with code and state (our challenge).
     We exchange the code for tokens manually (no authlib session) and validate state ourselves.
@@ -417,10 +471,11 @@ async def reauth_callback(request: Request):
 
     if not settings.oidc_issuer_url:
         # Dev mode: just mark as completed
-        mark_reauth_completed("dev", challenge)
+        await mark_reauth_completed("dev", challenge, session)
         token = create_reauth_token("dev", challenge)
+        code = await _create_exchange_code(token, session)
         frontend_url = get_safe_redirect_url(request)
-        return RedirectResponse(url=f"{frontend_url}/reauth/complete?token={token}")
+        return RedirectResponse(url=f"{frontend_url}/reauth/complete?code={code}")
 
     code = request.query_params.get("code")
     if not code:
@@ -477,10 +532,11 @@ async def reauth_callback(request: Request):
         frontend_url = get_safe_redirect_url(request)
         return RedirectResponse(url=f"{frontend_url}/reauth/complete?error=reauth_failed")
 
-    if not mark_reauth_completed(user_sub, challenge):
+    if not await mark_reauth_completed(user_sub, challenge, session):
         frontend_url = get_safe_redirect_url(request)
         return RedirectResponse(url=f"{frontend_url}/reauth/complete?error=invalid_challenge")
 
     reauth_token = create_reauth_token(user_sub, challenge)
+    code = await _create_exchange_code(reauth_token, session)
     frontend_url = get_safe_redirect_url(request)
-    return RedirectResponse(url=f"{frontend_url}/reauth/complete?token={reauth_token}")
+    return RedirectResponse(url=f"{frontend_url}/reauth/complete?code={code}")

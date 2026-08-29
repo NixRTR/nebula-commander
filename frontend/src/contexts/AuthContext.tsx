@@ -87,7 +87,6 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const setToken = (token: string) => {
     // Store token and re-check auth
-    console.log('Setting token:', token.substring(0, 20) + '...');
     localStorage.setItem('token', token);
     // Small delay to ensure localStorage is updated before checking auth
     setTimeout(() => {

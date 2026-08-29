@@ -92,6 +92,24 @@ async function tryDevToken(): Promise<boolean> {
 }
 
 /**
+ * Exchange a one-time code (from the /auth/callback or /reauth/complete redirect)
+ * for the real JWT. Called with no token present yet, so this uses a plain fetch
+ * rather than the authed apiClient instance.
+ */
+export async function exchangeAuthCode(code: string): Promise<string> {
+  const res = await fetch(`${API_BASE}/auth/exchange`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code }),
+  });
+  if (!res.ok) {
+    throw new Error("Invalid or expired code");
+  }
+  const data = (await res.json()) as { token: string };
+  return data.token;
+}
+
+/**
  * Initialize automatic token refresh on app startup.
  * Call this when the app loads to set up auto-refresh for existing tokens.
  * In OIDC mode, tokens are managed by the auth flow, so we only try dev token
@@ -234,6 +252,20 @@ export async function deleteNetwork(
   }
 }
 
+export async function deleteUser(
+  userId: number,
+  reauthToken: string,
+  confirmation: string
+): Promise<void> {
+  try {
+    await apiClient.delete(`/users/${userId}`, {
+      data: { reauth_token: reauthToken, confirmation },
+    });
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
+  }
+}
+
 export async function listGroupFirewall(networkId: number) {
   return apiFetch<import("../types/networks").GroupFirewallConfig[]>(
     `/networks/${networkId}/group-firewall`
@@ -302,17 +334,28 @@ export async function updateNode(id: number, data: NodeUpdateData) {
   });
 }
 
-export async function deleteNode(nodeId: number): Promise<void> {
+export async function deleteNode(
+  nodeId: number,
+  reauthToken: string,
+  confirmation: string
+): Promise<void> {
   try {
-    await apiClient.delete(`/nodes/${nodeId}`);
+    await apiClient.delete(`/nodes/${nodeId}`, {
+      data: { reauth_token: reauthToken, confirmation },
+    });
   } catch (error) {
     throw new Error(axiosErrorMessage(error));
   }
 }
 
-export async function revokeNodeCertificate(nodeId: number): Promise<{ ok: boolean }> {
+export async function revokeNodeCertificate(
+  nodeId: number,
+  reauthToken: string,
+  confirmation: string
+): Promise<{ ok: boolean }> {
   return apiFetch<{ ok: boolean }>(`/nodes/${nodeId}/revoke-certificate`, {
     method: "POST",
+    body: JSON.stringify({ reauth_token: reauthToken, confirmation }),
   });
 }
 

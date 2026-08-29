@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import require_user, UserInfo
 from ..auth.permissions import get_user_nodes
+from ..auth.reauth import clear_reauth_challenge, decode_reauth_token, verify_reauth
 from ..config import settings
 from ..database import get_session
 from ..models import Certificate, EnrollmentCode, Network, Node, User
@@ -458,19 +459,40 @@ async def update_node(
     return {"ok": True, "cert_resigned": cert_resigned}
 
 
+class NodeDeleteRequest(BaseModel):
+    reauth_token: str
+    confirmation: str  # Must match node hostname
+
+
+async def _verify_reauth_or_403(user: UserInfo, reauth_token: str, session: AsyncSession) -> None:
+    """Shared step-up-auth check for destructive node actions (delete, revoke cert)."""
+    reauth_payload = decode_reauth_token(reauth_token)
+    if not reauth_payload or reauth_payload.get("sub") != user.sub:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired reauthentication")
+    challenge = reauth_payload.get("challenge")
+    if not await verify_reauth(user.sub, challenge, session):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Reauthentication required")
+
+
 @router.delete("/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_node(
     node_id: int,
+    body: NodeDeleteRequest,
     request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete a node: release IP, remove host cert/key files, delete related records and node."""
+    """Delete a node: release IP, remove host cert/key files, delete related records and node.
+    Requires reauthentication and typed confirmation of the node's hostname."""
     result = await session.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
     await _ensure_user_can_access_node(user, session, node)
+
+    await _verify_reauth_or_403(user, body.reauth_token, session)
+    if body.confirmation != node.hostname:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Confirmation does not match node hostname")
 
     if node.is_lighthouse:
         count_result = await session.execute(
@@ -518,22 +540,34 @@ async def delete_node(
         actor_identifier=user.email or user.sub,
         client_ip=get_client_ip(request),
     )
+    await clear_reauth_challenge(user.sub, session)
     return None
+
+
+class RevokeCertificateRequest(BaseModel):
+    reauth_token: str
+    confirmation: str  # Must match node hostname
 
 
 @router.post("/{node_id}/revoke-certificate")
 async def revoke_node_certificate(
     node_id: int,
+    body: RevokeCertificateRequest,
     request: Request,
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Revoke the node's certificate and take it offline. Node record is kept; can re-enroll later."""
+    """Revoke the node's certificate and take it offline. Node record is kept; can re-enroll later.
+    Requires reauthentication and typed confirmation of the node's hostname."""
     result = await session.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
     if not node:
         raise HTTPException(status_code=404, detail="Node not found")
     await _ensure_user_can_access_node(user, session, node)
+
+    await _verify_reauth_or_403(user, body.reauth_token, session)
+    if body.confirmation != node.hostname:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Confirmation does not match node hostname")
 
     # Mark all certificates for this node as revoked
     await session.execute(
@@ -568,6 +602,7 @@ async def revoke_node_certificate(
         actor_identifier=user.email or user.sub,
         client_ip=get_client_ip(request),
     )
+    await clear_reauth_challenge(user.sub, session)
     return {"ok": True}
 
 

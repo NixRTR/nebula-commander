@@ -47,6 +47,15 @@ class Network(Base):
     settings: Mapped[Optional["NetworkSettings"]] = relationship(
         "NetworkSettings", back_populates="network", uselist=False, cascade="all, delete-orphan"
     )
+    dns_config: Mapped[Optional["NetworkDNSConfig"]] = relationship(
+        "NetworkDNSConfig", back_populates="network", uselist=False, cascade="all, delete-orphan"
+    )
+    dns_aliases: Mapped[list["NetworkDNSAlias"]] = relationship(
+        "NetworkDNSAlias", back_populates="network", cascade="all, delete-orphan"
+    )
+    invitations: Mapped[list["Invitation"]] = relationship(
+        "Invitation", back_populates="network", cascade="all, delete-orphan"
+    )
 
 
 class NetworkGroupFirewall(Base):
@@ -269,7 +278,7 @@ class NetworkDNSConfig(Base):
     # config_generator.get_dns_client_config).
     extra_dns_resolvers: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)
 
-    network: Mapped["Network"] = relationship("Network")
+    network: Mapped["Network"] = relationship("Network", back_populates="dns_config")
 
     __table_args__ = (
         UniqueConstraint("network_id", name="uq_network_dns_config_network"),
@@ -289,7 +298,7 @@ class NetworkDNSAlias(Base):
     # alias label without the domain, e.g. "api", "db1"
     alias: Mapped[str] = mapped_column(String(255), nullable=False)
 
-    network: Mapped["Network"] = relationship("Network")
+    network: Mapped["Network"] = relationship("Network", back_populates="dns_aliases")
     node: Mapped["Node"] = relationship("Node")
 
     __table_args__ = (
@@ -323,7 +332,7 @@ class Invitation(Base):
     email_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     email_error: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
-    network: Mapped["Network"] = relationship("Network")
+    network: Mapped["Network"] = relationship("Network", back_populates="invitations")
     invited_by_user: Mapped["User"] = relationship("User", foreign_keys=[invited_by_user_id])
 
 
@@ -345,3 +354,30 @@ class AuditLog(Base):
     client_ip: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
 
     actor_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[actor_user_id])
+
+
+class AuthExchangeCode(Base):
+    """One-time code exchanged for a JWT after an OAuth/reauth redirect, so the
+    token itself never appears in a URL, browser history, or referrer header."""
+
+    __tablename__ = "auth_exchange_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    code: Mapped[str] = mapped_column(String(64), unique=True, nullable=False)
+    token: Mapped[str] = mapped_column(Text, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class ReauthChallenge(Base):
+    """Outstanding step-up reauthentication challenge for a user (one active
+    challenge per user_sub, DB-backed so it survives across worker processes)."""
+
+    __tablename__ = "reauth_challenges"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_sub: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
+    challenge: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    authenticated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

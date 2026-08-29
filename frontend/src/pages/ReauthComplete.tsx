@@ -1,81 +1,124 @@
 import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { Card, Button } from "flowbite-react";
-import { deleteNetwork } from "../api/client";
+import {
+  createReauthChallenge,
+  deleteNetwork,
+  deleteNode,
+  deleteUser,
+  exchangeAuthCode,
+  revokeNodeCertificate,
+} from "../api/client";
 
 const API_BASE = "/api";
 
-const PENDING_DELETE_KEY = "nebula_commander_pending_network_delete";
+const PENDING_ACTION_KEY = "nebula_commander_pending_reauth_action";
 
-export interface PendingNetworkDelete {
-  networkId: number;
-  networkName: string;
-}
+export type PendingReauthAction =
+  | { kind: "network-delete"; networkId: number; networkName: string }
+  | { kind: "node-delete"; nodeId: number; hostname: string }
+  | { kind: "node-revoke-cert"; nodeId: number; hostname: string }
+  | { kind: "user-delete"; userId: number; email: string };
 
 // eslint-disable-next-line react-refresh/only-export-components
-export function getPendingNetworkDelete(): PendingNetworkDelete | null {
+export function getPendingReauthAction(): PendingReauthAction | null {
   try {
-    const raw = sessionStorage.getItem(PENDING_DELETE_KEY);
+    const raw = sessionStorage.getItem(PENDING_ACTION_KEY);
     if (!raw) return null;
-    const data = JSON.parse(raw) as PendingNetworkDelete;
-    if (typeof data.networkId !== "number" || typeof data.networkName !== "string")
-      return null;
-    return data;
+    return JSON.parse(raw) as PendingReauthAction;
   } catch {
     return null;
   }
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
-export function setPendingNetworkDelete(data: PendingNetworkDelete): void {
-  sessionStorage.setItem(PENDING_DELETE_KEY, JSON.stringify(data));
+export function setPendingReauthAction(data: PendingReauthAction): void {
+  sessionStorage.setItem(PENDING_ACTION_KEY, JSON.stringify(data));
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
-export function clearPendingNetworkDelete(): void {
-  sessionStorage.removeItem(PENDING_DELETE_KEY);
+export function clearPendingReauthAction(): void {
+  sessionStorage.removeItem(PENDING_ACTION_KEY);
+}
+
+/** Create a reauth challenge, stash the pending action, and redirect to the IdP for step-up auth. */
+// eslint-disable-next-line react-refresh/only-export-components
+export async function startReauthFlow(action: PendingReauthAction): Promise<void> {
+  const { reauth_url } = await createReauthChallenge();
+  setPendingReauthAction(action);
+  window.location.href = reauth_url;
+}
+
+const destinationFor = (kind: PendingReauthAction["kind"]): string => {
+  switch (kind) {
+    case "network-delete":
+      return "/networks";
+    case "node-delete":
+    case "node-revoke-cert":
+      return "/nodes";
+    case "user-delete":
+      return "/users";
+  }
+};
+
+async function runPendingAction(pending: PendingReauthAction, reauthToken: string): Promise<void> {
+  switch (pending.kind) {
+    case "network-delete":
+      await deleteNetwork(pending.networkId, reauthToken, pending.networkName);
+      return;
+    case "node-delete":
+      await deleteNode(pending.nodeId, reauthToken, pending.hostname);
+      return;
+    case "node-revoke-cert":
+      await revokeNodeCertificate(pending.nodeId, reauthToken, pending.hostname);
+      return;
+    case "user-delete":
+      await deleteUser(pending.userId, reauthToken, pending.email);
+      return;
+  }
 }
 
 export function ReauthComplete() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const token = searchParams.get("token");
+  const code = searchParams.get("code");
   const challenge = searchParams.get("challenge");
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Missing token (and not a challenge redirect) – show error without setState in effect
-  const missingTokenError = !token && !challenge;
+  // Missing code (and not a challenge redirect) – show error without setState in effect
+  const missingCodeError = !code && !challenge;
 
   useEffect(() => {
-    if (challenge && !token) {
-      // Dev mode: backend sent us here with challenge; redirect to backend to get token
+    if (challenge && !code) {
+      // Dev mode: backend sent us here with challenge; redirect to backend to get the exchange code
       window.location.href = `${API_BASE}/auth/reauth/callback?challenge=${encodeURIComponent(challenge)}`;
       return;
     }
 
-    if (!token) return;
+    if (!code) return;
 
-    const pending = getPendingNetworkDelete();
+    const pending = getPendingReauthAction();
     if (!pending) {
-      clearPendingNetworkDelete();
-      navigate("/networks", { replace: true });
+      clearPendingReauthAction();
+      navigate("/", { replace: true });
       return;
     }
 
-    deleteNetwork(pending.networkId, token, pending.networkName)
+    exchangeAuthCode(code)
+      .then((reauthToken) => runPendingAction(pending, reauthToken))
       .then(() => {
-        clearPendingNetworkDelete();
+        clearPendingReauthAction();
         setStatus("success");
-        navigate("/networks", { replace: true });
+        navigate(destinationFor(pending.kind), { replace: true });
       })
       .catch((e: Error) => {
         setStatus("error");
-        setErrorMessage(e.message || "Failed to delete network.");
+        setErrorMessage(e.message || "Failed to complete the action.");
       });
-  }, [token, challenge, navigate]);
+  }, [code, challenge, navigate]);
 
-  if (missingTokenError || status === "error") {
+  if (missingCodeError || status === "error") {
     return (
       <div className="flex justify-center items-center min-h-[50vh]">
         <Card className="max-w-md">
@@ -83,10 +126,10 @@ export function ReauthComplete() {
             Error
           </h2>
           <p className="text-gray-600 dark:text-gray-400">
-            {missingTokenError ? "Missing reauthentication token." : errorMessage}
+            {missingCodeError ? "Missing reauthentication code." : errorMessage}
           </p>
-          <Button color="gray" onClick={() => navigate("/networks")}>
-            Back to Networks
+          <Button color="gray" onClick={() => navigate("/")}>
+            Back
           </Button>
         </Card>
       </div>

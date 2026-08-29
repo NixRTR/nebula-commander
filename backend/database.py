@@ -321,6 +321,39 @@ def _run_sqlite_migrations() -> None:
                 )
                 logger.info("Migration: added column network_dns_configs.extra_dns_resolvers")
 
+        # Create auth_exchange_codes table
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='auth_exchange_codes'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE auth_exchange_codes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    code VARCHAR(64) NOT NULL UNIQUE,
+                    token TEXT NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    used_at DATETIME,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            logger.info("Migration: created table auth_exchange_codes")
+
+        # Create reauth_challenges table
+        cur.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='reauth_challenges'"
+        )
+        if cur.fetchone() is None:
+            cur.execute("""
+                CREATE TABLE reauth_challenges (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_sub VARCHAR(255) NOT NULL UNIQUE,
+                    challenge VARCHAR(128) NOT NULL,
+                    expires_at DATETIME NOT NULL,
+                    authenticated_at DATETIME
+                )
+            """)
+            logger.info("Migration: created table reauth_challenges")
+
         conn.commit()
     finally:
         conn.close()

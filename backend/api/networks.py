@@ -392,7 +392,7 @@ async def delete_network(
         )
     
     challenge = reauth_payload.get("challenge")
-    if not verify_reauth(user.sub, challenge):
+    if not await verify_reauth(user.sub, challenge, session):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Reauthentication required"
@@ -419,8 +419,8 @@ async def delete_network(
     )
     
     # Clear reauth challenge
-    clear_reauth_challenge(user.sub)
-    
+    await clear_reauth_challenge(user.sub, session)
+
     return None
 
 

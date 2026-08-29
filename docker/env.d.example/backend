@@ -54,6 +54,16 @@ NEBULA_COMMANDER_ENCRYPTION_KEY=your-fernet-key-here
 NEBULA_COMMANDER_PUBLIC_URL=https://nebula.example.com
 
 # =============================================================================
+# Standalone Admin Bootstrap (only relevant if you skip OIDC entirely)
+# =============================================================================
+# When no OIDC provider is configured below, /api/auth/dev-token is disabled by
+# default. If you're running standalone with no IdP and need the UI to be able
+# to self-issue an initial admin session, opt in explicitly here.
+# ⚠️  This grants unauthenticated system-admin access to anyone who can reach
+# the backend. Only enable for a genuinely no-IdP deployment.
+# NEBULA_COMMANDER_STANDALONE_ADMIN_BOOTSTRAP=true
+
+# =============================================================================
 # OIDC Configuration (Optional)
 # =============================================================================
 # Uncomment and configure to use OIDC authentication with Keycloak or other providers.

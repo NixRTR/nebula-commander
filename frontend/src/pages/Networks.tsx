@@ -2,8 +2,8 @@ import { useEffect, useState } from "react";
 import { Card, Table, Button, TextInput, Label, Modal } from "flowbite-react";
 import { HiPlus, HiTrash } from "react-icons/hi";
 import type { Network, NetworkCreate } from "../types/networks";
-import { listNetworks, createNetwork, createReauthChallenge } from "../api/client";
-import { setPendingNetworkDelete } from "./ReauthComplete";
+import { listNetworks, createNetwork } from "../api/client";
+import { startReauthFlow } from "./ReauthComplete";
 
 export function Networks() {
   const [networks, setNetworks] = useState<Network[]>([]);
@@ -48,9 +48,7 @@ export function Networks() {
     setError(null);
     setDeleteModal((m) => ({ ...m, redirecting: true }));
     try {
-      const { reauth_url } = await createReauthChallenge();
-      setPendingNetworkDelete({ networkId: network.id, networkName: network.name });
-      window.location.href = reauth_url;
+      await startReauthFlow({ kind: "network-delete", networkId: network.id, networkName: network.name });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to start reauthentication");
       setDeleteModal((m) => ({ ...m, redirecting: false }));

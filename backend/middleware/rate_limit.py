@@ -12,8 +12,12 @@ logger = logging.getLogger(__name__)
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """
     Simple in-memory rate limiting middleware.
-    
-    For production, consider using Redis-backed rate limiting.
+
+    State lives on this instance (per-process). This is a HARD REQUIREMENT for
+    single-worker/single-replica deployment - running multiple Uvicorn workers
+    or replicas fragments the counters across processes and effectively
+    disables the limits. Moving to a shared (DB/Redis-backed) store is required
+    before scaling out horizontally.
     """
     
     def __init__(self, app):

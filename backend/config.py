@@ -45,6 +45,11 @@ class Settings(BaseSettings):
     # Used to derive OIDC redirect URI and for redirect validation when set
     public_url: Optional[str] = None
 
+    # Allow the unauthenticated dev-token admin bootstrap endpoint when no OIDC
+    # provider is configured. Must be explicitly opted into - standalone
+    # deployments that skip OIDC setup no longer get this by default.
+    standalone_admin_bootstrap: bool = False
+
     # OIDC
     oidc_issuer_url: Optional[str] = None
     oidc_public_issuer_url: Optional[str] = None  # Public URL for browser redirects (logout, etc.)
@@ -135,16 +140,23 @@ class Settings(BaseSettings):
 
 
 def load_jwt_secret(settings_obj: Settings) -> str:
-    """Load JWT secret from file if specified."""
+    """Load JWT secret from file or env. Required for startup; raises if left at the insecure default."""
+    secret = settings_obj.jwt_secret_key
     if settings_obj.jwt_secret_file and os.path.exists(settings_obj.jwt_secret_file):
         try:
             with open(settings_obj.jwt_secret_file, "r") as f:
-                secret = f.read().strip()
-                if secret:
-                    return secret
+                file_secret = f.read().strip()
+                if file_secret:
+                    secret = file_secret
         except Exception as e:
             print(f"Warning: Could not read JWT secret: {e}")
-    return settings_obj.jwt_secret_key
+    if secret == "change-this-in-production":
+        raise SystemExit(
+            "NEBULA_COMMANDER_JWT_SECRET_KEY is using the insecure default. Set "
+            "NEBULA_COMMANDER_JWT_SECRET_KEY or NEBULA_COMMANDER_JWT_SECRET_FILE. "
+            "Generate with: python -c \"import secrets; print(secrets.token_urlsafe(64))\""
+        )
+    return secret
 
 
 def load_oidc_secret(settings_obj: Settings) -> Optional[str]:

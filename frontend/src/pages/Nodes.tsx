@@ -24,11 +24,10 @@ import {
   listGroupFirewall,
   createCertificate,
   checkIpAvailable,
-  deleteNode,
-  revokeNodeCertificate,
   reenrollNode,
 } from "../api/client";
 import type { CreateEnrollmentCodeResponse } from "../api/client";
+import { startReauthFlow } from "./ReauthComplete";
 
 type EnrollmentState =
   | { type: "enroll" }
@@ -121,8 +120,10 @@ export function Nodes() {
   const [revokeModal, setRevokeModal] = useState<{
     open: boolean;
     node: Node | null;
+    step: 1 | 2;
+    typedHostname: string;
     processing: boolean;
-  }>({ open: false, node: null, processing: false });
+  }>({ open: false, node: null, step: 1, typedHostname: "", processing: false });
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [enrollmentCodeModal, setEnrollmentCodeModal] = useState<{
     open: boolean;
@@ -333,17 +334,16 @@ export function Nodes() {
     setDeleteModal({ open: false, node: null, step: 1, typedHostname: "" });
   };
 
-  const handleDeleteConfirm = () => {
+  const handleDeleteConfirm = async () => {
     const node = deleteModal.node;
     if (!node) return;
     setDeleting(true);
-    deleteNode(node.id)
-      .then(() => {
-        closeDeleteModal();
-        loadNodes();
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setDeleting(false));
+    try {
+      await startReauthFlow({ kind: "node-delete", nodeId: node.id, hostname: node.hostname });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start reauthentication");
+      setDeleting(false);
+    }
   };
 
   const getNetworkName = (networkId: number): string => {
@@ -560,25 +560,23 @@ export function Nodes() {
   };
 
   const openRevokeModal = (node: Node) => {
-    setRevokeModal({ open: true, node, processing: false });
+    setRevokeModal({ open: true, node, step: 1, typedHostname: "", processing: false });
   };
 
   const closeRevokeModal = () => {
-    setRevokeModal({ open: false, node: null, processing: false });
+    setRevokeModal({ open: false, node: null, step: 1, typedHostname: "", processing: false });
   };
 
-  const handleRevokeConfirm = () => {
+  const handleRevokeConfirm = async () => {
     const node = revokeModal.node;
     if (!node) return;
     setRevokeModal((s) => ({ ...s, processing: true }));
-    revokeNodeCertificate(node.id)
-      .then(() => {
-        closeRevokeModal();
-        closeDeviceDetailsModal();
-        loadNodes();
-      })
-      .catch((e) => setError(e.message))
-      .finally(() => setRevokeModal((s) => ({ ...s, processing: false })));
+    try {
+      await startReauthFlow({ kind: "node-revoke-cert", nodeId: node.id, hostname: node.hostname });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start reauthentication");
+      setRevokeModal((s) => ({ ...s, processing: false }));
+    }
   };
 
   const handleDownloadConfig = async (node: Node) => {
@@ -1703,24 +1701,63 @@ export function Nodes() {
       <Modal show={revokeModal.open} onClose={closeRevokeModal} size="md">
         <Modal.Header>Revoke Certificate</Modal.Header>
         <Modal.Body>
-          <p className="text-gray-700 dark:text-gray-300">
-            This will revoke the node&apos;s certificate and take it offline. The node will no
-            longer be able to connect to the network. You can re-enroll it later to issue a new
-            certificate. Do you want to continue?
-          </p>
+          {revokeModal.step === 1 && revokeModal.node && (
+            <p className="text-gray-700 dark:text-gray-300">
+              This will revoke the node&apos;s certificate and take it offline. The node will no
+              longer be able to connect to the network. You can re-enroll it later to issue a new
+              certificate. Do you want to continue?
+            </p>
+          )}
+          {revokeModal.step === 2 && revokeModal.node && (
+            <div className="space-y-4">
+              <p className="text-gray-700 dark:text-gray-300">
+                To confirm, type the node hostname: <strong>{revokeModal.node.hostname}</strong>
+              </p>
+              <TextInput
+                type="text"
+                value={revokeModal.typedHostname}
+                onChange={(e) =>
+                  setRevokeModal((s) => ({ ...s, typedHostname: e.target.value }))
+                }
+                placeholder={revokeModal.node.hostname}
+              />
+            </div>
+          )}
         </Modal.Body>
         <Modal.Footer>
-          <Button color="gray" onClick={closeRevokeModal}>
-            Cancel
-          </Button>
-          <Button
-            color="failure"
-            onClick={handleRevokeConfirm}
-            isProcessing={revokeModal.processing}
-            disabled={revokeModal.processing}
-          >
-            Revoke
-          </Button>
+          {revokeModal.step === 1 ? (
+            <>
+              <Button color="gray" onClick={closeRevokeModal}>
+                Cancel
+              </Button>
+              <Button
+                color="failure"
+                onClick={() => setRevokeModal((s) => ({ ...s, step: 2 }))}
+              >
+                Continue
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button
+                color="gray"
+                onClick={() => setRevokeModal((s) => ({ ...s, step: 1, typedHostname: "" }))}
+              >
+                Back
+              </Button>
+              <Button
+                color="failure"
+                onClick={handleRevokeConfirm}
+                disabled={
+                  revokeModal.node?.hostname.trim() !== revokeModal.typedHostname.trim() ||
+                  revokeModal.processing
+                }
+                isProcessing={revokeModal.processing}
+              >
+                Revoke
+              </Button>
+            </>
+          )}
         </Modal.Footer>
       </Modal>
 

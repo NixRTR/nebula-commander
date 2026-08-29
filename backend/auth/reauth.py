@@ -1,121 +1,138 @@
 """
 Reauthentication flow for critical operations.
+
+Challenge state is stored in the reauth_challenges table (not in-process memory)
+so step-up auth works correctly across multiple worker processes: the request
+that creates the challenge and the request that later verifies it may land on
+different processes.
 """
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
 
 from jose import jwt
+from sqlalchemy import delete, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-
-# In-memory cache for reauth challenges (sub -> challenge_data)
-# In production, this should be Redis or similar
-_reauth_challenges: dict[str, dict] = {}
+from ..models.db import ReauthChallenge
 
 
-def create_reauth_challenge(user_sub: str) -> str:
+async def create_reauth_challenge(user_sub: str, session: AsyncSession) -> str:
     """
-    Create a reauthentication challenge for a user.
-    
+    Create a reauthentication challenge for a user. Replaces any existing
+    outstanding challenge for the same user (one active challenge per user).
+
     Args:
         user_sub: User's subject (from OIDC)
-    
+        session: Active DB session
+
     Returns:
         Challenge token to be validated after reauth
     """
     challenge = secrets.token_urlsafe(32)
     expires_at = datetime.utcnow() + timedelta(minutes=5)
-    
-    _reauth_challenges[user_sub] = {
-        "challenge": challenge,
-        "expires_at": expires_at,
-        "authenticated_at": None,
-    }
-    
+
+    result = await session.execute(
+        select(ReauthChallenge).where(ReauthChallenge.user_sub == user_sub)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
+        row = ReauthChallenge(user_sub=user_sub)
+        session.add(row)
+    row.challenge = challenge
+    row.expires_at = expires_at
+    row.authenticated_at = None
+    await session.flush()
+
     return challenge
 
 
-def mark_reauth_completed(user_sub: str, challenge: str) -> bool:
+async def mark_reauth_completed(user_sub: str, challenge: str, session: AsyncSession) -> bool:
     """
     Mark a reauthentication as completed.
-    
+
     Args:
         user_sub: User's subject
         challenge: Challenge token
-    
+        session: Active DB session
+
     Returns:
         True if challenge is valid and marked as completed
     """
-    if user_sub not in _reauth_challenges:
+    result = await session.execute(
+        select(ReauthChallenge).where(ReauthChallenge.user_sub == user_sub)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
         return False
-    
-    data = _reauth_challenges[user_sub]
-    
-    # Check if challenge matches and hasn't expired
-    if data["challenge"] != challenge:
+
+    if row.challenge != challenge:
         return False
-    
-    if datetime.utcnow() > data["expires_at"]:
-        del _reauth_challenges[user_sub]
+
+    if datetime.utcnow() > row.expires_at:
+        await session.delete(row)
+        await session.flush()
         return False
-    
-    # Mark as authenticated
-    data["authenticated_at"] = datetime.utcnow()
+
+    row.authenticated_at = datetime.utcnow()
+    await session.flush()
     return True
 
 
-def verify_reauth(user_sub: str, challenge: str) -> bool:
+async def verify_reauth(user_sub: str, challenge: str, session: AsyncSession) -> bool:
     """
     Verify that a user has recently reauthenticated.
-    
+
     Args:
         user_sub: User's subject
         challenge: Challenge token
-    
+        session: Active DB session
+
     Returns:
         True if user has valid recent reauthentication
     """
-    if user_sub not in _reauth_challenges:
+    result = await session.execute(
+        select(ReauthChallenge).where(ReauthChallenge.user_sub == user_sub)
+    )
+    row = result.scalar_one_or_none()
+    if row is None:
         return False
-    
-    data = _reauth_challenges[user_sub]
-    
-    # Check if challenge matches
-    if data["challenge"] != challenge:
+
+    if row.challenge != challenge:
         return False
-    
-    # Check if authenticated
-    if data["authenticated_at"] is None:
+
+    if row.authenticated_at is None:
         return False
-    
-    # Check if still valid (5 minutes from authentication)
-    if datetime.utcnow() > data["expires_at"]:
-        del _reauth_challenges[user_sub]
+
+    if datetime.utcnow() > row.expires_at:
+        await session.delete(row)
+        await session.flush()
         return False
-    
+
     return True
 
 
-def clear_reauth_challenge(user_sub: str) -> None:
+async def clear_reauth_challenge(user_sub: str, session: AsyncSession) -> None:
     """
     Clear a reauthentication challenge after use.
-    
+
     Args:
         user_sub: User's subject
+        session: Active DB session
     """
-    if user_sub in _reauth_challenges:
-        del _reauth_challenges[user_sub]
+    await session.execute(delete(ReauthChallenge).where(ReauthChallenge.user_sub == user_sub))
+    await session.flush()
 
 
 def create_reauth_token(user_sub: str, challenge: str) -> str:
     """
     Create a short-lived JWT token for reauthentication verification.
-    
+
     Args:
         user_sub: User's subject
         challenge: Challenge token
-    
+
     Returns:
         JWT token
     """
@@ -136,10 +153,10 @@ def create_reauth_token(user_sub: str, challenge: str) -> str:
 def decode_reauth_token(token: str) -> Optional[dict]:
     """
     Decode and validate a reauthentication token.
-    
+
     Args:
         token: JWT token
-    
+
     Returns:
         Token payload if valid, None otherwise
     """

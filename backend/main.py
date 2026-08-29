@@ -44,16 +44,21 @@ async def lifespan(app: FastAPI):
     """Application lifespan: init DB on startup."""
     logger.info("Starting %s...", settings.app_name)
     
-    # Warn if dev-token is available
-    if settings.debug or not settings.oidc_issuer_url:
+    # Warn if dev-token is available - mirrors the gate in api/auth.py::dev_token()
+    if not settings.oidc_issuer_url and (settings.debug or settings.standalone_admin_bootstrap):
         logger.warning(
             "⚠️  DEV-TOKEN ENDPOINT ENABLED - Anyone can obtain admin access without authentication!"
         )
-        if settings.oidc_issuer_url:
-            logger.warning(
-                "⚠️  OIDC is configured but DEBUG=true - this is INSECURE for production!"
-            )
-    
+    elif settings.debug and settings.oidc_issuer_url:
+        logger.warning(
+            "⚠️  DEBUG=true with OIDC configured - dev-token stays disabled, but debug mode has other implications (verbose logging, SQL echo) in production."
+        )
+
+    logger.info(
+        "Rate limiting is in-memory and per-process; do not run multiple backend "
+        "workers/replicas without adding a shared (DB/Redis-backed) rate-limit store."
+    )
+
     await init_db()
     yield
     logger.info("Shutting down...")

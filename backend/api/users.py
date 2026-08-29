@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import UserInfo
 from ..auth.permissions import require_system_admin
+from ..auth.reauth import clear_reauth_challenge, decode_reauth_token, verify_reauth
 from ..database import get_session
 from ..models import User, NetworkPermission
 from ..services.audit import get_client_ip, log_audit
@@ -164,20 +165,37 @@ async def update_user(
     )
 
 
+class UserDeleteRequest(BaseModel):
+    reauth_token: str
+    confirmation: str  # Must match user's email (or oidc_sub if no email)
+
+
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_user(
     user_id: int,
+    body: UserDeleteRequest,
     request: Request,
     admin: UserInfo = Depends(require_system_admin),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete user (system admins only). This will remove all their permissions."""
+    """Delete user (system admins only). This will remove all their permissions.
+    Requires reauthentication and typed confirmation of the user's email."""
     result = await session.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
-    
+
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
+    reauth_payload = decode_reauth_token(body.reauth_token)
+    if not reauth_payload or reauth_payload.get("sub") != admin.sub:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired reauthentication")
+    if not await verify_reauth(admin.sub, reauth_payload.get("challenge"), session):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Reauthentication required")
+
+    expected_confirmation = user.email or user.oidc_sub
+    if body.confirmation != expected_confirmation:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Confirmation does not match user's email")
+
     await session.delete(user)
     await session.flush()
     admin_db = await session.scalar(select(User).where(User.oidc_sub == admin.sub))
@@ -190,5 +208,6 @@ async def delete_user(
         actor_identifier=admin.email or admin.sub,
         client_ip=get_client_ip(request),
     )
-    
+    await clear_reauth_challenge(admin.sub, session)
+
     return None

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Badge, Button, Modal, Label, Select } from 'flowbite-react';
+import { Card, Table, Badge, Button, Modal, Label, Select, TextInput } from 'flowbite-react';
 import { HiEye, HiPencil, HiTrash } from 'react-icons/hi';
 import { RequireSystemAdmin } from '../components/permissions/RequireSystemAdmin';
 import { apiClient } from '../api/client';
+import { startReauthFlow } from './ReauthComplete';
 
 interface User {
   id: number;
@@ -31,6 +32,10 @@ export const Users: React.FC = () => {
   const [editingRole, setEditingRole] = useState('');
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
+  const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
+  const [typedEmail, setTypedEmail] = useState('');
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [showDetailsModal, setShowDetailsModal] = useState(false);
 
   useEffect(() => {
@@ -80,17 +85,27 @@ export const Users: React.FC = () => {
     }
   };
 
+  const closeDeleteConfirm = () => {
+    setShowDeleteConfirm(false);
+    setUserToDelete(null);
+    setDeleteStep(1);
+    setTypedEmail('');
+    setDeleteError(null);
+  };
+
   const handleDeleteUser = async () => {
     if (!userToDelete) return;
-
+    setDeleting(true);
+    setDeleteError(null);
     try {
-      await apiClient.delete(`/users/${userToDelete.id}`);
-      setShowDeleteConfirm(false);
-      setUserToDelete(null);
-      fetchUsers();
+      await startReauthFlow({
+        kind: 'user-delete',
+        userId: userToDelete.id,
+        email: userToDelete.email,
+      });
     } catch (error) {
-      console.error('Failed to delete user:', error);
-      alert('Failed to delete user');
+      setDeleteError(error instanceof Error ? error.message : 'Failed to start reauthentication');
+      setDeleting(false);
     }
   };
 
@@ -164,6 +179,9 @@ export const Users: React.FC = () => {
                             color="failure"
                             onClick={() => {
                               setUserToDelete(user);
+                              setDeleteStep(1);
+                              setTypedEmail('');
+                              setDeleteError(null);
                               setShowDeleteConfirm(true);
                             }}
                           >
@@ -271,24 +289,59 @@ export const Users: React.FC = () => {
         </Modal>
 
         {/* Delete Confirmation Modal */}
-        <Modal show={showDeleteConfirm} onClose={() => setShowDeleteConfirm(false)}>
+        <Modal show={showDeleteConfirm} onClose={closeDeleteConfirm}>
           <Modal.Header>Confirm Delete</Modal.Header>
           <Modal.Body>
-            <p className="text-gray-700 dark:text-gray-300">
-              Are you sure you want to delete user <strong>{userToDelete?.email}</strong>? 
-              This will remove all their network permissions.
-            </p>
+            {deleteStep === 1 && userToDelete && (
+              <p className="text-gray-700 dark:text-gray-300">
+                Are you sure you want to delete user <strong>{userToDelete.email}</strong>?
+                This will remove all their network permissions.
+              </p>
+            )}
+            {deleteStep === 2 && userToDelete && (
+              <div className="space-y-4">
+                <p className="text-gray-700 dark:text-gray-300">
+                  To confirm, type the user&apos;s email: <strong>{userToDelete.email}</strong>
+                </p>
+                <TextInput
+                  type="text"
+                  value={typedEmail}
+                  onChange={(e) => setTypedEmail(e.target.value)}
+                  placeholder={userToDelete.email}
+                />
+                {deleteError && (
+                  <p className="text-sm text-red-600 dark:text-red-400">{deleteError}</p>
+                )}
+              </div>
+            )}
           </Modal.Body>
           <Modal.Footer>
-            <Button color="failure" onClick={handleDeleteUser}>
-              Delete
-            </Button>
-            <Button color="gray" onClick={() => {
-              setShowDeleteConfirm(false);
-              setUserToDelete(null);
-            }}>
-              Cancel
-            </Button>
+            {deleteStep === 1 ? (
+              <>
+                <Button color="failure" onClick={() => setDeleteStep(2)}>
+                  Continue
+                </Button>
+                <Button color="gray" onClick={closeDeleteConfirm}>
+                  Cancel
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button
+                  color="failure"
+                  onClick={handleDeleteUser}
+                  disabled={
+                    (userToDelete?.email || '').trim() !== typedEmail.trim() || deleting
+                  }
+                  isProcessing={deleting}
+                >
+                  Delete
+                </Button>
+                <Button color="gray" onClick={() => setDeleteStep(1)}>
+                  Back
+                </Button>
+              </>
+            )}
           </Modal.Footer>
         </Modal>
       </div>
