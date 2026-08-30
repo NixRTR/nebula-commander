@@ -1,7 +1,7 @@
 """Networks API: create and list Nebula networks."""
 import ipaddress
 import logging
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
@@ -28,6 +28,7 @@ router = APIRouter(prefix="/api/networks", tags=["networks"])
 class NetworkCreate(BaseModel):
     name: str
     subnet_cidr: str
+    cert_curve: Literal["25519", "P256"] = "25519"
 
 
 class NetworkResponse(BaseModel):
@@ -35,6 +36,8 @@ class NetworkResponse(BaseModel):
     name: str
     subnet_cidr: str
     ca_cert_path: Optional[str] = None
+    cert_version: int = 2
+    cert_curve: str = "25519"
     created_at: str
 
     class Config:
@@ -85,6 +88,8 @@ async def list_networks(
                 name=n.name,
                 subnet_cidr=n.subnet_cidr,
                 ca_cert_path=None,  # Redacted for system admins
+                cert_version=n.cert_version,
+                cert_curve=n.cert_curve,
                 created_at=n.created_at.isoformat() if n.created_at else "",
                 role="admin",
                 can_manage_nodes=True,
@@ -120,6 +125,8 @@ async def list_networks(
             name=n.name,
             subnet_cidr=n.subnet_cidr,
             ca_cert_path=n.ca_cert_path,
+            cert_version=n.cert_version,
+            cert_curve=n.cert_curve,
             created_at=n.created_at.isoformat() if n.created_at else "",
             role=perms[n.id].role if n.id in perms else None,
             can_manage_nodes=perms[n.id].can_manage_nodes if n.id in perms else None,
@@ -160,8 +167,11 @@ async def create_network(
             detail=f"Network with name '{body.name}' already exists",
         )
     
-    # Create network
-    network = Network(name=body.name, subnet_cidr=body.subnet_cidr)
+    # Create network. cert_version is always 2 (v1 is only ever reached by pre-existing
+    # networks migrated in by the DB column's SQL-level DEFAULT); cert_curve is the one
+    # user-facing choice, made once here and immutable afterward (nebula requires every
+    # cert on a network to share its CA's curve).
+    network = Network(name=body.name, subnet_cidr=body.subnet_cidr, cert_curve=body.cert_curve)
     session.add(network)
     await session.flush()
     await session.refresh(network)
@@ -212,6 +222,8 @@ async def create_network(
         name=network.name,
         subnet_cidr=network.subnet_cidr,
         ca_cert_path=network.ca_cert_path,
+        cert_version=network.cert_version,
+        cert_curve=network.cert_curve,
         created_at=network.created_at.isoformat() if network.created_at else "",
     )
 
@@ -263,6 +275,8 @@ async def get_network(
         name=network.name,
         subnet_cidr=network.subnet_cidr,
         ca_cert_path=ca_cert_path,
+        cert_version=network.cert_version,
+        cert_curve=network.cert_curve,
         created_at=network.created_at.isoformat() if network.created_at else "",
     )
 
@@ -338,6 +352,8 @@ async def update_network(
         name=network.name,
         subnet_cidr=network.subnet_cidr,
         ca_cert_path=network.ca_cert_path,
+        cert_version=network.cert_version,
+        cert_curve=network.cert_curve,
         created_at=network.created_at.isoformat() if network.created_at else "",
     )
 

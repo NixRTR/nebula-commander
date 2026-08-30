@@ -41,9 +41,10 @@ RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz \
 COPY --from=builder /app/client/binaries/dist/ncclient /usr/local/bin/ncclient
 RUN chmod +x /usr/local/bin/ncclient
 
-# Download latest Nebula release (linux/amd64) from GitHub at build time
+# Download Nebula release (linux/amd64) from GitHub at build time
+ARG NEBULA_VERSION=1.11.1
 RUN curl -sSL -o /tmp/nebula.tar.gz \
-    "https://github.com/slackhq/nebula/releases/latest/download/nebula-linux-amd64.tar.gz" \
+    "https://github.com/slackhq/nebula/releases/download/v${NEBULA_VERSION}/nebula-linux-amd64.tar.gz" \
     && tar -xzf /tmp/nebula.tar.gz -C /tmp \
     && NEBULA_BIN=$(find /tmp -maxdepth 2 -type f -name nebula 2>/dev/null | head -1) \
     && install -m 755 "$NEBULA_BIN" /usr/local/bin/nebula \

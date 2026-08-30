@@ -30,6 +30,8 @@ class Network(Base):
     subnet_cidr: Mapped[str] = mapped_column(String(64), nullable=False)
     ca_cert_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     ca_key_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
+    cert_version: Mapped[int] = mapped_column(Integer, default=2)  # nebula cert format version for this network's CA
+    cert_curve: Mapped[str] = mapped_column(String(16), default="25519")  # "25519" or "P256"
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     nodes: Mapped[list["Node"]] = relationship(

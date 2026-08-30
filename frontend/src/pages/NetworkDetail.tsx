@@ -9,6 +9,7 @@ interface NetworkInfo {
   id: number;
   name: string;
   subnet_cidr: string;
+  cert_curve: "25519" | "P256";
   created_at: string;
 }
 
@@ -171,7 +172,8 @@ export const NetworkDetail: React.FC = () => {
           <h1 className="text-3xl font-bold">{network?.name || 'Network'}</h1>
           {network && (
             <p className="mt-2 text-gray-600 dark:text-gray-400">
-              Subnet: <strong>{network.subnet_cidr}</strong> &middot; Created{' '}
+              Subnet: <strong>{network.subnet_cidr}</strong> &middot; Curve:{' '}
+              <strong>{network.cert_curve === 'P256' ? 'P256' : 'Curve25519'}</strong> &middot; Created{' '}
               {new Date(network.created_at).toLocaleDateString()}
             </p>
           )}

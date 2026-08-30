@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Card, Table, Button, TextInput, Label, Modal } from "flowbite-react";
+import { Card, Table, Button, TextInput, Label, Modal, Select } from "flowbite-react";
 import { HiPlus, HiTrash } from "react-icons/hi";
 import { Link } from "react-router-dom";
 import type { Network, NetworkCreate } from "../types/networks";
@@ -14,6 +14,7 @@ export function Networks() {
   const [form, setForm] = useState<NetworkCreate>({
     name: "",
     subnet_cidr: "10.100.0.0/24",
+    cert_curve: "25519",
   });
   const [deleteModal, setDeleteModal] = useState<{
     open: boolean;
@@ -60,7 +61,7 @@ export function Networks() {
     e.preventDefault();
     createNetwork(form)
       .then(() => {
-        setForm({ name: "", subnet_cidr: "10.100.0.0/24" });
+        setForm({ name: "", subnet_cidr: "10.100.0.0/24", cert_curve: "25519" });
         setShowForm(false);
         load();
       })
@@ -112,6 +113,22 @@ export function Networks() {
                 placeholder="10.100.0.0/24"
                 required
               />
+            </div>
+            <div>
+              <Label htmlFor="cert_curve" value="Certificate Curve" />
+              <Select
+                id="cert_curve"
+                value={form.cert_curve}
+                onChange={(e) =>
+                  setForm((f) => ({ ...f, cert_curve: e.target.value as "25519" | "P256" }))
+                }
+              >
+                <option value="25519">Curve25519 (default)</option>
+                <option value="P256">P256</option>
+              </Select>
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                Applies to every node on this network. Cannot be changed after creation.
+              </p>
             </div>
             <Button type="submit" color="purple">
               Create Network

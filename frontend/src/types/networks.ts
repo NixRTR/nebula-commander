@@ -11,6 +11,8 @@ export interface Network {
   name: string;
   subnet_cidr: string;
   ca_cert_path: string | null;
+  cert_version: number;
+  cert_curve: "25519" | "P256";
   created_at: string;
   role?: string;
   can_manage_nodes?: boolean;
@@ -21,6 +23,7 @@ export interface Network {
 export interface NetworkCreate {
   name: string;
   subnet_cidr: string;
+  cert_curve?: "25519" | "P256";
 }
 
 export interface NetworkUpdateData {

@@ -8,7 +8,7 @@ ARG VERSION=latest
 ENV VERSION=${VERSION}
 
 # Install nebula-cert from GitHub release (required for certificate signing)
-ARG NEBULA_VERSION=1.8.2
+ARG NEBULA_VERSION=1.11.1
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \

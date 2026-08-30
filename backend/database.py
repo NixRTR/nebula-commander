@@ -107,6 +107,18 @@ def _run_sqlite_migrations() -> None:
             if col not in node_columns:
                 cur.execute(sql)
                 logger.info("Migration: added column nodes.%s", col)
+        cur.execute("PRAGMA table_info(networks)")
+        network_columns = {row[1] for row in cur.fetchall()}
+        for col, sql in [
+            # DEFAULT 1/'25519' backfills existing networks (created under the old v1-only
+            # nebula-cert pin) to v1/Curve25519; new networks get 2/25519 (or a chosen curve)
+            # from the ORM-level default/explicit value on INSERT instead of this SQL default.
+            ("cert_version", "ALTER TABLE networks ADD COLUMN cert_version INTEGER DEFAULT 1"),
+            ("cert_curve", "ALTER TABLE networks ADD COLUMN cert_curve VARCHAR(16) DEFAULT '25519'"),
+        ]:
+            if col not in network_columns:
+                cur.execute(sql)
+                logger.info("Migration: added column networks.%s", col)
         cur.execute(
             "SELECT name FROM sqlite_master WHERE type='table' AND name='network_group_firewall'"
         )

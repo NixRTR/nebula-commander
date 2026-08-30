@@ -46,6 +46,8 @@ class CertManager:
             network.name,
             ca_crt,
             ca_key,
+            version=network.cert_version,
+            curve=network.cert_curve,
             allowed_roots=[_cert_store_root],
         )
         # Overwrite with encrypted storage

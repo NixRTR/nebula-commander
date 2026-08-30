@@ -14,7 +14,7 @@ import tempfile
 import zipfile
 from typing import Callable, Optional
 
-NEBULA_VERSION_DEFAULT = "v1.10.2"
+NEBULA_VERSION_DEFAULT = "v1.11.1"
 NEBULA_URL_TEMPLATE = "https://github.com/slackhq/nebula/releases/download/{version}/nebula-windows-amd64.zip"
 NEBULA_RELEASES_URL = "https://github.com/slackhq/nebula/releases"
 NEBULA_API_LATEST = "https://api.github.com/repos/slackhq/nebula/releases/latest"

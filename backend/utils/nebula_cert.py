@@ -141,14 +141,28 @@ def keygen(
     logger.info("Generated keypair: %s, %s", out_pub, out_key)
 
 
+_ALLOWED_CURVES = {"25519", "P256"}
+
+
 def ca_generate(
     name: str,
     out_crt: Path,
     out_key: Path,
     duration_hours: int = 8760 * 2,  # 2 years
+    version: int = 2,
+    curve: str = "25519",
     allowed_roots: Optional[List[Path]] = None,
 ) -> None:
-    """Generate a new Nebula CA. Creates out_crt and out_key."""
+    """Generate a new Nebula CA. Creates out_crt and out_key.
+
+    version/curve are passed explicitly rather than relying on nebula-cert's own
+    default (which is version-dependent and has changed upstream before) - see
+    https://github.com/slackhq/nebula/pull/1216. A host cert signed against this CA
+    with `sign` automatically inherits both version and curve from the CA; nothing
+    needs to be passed at sign time.
+    """
+    if curve not in _ALLOWED_CURVES:
+        raise ValueError(f"Unsupported curve: {curve!r} (expected one of {_ALLOWED_CURVES})")
     if allowed_roots is not None:
         _check_path_under_roots(out_crt, allowed_roots)
         _check_path_under_roots(out_key, allowed_roots)
@@ -161,8 +175,10 @@ def ca_generate(
         "-out-crt", str(out_crt),
         "-out-key", str(out_key),
         "-duration", f"{duration_hours}h",
+        "-version", str(version),
+        "-curve", curve,
     ])
-    logger.info("Generated CA: %s", out_crt)
+    logger.info("Generated CA: %s (version=%s, curve=%s)", out_crt, version, curve)
 
 
 def cert_sign(
