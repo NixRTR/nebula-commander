@@ -26,6 +26,10 @@
     <Property Id="WixShellExecTarget" Value="[#NcclientTrayExe]" />
     <CustomAction Id="LaunchApplication" DllEntry="WixShellExec" Impersonate="yes" BinaryRef="Wix4UtilCA_X86" />
 
+    <!-- WixUI_Minimal shows a license page by default; without this it falls back to
+         WiX's own placeholder sample text instead of ncclient's actual GPLv3 license. -->
+    <WixVariable Id="WixUILicenseRtf" Value="License.rtf" />
+
     <ui:WixUI Id="WixUI_Minimal" />
     <UI>
       <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchApplication" Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT AND NOT Installed" />
