@@ -29,7 +29,7 @@ import {
 } from "../api/client";
 import type { CreateEnrollmentCodeResponse } from "../api/client";
 import { startReauthFlow } from "./ReauthComplete";
-import { getEnrollmentState } from "../utils/nodeStatus";
+import { getEnrollmentState, getLighthouseReachability } from "../utils/nodeStatus";
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -1198,6 +1198,20 @@ export function Nodes() {
                             Unknown
                           </Badge>
                         )}
+                        {n.platform === "desktop" && (() => {
+                          const lh = getLighthouseReachability(n);
+                          if (!lh.known || lh.stale) return null;
+                          return (
+                            <Badge
+                              color={lh.reachable ? "success" : "failure"}
+                              size="sm"
+                              className="ml-1"
+                              title={`A lighthouse pinged this device at ${new Date(lh.checkedAt).toLocaleString()} and found it ${lh.reachable ? "reachable" : "unreachable"}. This is independent of the device's own check-in above.`}
+                            >
+                              Lighthouse: {lh.reachable ? "reachable" : "unreachable"}
+                            </Badge>
+                          );
+                        })()}
                       </Table.Cell>
                       <Table.Cell>
                         <div className="flex flex-wrap gap-2 items-center">

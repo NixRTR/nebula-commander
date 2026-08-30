@@ -29,20 +29,39 @@ function parseUtcDate(iso: string): Date {
   return new Date(hasTimezone ? iso : `${iso}Z`);
 }
 
+export type LighthouseReachability =
+  | { known: false }
+  | { known: true; reachable: boolean; checkedAt: string; stale: boolean };
+
+/**
+ * A lighthouse's most recent ping report for this node, if any - independent of
+ * platform. "stale" means the report is old enough not to be trusted as current
+ * (the lighthouse itself may be down, or may no longer be pinging this node).
+ */
+export function getLighthouseReachability(node: Node): LighthouseReachability {
+  if (!node.lighthouse_checked_at || node.lighthouse_reachable === null) {
+    return { known: false };
+  }
+  const elapsedSeconds = (Date.now() - parseUtcDate(node.lighthouse_checked_at).getTime()) / 1000;
+  return {
+    known: true,
+    reachable: node.lighthouse_reachable,
+    checkedAt: node.lighthouse_checked_at,
+    stale: elapsedSeconds > MOBILE_STALE_THRESHOLD_SECONDS,
+  };
+}
+
 /**
  * Mobile nodes (iOS/Android via the official Mobile Nebula app) never self-report a
  * heartbeat - there is no device token or callback capability for them. Their only
  * activity signal is a lighthouse pinging their Nebula IP and reporting the result.
  */
 function getMobileEnrollmentState(node: Node): EnrollmentState {
-  if (!node.lighthouse_checked_at) {
+  const lh = getLighthouseReachability(node);
+  if (!lh.known || lh.stale) {
     return { type: "unknown" };
   }
-  const elapsedSeconds = (Date.now() - parseUtcDate(node.lighthouse_checked_at).getTime()) / 1000;
-  if (elapsedSeconds > MOBILE_STALE_THRESHOLD_SECONDS) {
-    return { type: "unknown" };
-  }
-  return node.lighthouse_reachable ? { type: "active" } : { type: "offline" };
+  return lh.reachable ? { type: "active" } : { type: "offline" };
 }
 
 export function getEnrollmentState(node: Node): EnrollmentState {

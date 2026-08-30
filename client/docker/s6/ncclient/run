@@ -12,6 +12,17 @@ if [ -z "${SERVER}" ]; then
   exit 1
 fi
 
+# Keep settings.json (written by `enroll`, holds node_id - the only thing that
+# gates whether heartbeat is ever sent) on the same volume as the token file,
+# instead of client/config.py's default (~/.config/nebula-commander, i.e. the
+# container's throwaway filesystem). Without this, node_id is silently lost on
+# every container recreation even though the token itself survives fine, since
+# the run script only re-enrolls when the token is missing, not when
+# settings.json is missing.
+if [ -z "${NEBULA_COMMANDER_CONFIG_DIR:-}" ]; then
+  export NEBULA_COMMANDER_CONFIG_DIR="$(dirname "${TOKEN_FILE}")"
+fi
+
 # Ensure token file exists or enroll once using ENROLL_CODE
 if [ ! -f "${TOKEN_FILE}" ]; then
   if [ -z "${ENROLL_CODE}" ]; then

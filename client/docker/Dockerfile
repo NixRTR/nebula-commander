@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     procps \
     xz-utils \
+    iputils-ping \
     && rm -rf /var/lib/apt/lists/*
 
 # Install s6-overlay v3
