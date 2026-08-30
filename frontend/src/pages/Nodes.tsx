@@ -1110,7 +1110,7 @@ export function Nodes() {
                 <Table.HeadCell>Network</Table.HeadCell>
                 <Table.HeadCell>IP Address</Table.HeadCell>
                 <Table.HeadCell>Type</Table.HeadCell>
-                <Table.HeadCell>Enrollment</Table.HeadCell>
+                <Table.HeadCell>Status</Table.HeadCell>
                 <Table.HeadCell>Actions</Table.HeadCell>
               </Table.Head>
               <Table.Body className="divide-y">
@@ -1172,43 +1172,50 @@ export function Nodes() {
                         </div>
                       </Table.Cell>
                       <Table.Cell>
-                        {enrollState.type === "enroll" && (
-                          <Button size="xs" color="purple" onClick={() => openEnrollmentCodeModal(n)}>
-                            Enroll
-                          </Button>
-                        )}
-                        {enrollState.type === "re-enroll" && (
-                          <Button size="xs" color="warning" onClick={() => openEnrollmentCodeModal(n)}>
-                            Re-Enroll
-                          </Button>
-                        )}
-                        {enrollState.type === "active" && (
-                          <Badge color="success">Active</Badge>
-                        )}
-                        {enrollState.type === "idle" && (
-                          <Badge color={enrollState.severity === "success" ? "success" : "warning"}>
-                            Idle
-                          </Badge>
-                        )}
-                        {enrollState.type === "offline" && (
-                          <Badge color="failure">Offline</Badge>
-                        )}
-                        {enrollState.type === "unknown" && (
-                          <Badge color="gray" size="sm" title="No lighthouse has reported on this device yet">
-                            Unknown
-                          </Badge>
-                        )}
-                        {n.platform === "desktop" && (() => {
-                          const lh = getLighthouseReachability(n);
-                          if (!lh.known || lh.stale) return null;
+                        {(() => {
+                          if (enrollState.type === "enroll") {
+                            return (
+                              <Button size="xs" color="purple" onClick={() => openEnrollmentCodeModal(n)}>
+                                Enroll
+                              </Button>
+                            );
+                          }
+                          if (enrollState.type === "re-enroll") {
+                            return (
+                              <Button size="xs" color="warning" onClick={() => openEnrollmentCodeModal(n)}>
+                                Re-Enroll
+                              </Button>
+                            );
+                          }
+                          if (enrollState.type === "unknown") {
+                            return (
+                              <Badge color="gray" title="No lighthouse has reported on this device yet">
+                                Inactive
+                              </Badge>
+                            );
+                          }
+                          // Desktop nodes also get pinged by lighthouses independent of their own
+                          // check-in; surface that as a tooltip on the one pill rather than a
+                          // second pill, since it's supplementary context, not a distinct status.
+                          const lh = n.platform === "desktop" ? getLighthouseReachability(n) : { known: false as const };
+                          const lighthouseTitle =
+                            lh.known && !lh.stale
+                              ? `A lighthouse pinged this device at ${new Date(lh.checkedAt).toLocaleString()} and found it ${lh.reachable ? "reachable" : "unreachable"}. This is independent of the device's own check-in.`
+                              : undefined;
+
+                          if (enrollState.type === "active" || (enrollState.type === "idle" && enrollState.severity === "success")) {
+                            return (
+                              <Badge color="success" title={lighthouseTitle}>
+                                Active
+                              </Badge>
+                            );
+                          }
+                          // idle (warning) and offline both collapse to "Inactive"; color still
+                          // hints at severity (stale vs. confirmed offline).
+                          const color = enrollState.type === "offline" ? "failure" : "warning";
                           return (
-                            <Badge
-                              color={lh.reachable ? "success" : "failure"}
-                              size="sm"
-                              className="ml-1"
-                              title={`A lighthouse pinged this device at ${new Date(lh.checkedAt).toLocaleString()} and found it ${lh.reachable ? "reachable" : "unreachable"}. This is independent of the device's own check-in above.`}
-                            >
-                              Lighthouse: {lh.reachable ? "reachable" : "unreachable"}
+                            <Badge color={color} title={lighthouseTitle}>
+                              Inactive
                             </Badge>
                           );
                         })()}

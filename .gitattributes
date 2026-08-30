@@ -1,2 +1,7 @@
 # Ensure shell scripts use LF so exec works in containers (no "no such file or directory" from CRLF shebang)
 docker/keycloak/*.sh text eol=lf
+
+# Nix files embed shell scripts (systemd unit scripts, runCommand builders) inline; a
+# CRLF checkout breaks those builders with "$'\r': command not found" when built from
+# a Windows checkout (e.g. via WSL).
+*.nix text eol=lf

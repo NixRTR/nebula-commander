@@ -16,6 +16,7 @@
           default = pkgs.callPackage ./nix/package.nix { };
           backend = pkgs.callPackage ./nix/package.nix { backendOnly = true; };
           frontend = pkgs.callPackage ./nix/package.nix { frontendOnly = true; };
+          ncclient = pkgs.callPackage ./nix/client-package.nix { };
         };
 
         devShells.default = pkgs.mkShell {
@@ -29,9 +30,44 @@
             echo "Frontend: cd frontend && npm install && npm run dev"
           '';
         };
+
+        # `nix flake check` builds these. A bare flake-schema check wouldn't have caught
+        # the systemd.services.<name>.environment.PATH conflict found in module.nix and
+        # client-module.nix - that only surfaces when both modules are actually evaluated
+        # as part of a real NixOS system, which is what this does.
+        checks.nixos-module-eval =
+          (nixpkgs.lib.nixosSystem {
+            inherit system;
+            modules = [
+              ./nix/module.nix
+              ./nix/client-module.nix
+              ({ ... }: {
+                boot.isContainer = true;
+                system.stateVersion = "25.11";
+                services.nebula-commander = {
+                  enable = true;
+                  jwtSecretFile = "/run/secrets/jwt";
+                  encryptionKeyFile = "/run/secrets/enc";
+                  publicUrl = "https://nebula.example.com";
+                  oidc = {
+                    issuerUrl = "https://keycloak.example.com/realms/nc";
+                    clientId = "nebula-commander";
+                    clientSecretFile = "/run/secrets/oidc-client-secret";
+                  };
+                };
+                services.ncclient = {
+                  enable = true;
+                  server = "https://nebula.example.com";
+                  enrollCodeFile = "/run/secrets/enroll-code";
+                  acceptDns = true;
+                };
+              })
+            ];
+          }).config.system.build.toplevel;
       }
     )
     // {
       nixosModules.default = import ./nix/module.nix;
+      nixosModules.client = import ./nix/client-module.nix;
     };
 }

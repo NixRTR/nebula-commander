@@ -34,25 +34,31 @@
 - [PayPal and Venmo](https://www.paypal.com/donate/?hosted_button_id=CHLZH2ZJXKQFU)
 - More to come
 
-### Status
+### Status (as of v0.3.0)
 
 **Implemented**
 
-- Network creation
-- Certificate generation
-- config.yaml generation
-- Basic firewall group rules
-- Node management
-- Audit logging
-- Basic invitation system
-- User management system
+- Networks, nodes, IP allocation, and certificate management — including automatic
+  re-signing when a node's group changes, no re-enrollment needed
+- Nebula v2 certificates, with P256 as an opt-in curve
+- Firewall group rules
+- Magic DNS: split-horizon DNS via dnsmasq (Linux/Docker) and NRPT (Windows), with
+  wildcard alias support
+- Client UI via web interface — a full React dashboard for networks, nodes, groups,
+  DNS, users, invitations, and the audit log
+- Device client (`ncclient`): CLI, a Windows service + tray app, a Docker image, and
+  a NixOS module (`services.ncclient`), plus mobile support (iOS/Android via the
+  official Mobile Nebula app)
+- Lighthouse-based peer reachability monitoring and node offline detection
+- OIDC (e.g. Keycloak) or dev-token authentication, with step-up reauth required for
+  sensitive actions (deletions, revocations)
+- Audit logging, an invitation system, and multi-user management
+- Encryption at rest for certificates and keys
 
-**Planned (v0.2.0)**
+**Planned**
 
-- Exit nodes
-- Magic DNS implementation
-- Client UI via web interface
-- Stabilize client
+- Exit nodes (full-tunnel routing via Nebula's `unsafe_routes`)
+- Continued client hardening as real-world deployments surface edge cases
 
 ---
 
@@ -85,6 +91,18 @@ Import the module and enable the service. See [nix/module.nix](nix/module.nix) f
 services.nebula-commander.enable = true;
 # Optional: services.nebula-commander.jwtSecretFile = "/run/secrets/nebula-commander-jwt";
 # Optional: services.nebula-commander.debug = false;
+```
+
+A `services.ncclient` module is also available for running the device client
+([ncclient](client/README.md)) declaratively on NixOS. See
+[nix/client-module.nix](nix/client-module.nix) for options.
+
+```nix
+services.ncclient.enable = true;
+services.ncclient.server = "https://nebula.example.com";
+# One-time enrollment: a file holding the enrollment code, consumed once and
+# then no longer needed (e.g. managed by sops-nix).
+services.ncclient.enrollCodeFile = "/run/secrets/ncclient-enroll-code";
 ```
 
 ### Reverse proxy

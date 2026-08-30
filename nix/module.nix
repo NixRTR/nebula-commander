@@ -34,9 +34,13 @@ in
 
     package = mkOption {
       type = types.package;
+      # `${../backend}` (not `${toString (../backend)}`) so Nix copies the path into
+      # the store as a real derivation input; `toString` bakes in a raw host
+      # filesystem path instead, which a sandboxed builder can't see, silently
+      # producing an empty backend/ (confirmed via a real nixosSystem build).
       default = pkgs.runCommand "nebula-commander-src" { } ''
         mkdir -p $out/backend
-        cp -r ${toString (../backend)}/* $out/backend/
+        cp -r ${../backend}/* $out/backend/
       '';
       defaultText = "backend source from repo";
       description = "Nebula Commander package (backend source)";
@@ -82,6 +86,69 @@ in
       type = types.bool;
       default = false;
       description = "Enable debug mode";
+    };
+
+    publicUrl = mkOption {
+      type = types.nullOr types.str;
+      default = null;
+      description = "Public URL of this instance (e.g. https://nebula.example.com). Used to derive the OIDC redirect URI and for redirect validation.";
+    };
+
+    standaloneAdminBootstrap = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Allow the unauthenticated dev-token admin bootstrap endpoint when no OIDC provider is configured. Must be explicitly opted into.";
+    };
+
+    corsOrigins = mkOption {
+      type = types.str;
+      default = "*";
+      description = "CORS origins: \"*\" or a comma-separated list.";
+    };
+
+    sessionHttpsOnly = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Set to true in production when served over HTTPS.";
+    };
+
+    allowedRedirectHosts = mkOption {
+      type = types.str;
+      default = "";
+      description = "Comma-separated allowed hosts for OAuth/OIDC redirects. Empty derives from oidc.redirectUri/publicUrl.";
+    };
+
+    oidc = {
+      issuerUrl = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "OIDC issuer URL (e.g. Keycloak realm URL). Leave null to use dev-token auth instead.";
+      };
+      publicIssuerUrl = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "Public-facing OIDC issuer URL for browser redirects (logout, etc.), if different from issuerUrl.";
+      };
+      clientId = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "OIDC client ID.";
+      };
+      clientSecretFile = mkOption {
+        type = types.nullOr types.path;
+        default = null;
+        description = "Path to a file containing the OIDC client secret (e.g. managed by sops-nix).";
+      };
+      redirectUri = mkOption {
+        type = types.nullOr types.str;
+        default = null;
+        description = "OIDC redirect URI. If unset and publicUrl is set, derived as publicUrl + /api/auth/callback.";
+      };
+      scopes = mkOption {
+        type = types.str;
+        default = "openid profile email";
+        description = "OIDC scopes to request.";
+      };
     };
   };
 
@@ -143,15 +210,31 @@ in
       requires = optional (cfg.jwtSecretFile == null) "nebula-commander-jwt-init.service"
         ++ optional (cfg.encryptionKeyFile == null) "nebula-commander-encryption-init.service";
 
+      # Extend PATH via the `path` option, not `environment.PATH` directly: NixOS's
+      # systemd module already populates environment.PATH with a base default at the
+      # same merge priority as a plain assignment here, so overwriting it outright
+      # throws "conflicting definition values" (confirmed via a real nixosSystem eval).
+      path = [ pkgs.nebula ];
+
       environment = {
         NEBULA_COMMANDER_DATABASE_URL = "sqlite+aiosqlite:///${cfg.databasePath}";
         NEBULA_COMMANDER_CERT_STORE_PATH = cfg.certStorePath;
         NEBULA_COMMANDER_PORT = toString cfg.backendPort;
         NEBULA_COMMANDER_JWT_SECRET_FILE = if cfg.jwtSecretFile != null then toString cfg.jwtSecretFile else "/var/lib/nebula-commander/jwt-secret";
         NEBULA_COMMANDER_ENCRYPTION_KEY_FILE = if cfg.encryptionKeyFile != null then toString cfg.encryptionKeyFile else "/var/lib/nebula-commander/encryption-key";
-        DEBUG = if cfg.debug then "true" else "false";
-        PATH = "/run/current-system/sw/bin:${pkgs.nebula}/bin";
-      };
+        NEBULA_COMMANDER_DEBUG = if cfg.debug then "true" else "false";
+        NEBULA_COMMANDER_CORS_ORIGINS = cfg.corsOrigins;
+        NEBULA_COMMANDER_SESSION_HTTPS_ONLY = if cfg.sessionHttpsOnly then "true" else "false";
+        NEBULA_COMMANDER_STANDALONE_ADMIN_BOOTSTRAP = if cfg.standaloneAdminBootstrap then "true" else "false";
+      }
+      // optionalAttrs (cfg.publicUrl != null) { NEBULA_COMMANDER_PUBLIC_URL = cfg.publicUrl; }
+      // optionalAttrs (cfg.allowedRedirectHosts != "") { NEBULA_COMMANDER_ALLOWED_REDIRECT_HOSTS = cfg.allowedRedirectHosts; }
+      // optionalAttrs (cfg.oidc.issuerUrl != null) { NEBULA_COMMANDER_OIDC_ISSUER_URL = cfg.oidc.issuerUrl; }
+      // optionalAttrs (cfg.oidc.publicIssuerUrl != null) { NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL = cfg.oidc.publicIssuerUrl; }
+      // optionalAttrs (cfg.oidc.clientId != null) { NEBULA_COMMANDER_OIDC_CLIENT_ID = cfg.oidc.clientId; }
+      // optionalAttrs (cfg.oidc.clientSecretFile != null) { NEBULA_COMMANDER_OIDC_CLIENT_SECRET_FILE = toString cfg.oidc.clientSecretFile; }
+      // optionalAttrs (cfg.oidc.redirectUri != null) { NEBULA_COMMANDER_OIDC_REDIRECT_URI = cfg.oidc.redirectUri; }
+      // optionalAttrs (cfg.oidc.issuerUrl != null) { NEBULA_COMMANDER_OIDC_SCOPES = cfg.oidc.scopes; };
 
       serviceConfig = {
         Type = "simple";
