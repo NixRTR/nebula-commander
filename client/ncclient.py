@@ -539,22 +539,80 @@ def _send_heartbeat(
     node_id: int,
     interval: int,
     debug_log: Callable[[str], None] | None = None,
+    status_callback: Callable[[str, str], None] | None = None,
+    peer_reachability: dict[int, bool] | None = None,
 ) -> None:
-    """Best-effort liveness ping. Failures are logged (if a debug sink is provided) and ignored.
+    """Best-effort liveness ping. Failures are reported (via status_callback if provided,
+    else debug_log) rather than silently swallowed - a node that goes dark should leave a
+    trace somewhere the user can actually check, instead of the server simply seeing nothing.
 
     Reports the configured poll interval so the server can flag a node offline relative to
-    its actual check-in cadence instead of a guessed default.
+    its actual check-in cadence instead of a guessed default. If this node is a lighthouse
+    and has pinged its peers, also reports what it found.
     """
+    body: dict = {"interval_seconds": interval}
+    if peer_reachability:
+        body["peer_reachability"] = peer_reachability
     try:
         requests.post(
             f"{base}/api/nodes/{node_id}/heartbeat",
             headers={"Authorization": f"Bearer {token}"},
-            json={"interval_seconds": interval},
+            json=body,
             timeout=10,
         )
     except requests.RequestException as e:
+        msg = f"heartbeat failed: {e}"
+        if status_callback:
+            status_callback("error", msg)
+        elif debug_log:
+            debug_log(msg)
+
+
+def _fetch_lighthouse_peers(
+    base: str,
+    token: str,
+    debug_log: Callable[[str], None] | None = None,
+) -> list[dict]:
+    """Best-effort fetch of peers to ping (empty for non-lighthouse nodes and on any failure)."""
+    try:
+        r = requests.get(
+            f"{base}/api/device/lighthouse-peers",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if r.ok:
+            return r.json().get("peers", [])
+    except requests.RequestException as e:
         if debug_log:
-            debug_log(f"heartbeat failed: {e}")
+            debug_log(f"lighthouse-peers fetch failed: {e}")
+    return []
+
+
+def _ping_peers(
+    peers: list[dict],
+    debug_log: Callable[[str], None] | None = None,
+) -> dict[int, bool]:
+    """Ping each peer's Nebula IP via the system ping binary; return {node_id: reachable}."""
+    results: dict[int, bool] = {}
+    for peer in peers:
+        ip = peer.get("ip_address")
+        node_id = peer.get("node_id")
+        if not ip or node_id is None:
+            continue
+        if sys.platform == "win32":
+            cmd = ["ping", "-n", "1", "-w", "1000", ip]
+        else:
+            cmd = ["ping", "-c", "1", "-W", "1", ip]
+        try:
+            result = subprocess.run(  # nosec B603 - fixed argv, ip comes from our own backend
+                cmd, capture_output=True, timeout=5
+            )
+            results[node_id] = result.returncode == 0
+        except (subprocess.SubprocessError, OSError) as e:
+            if debug_log:
+                debug_log(f"ping {ip} failed: {e}")
+            results[node_id] = False
+    return results
 
 
 def run_poll_loop(
@@ -634,7 +692,15 @@ def run_poll_loop(
                     print("Token invalid or expired. Re-enroll with a new code.", file=sys.stderr)
                     sys.exit(1)
                 if r.ok and node_id:
-                    _send_heartbeat(base, token, node_id, interval, dns_debug_log)
+                    peer_reachability = None
+                    peers = _fetch_lighthouse_peers(base, token, dns_debug_log)
+                    if peers:
+                        peer_reachability = _ping_peers(peers, dns_debug_log)
+                    _send_heartbeat(
+                        base, token, node_id, interval, dns_debug_log,
+                        status_callback=status_callback,
+                        peer_reachability=peer_reachability,
+                    )
                 if r.status_code == 304:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
                         nebula_proc = _start_nebula(nebula_bin, output_dir)
@@ -736,8 +802,14 @@ def cmd_run(
 ) -> None:
     stop_event = threading.Event()
 
-    def noop_callback(_status: str, _message: str) -> None:
-        pass
+    def _log_callback(status: str, message: str) -> None:
+        """Print status/error messages so they land in `docker compose logs` (or
+        wherever else stdout/stderr is captured) instead of vanishing into a no-op.
+        Without this, run_poll_loop's status_callback-guarded branches (token
+        missing, 401/re-enroll needed, heartbeat failures) all fire silently with
+        the process just exiting or continuing with zero trace anywhere."""
+        stream = sys.stderr if status == "error" else sys.stdout
+        print(f"[{status}] {message}", file=stream, flush=True)
 
     try:
         signal.signal(signal.SIGTERM, lambda s, f: stop_event.set())
@@ -751,7 +823,7 @@ def cmd_run(
             nebula_bin,
             restart_service,
             stop_event=stop_event,
-            status_callback=noop_callback,
+            status_callback=_log_callback,
             accept_dns=accept_dns,
         )
     except KeyboardInterrupt:

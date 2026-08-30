@@ -226,6 +226,45 @@ async def device_dns_client_config(
     )
 
 
+class LighthousePeer(BaseModel):
+    node_id: int
+    ip_address: str
+    hostname: str
+
+
+class LighthousePeersResponse(BaseModel):
+    peers: list[LighthousePeer]
+
+
+@router.get("/lighthouse-peers", response_model=LighthousePeersResponse)
+async def device_lighthouse_peers(
+    node_id: int = Depends(require_device_token),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Return the other nodes on this device's network, for a lighthouse to ping and report
+    reachability on via its heartbeat. Non-lighthouse devices get an empty list - this keeps
+    client-side logic trivial (empty peers = nothing to do) and avoids leaking network
+    topology to devices that don't need it.
+    """
+    result = await session.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    if not node.is_lighthouse:
+        return LighthousePeersResponse(peers=[])
+
+    peers_result = await session.execute(
+        select(Node).where(Node.network_id == node.network_id, Node.id != node.id)
+    )
+    peers = [
+        LighthousePeer(node_id=n.id, ip_address=n.ip_address, hostname=n.hostname)
+        for n in peers_result.scalars().all()
+        if n.ip_address
+    ]
+    return LighthousePeersResponse(peers=peers)
+
+
 @router.get("/dnsmasq.conf")
 async def device_dnsmasq_config(
     request: Request,

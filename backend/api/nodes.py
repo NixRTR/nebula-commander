@@ -59,6 +59,8 @@ class NodeResponse(BaseModel):
     last_seen: Optional[str] = None
     first_polled_at: Optional[str] = None
     checkin_interval_seconds: Optional[int] = None
+    lighthouse_reachable: Optional[bool] = None
+    lighthouse_checked_at: Optional[str] = None
     created_at: str
 
     class Config:
@@ -112,6 +114,8 @@ async def list_nodes(
             last_seen=n.last_seen.isoformat() if n.last_seen else None,
             first_polled_at=n.first_polled_at.isoformat() if n.first_polled_at else None,
             checkin_interval_seconds=n.checkin_interval_seconds,
+            lighthouse_reachable=n.lighthouse_reachable,
+            lighthouse_checked_at=n.lighthouse_checked_at.isoformat() if n.lighthouse_checked_at else None,
             created_at=n.created_at.isoformat() if n.created_at else "",
         )
         for n in nodes
@@ -292,6 +296,8 @@ async def get_node(
         last_seen=node.last_seen.isoformat() if node.last_seen else None,
         first_polled_at=node.first_polled_at.isoformat() if node.first_polled_at else None,
         checkin_interval_seconds=node.checkin_interval_seconds,
+        lighthouse_reachable=node.lighthouse_reachable,
+        lighthouse_checked_at=node.lighthouse_checked_at.isoformat() if node.lighthouse_checked_at else None,
         created_at=node.created_at.isoformat() if node.created_at else "",
     )
 

@@ -1172,34 +1172,31 @@ export function Nodes() {
                         </div>
                       </Table.Cell>
                       <Table.Cell>
-                        {n.platform !== "desktop" ? (
-                          <Badge color="gray" size="sm">
-                            Download only
+                        {enrollState.type === "enroll" && (
+                          <Button size="xs" color="purple" onClick={() => openEnrollmentCodeModal(n)}>
+                            Enroll
+                          </Button>
+                        )}
+                        {enrollState.type === "re-enroll" && (
+                          <Button size="xs" color="warning" onClick={() => openEnrollmentCodeModal(n)}>
+                            Re-Enroll
+                          </Button>
+                        )}
+                        {enrollState.type === "active" && (
+                          <Badge color="success">Active</Badge>
+                        )}
+                        {enrollState.type === "idle" && (
+                          <Badge color={enrollState.severity === "success" ? "success" : "warning"}>
+                            Idle
                           </Badge>
-                        ) : (
-                          <>
-                            {enrollState.type === "enroll" && (
-                              <Button size="xs" color="purple" onClick={() => openEnrollmentCodeModal(n)}>
-                                Enroll
-                              </Button>
-                            )}
-                            {enrollState.type === "re-enroll" && (
-                              <Button size="xs" color="warning" onClick={() => openEnrollmentCodeModal(n)}>
-                                Re-Enroll
-                              </Button>
-                            )}
-                            {enrollState.type === "active" && (
-                              <Badge color="success">Active</Badge>
-                            )}
-                            {enrollState.type === "idle" && (
-                              <Badge color={enrollState.severity === "success" ? "success" : "warning"}>
-                                Idle
-                              </Badge>
-                            )}
-                            {enrollState.type === "offline" && (
-                              <Badge color="failure">Offline</Badge>
-                            )}
-                          </>
+                        )}
+                        {enrollState.type === "offline" && (
+                          <Badge color="failure">Offline</Badge>
+                        )}
+                        {enrollState.type === "unknown" && (
+                          <Badge color="gray" size="sm" title="No lighthouse has reported on this device yet">
+                            Unknown
+                          </Badge>
                         )}
                       </Table.Cell>
                       <Table.Cell>

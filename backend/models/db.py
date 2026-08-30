@@ -101,6 +101,8 @@ class Node(Base):
     last_seen: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     first_polled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # set when device first fetches config/bundle
     checkin_interval_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # reported by ncclient on heartbeat; null until first report
+    lighthouse_reachable: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)  # last ping result reported by a lighthouse on this network
+    lighthouse_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # when a lighthouse last reported on this node
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     network: Mapped["Network"] = relationship("Network", back_populates="nodes")
