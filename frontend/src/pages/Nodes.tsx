@@ -1173,23 +1173,38 @@ export function Nodes() {
                       </Table.Cell>
                       <Table.Cell>
                         {(() => {
+                          // Fixed height/width shared by all four pill states (two are Buttons,
+                          // two are Badges - Flowbite gives those different box models by
+                          // default, which is why they used to render at visibly different
+                          // sizes) so the column reads as one consistent shape regardless of
+                          // state or label length.
+                          const pillClass = "inline-flex h-6 min-w-[6.5rem] items-center justify-center rounded px-2 text-xs font-semibold";
+
                           if (enrollState.type === "enroll") {
                             return (
-                              <Button size="xs" color="purple" onClick={() => openEnrollmentCodeModal(n)}>
+                              <button
+                                type="button"
+                                className={`${pillClass} bg-purple-700 text-white hover:bg-purple-800 dark:bg-purple-600 dark:hover:bg-purple-700`}
+                                onClick={() => openEnrollmentCodeModal(n)}
+                              >
                                 Enroll
-                              </Button>
+                              </button>
                             );
                           }
                           if (enrollState.type === "re-enroll") {
                             return (
-                              <Button size="xs" color="warning" onClick={() => openEnrollmentCodeModal(n)}>
+                              <button
+                                type="button"
+                                className={`${pillClass} bg-yellow-400 text-white hover:bg-yellow-500 dark:hover:bg-yellow-500`}
+                                onClick={() => openEnrollmentCodeModal(n)}
+                              >
                                 Re-Enroll
-                              </Button>
+                              </button>
                             );
                           }
                           if (enrollState.type === "unknown") {
                             return (
-                              <Badge color="gray" title="No lighthouse has reported on this device yet">
+                              <Badge color="gray" className={pillClass} title="No lighthouse has reported on this device yet">
                                 Inactive
                               </Badge>
                             );
@@ -1205,7 +1220,7 @@ export function Nodes() {
 
                           if (enrollState.type === "active" || (enrollState.type === "idle" && enrollState.severity === "success")) {
                             return (
-                              <Badge color="success" title={lighthouseTitle}>
+                              <Badge color="success" className={pillClass} title={lighthouseTitle}>
                                 Active
                               </Badge>
                             );
@@ -1214,7 +1229,7 @@ export function Nodes() {
                           // hints at severity (stale vs. confirmed offline).
                           const color = enrollState.type === "offline" ? "failure" : "warning";
                           return (
-                            <Badge color={color} title={lighthouseTitle}>
+                            <Badge color={color} className={pillClass} title={lighthouseTitle}>
                               Inactive
                             </Badge>
                           );

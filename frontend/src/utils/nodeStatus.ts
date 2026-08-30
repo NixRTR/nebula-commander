@@ -68,6 +68,13 @@ export function getEnrollmentState(node: Node): EnrollmentState {
   if (node.platform !== "desktop") {
     return getMobileEnrollmentState(node);
   }
+  // A lighthouse ping is direct evidence the node is up and reachable on the mesh right
+  // now - stronger evidence than "hasn't sent a heartbeat in a while" implies, so it
+  // overrides enroll/re-enroll/offline/idle rather than just being a tooltip on top of them.
+  const lh = getLighthouseReachability(node);
+  if (lh.known && !lh.stale && lh.reachable) {
+    return { type: "active" };
+  }
   if (!node.first_polled_at) {
     return { type: "enroll" };
   }
