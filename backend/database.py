@@ -441,6 +441,30 @@ def _run_sqlite_migrations() -> None:
         if cur.rowcount:
             logger.info("Migration: repaired %d orphaned audit_log.actor_user_id row(s)", cur.rowcount)
 
+        # networks.id is a plain SQLite rowid (no AUTOINCREMENT), so once a network is
+        # deleted its id can be reused by the next INSERT. If a network was ever removed
+        # outside the ORM (e.g. direct SQL) its per-network child rows survive as orphans,
+        # and a later network reusing that id then collides with them on these UNIQUE
+        # network_id columns. Sweep leaf tables (nothing else references their own id) clean.
+        for table in (
+            "network_dns_configs",
+            "network_settings",
+            "network_permissions",
+            "network_group_firewall",
+            "network_dns_aliases",
+            "allocated_ips",
+            "invitations",
+        ):
+            cur.execute(
+                f"DELETE FROM {table} WHERE network_id NOT IN (SELECT id FROM networks)"
+            )
+            if cur.rowcount:
+                logger.info(
+                    "Migration: removed %d orphaned %s row(s) with no matching network",
+                    cur.rowcount,
+                    table,
+                )
+
         conn.commit()
     finally:
         conn.close()
