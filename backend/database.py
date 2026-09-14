@@ -105,6 +105,9 @@ def _run_sqlite_migrations() -> None:
             ("checkin_interval_seconds", "ALTER TABLE nodes ADD COLUMN checkin_interval_seconds INTEGER"),
             ("lighthouse_reachable", "ALTER TABLE nodes ADD COLUMN lighthouse_reachable BOOLEAN"),
             ("lighthouse_checked_at", "ALTER TABLE nodes ADD COLUMN lighthouse_checked_at DATETIME"),
+            ("unsafe_routes", "ALTER TABLE nodes ADD COLUMN unsafe_routes TEXT"),
+            ("available_subnets", "ALTER TABLE nodes ADD COLUMN available_subnets TEXT"),
+            ("os_platform", "ALTER TABLE nodes ADD COLUMN os_platform VARCHAR(16)"),
         ]:
             if col not in node_columns:
                 cur.execute(sql)

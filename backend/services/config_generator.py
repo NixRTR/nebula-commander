@@ -104,8 +104,8 @@ def _default_listen(port: int = DEFAULT_LISTEN_PORT) -> dict[str, Any]:
     return {"host": "0.0.0.0", "port": port}  # nosec B104 - Nebula node config needs all interfaces
 
 
-def _default_tun() -> dict[str, Any]:
-    return {
+def _default_tun(unsafe_routes: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
+    tun: dict[str, Any] = {
         "dev": "nebula1",
         "drop_local_broadcast": False,
         "drop_multicast": False,
@@ -113,6 +113,11 @@ def _default_tun() -> dict[str, Any]:
         "mtu": 1300,
         "routes": [],
     }
+    if unsafe_routes:
+        tun["unsafe_routes"] = [{"route": r["route"]} for r in unsafe_routes if r.get("route")]
+        if not tun["unsafe_routes"]:
+            del tun["unsafe_routes"]
+    return tun
 
 
 LOG_LEVELS = ("panic", "fatal", "error", "warning", "info", "debug")
@@ -305,7 +310,7 @@ def build_config(
         "relay": _relay_section(node, other_relay_ips),
         "listen": _default_listen(),
         "punchy": _punchy_section(node),
-        "tun": _default_tun(),
+        "tun": _default_tun(node.unsafe_routes),
         "logging": _logging_section(node),
         "firewall": _firewall_section(network, node, group_firewalls),
     }

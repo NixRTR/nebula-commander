@@ -20,6 +20,8 @@ MAX_INTERVAL_SECONDS = 3600
 class HeartbeatRequest(BaseModel):
     interval_seconds: Optional[int] = None
     peer_reachability: Optional[dict[int, bool]] = None
+    available_subnets: Optional[list[dict]] = None
+    os_platform: Optional[str] = None
 
 
 @router.post("/{node_id}/heartbeat")
@@ -39,6 +41,12 @@ async def node_heartbeat(
     lighthouse (checked server-side, never trusted from the payload) and is scoped to
     nodes on the same network, so a lighthouse can't report on - or spoof - nodes it
     has no relationship to.
+
+    available_subnets and os_platform are self-reported by ncclient (Linux only) so the
+    UI can offer subnet-router/exit-node routes to advertise and gate that feature to
+    confirmed-Linux nodes (Node.platform alone can't distinguish a Linux desktop from a
+    Windows one). Always overwritten wholesale, not merged - a stale interface should
+    disappear from what's offered, not linger.
     """
     if token_node_id != node_id:
         raise HTTPException(status_code=403, detail="Token does not match node_id")
@@ -48,6 +56,10 @@ async def node_heartbeat(
         raise HTTPException(status_code=404, detail="Node not found")
     node.last_seen = datetime.utcnow()
     node.status = "active"
+    if body.available_subnets is not None:
+        node.available_subnets = body.available_subnets
+    if body.os_platform is not None:
+        node.os_platform = body.os_platform.strip().lower() or None
     if body.interval_seconds is not None:
         node.checkin_interval_seconds = max(
             MIN_INTERVAL_SECONDS, min(MAX_INTERVAL_SECONDS, body.interval_seconds)

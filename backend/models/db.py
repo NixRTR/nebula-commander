@@ -103,6 +103,9 @@ class Node(Base):
     checkin_interval_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # reported by ncclient on heartbeat; null until first report
     lighthouse_reachable: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)  # last ping result reported by a lighthouse on this network
     lighthouse_checked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # when a lighthouse last reported on this node
+    unsafe_routes: Mapped[Optional[list]] = mapped_column(JSON, default=list)  # [{route, source, interface}] - subnet-router/exit-node CIDRs; only "route" is sent to Nebula
+    available_subnets: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # [{interface, cidr, kind}] reported by ncclient each heartbeat (Linux only)
+    os_platform: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # "linux"/"windows"/etc, self-reported on heartbeat - Node.platform only covers desktop/ios/android
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     network: Mapped["Network"] = relationship("Network", back_populates="nodes")

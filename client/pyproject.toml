@@ -29,6 +29,7 @@ classifiers = [
 dependencies = [
   "requests>=2.28",
   "keyring",
+  "PyYAML>=6.0; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]

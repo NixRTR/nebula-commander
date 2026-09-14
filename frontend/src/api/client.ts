@@ -325,6 +325,7 @@ export type NodeUpdateData = {
   logging_options?: import("../types/nodes").LoggingOptions | null;
   punchy_options?: import("../types/nodes").PunchyOptions | null;
   platform?: import("../types/nodes").NodePlatform;
+  unsafe_routes?: import("../types/nodes").UnsafeRoute[];
 };
 
 export async function updateNode(id: number, data: NodeUpdateData) {

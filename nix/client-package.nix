@@ -23,6 +23,7 @@ pkgs.python313.pkgs.buildPythonApplication {
   dependencies = with pkgs.python313.pkgs; [
     requests
     keyring
+    pyyaml
   ];
 
   # No .git is present in the Nix store copy of the source, so setuptools_scm can't

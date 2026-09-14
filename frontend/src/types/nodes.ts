@@ -18,6 +18,28 @@ export interface PunchyOptions {
 
 export type NodePlatform = "desktop" | "ios" | "android";
 
+/** A local interface ncclient (Linux only) found and reported as advertisable. */
+export type SubnetKind = "ethernet" | "wifi" | "tailscale" | "nebula";
+
+export interface AvailableSubnet {
+  interface: string;
+  cidr: string;
+  kind: SubnetKind;
+}
+
+/**
+ * Where a node's unsafe_routes entry came from - drives which toggle/checkbox the
+ * Routing UI re-hydrates as checked. Only `route` is ever sent to Nebula; source/interface
+ * are nebula-commander bookkeeping.
+ */
+export type RouteSource = "exit_v4" | "exit_v6" | "interface" | "manual";
+
+export interface UnsafeRoute {
+  route: string;
+  source: RouteSource;
+  interface?: string | null;
+}
+
 export interface Node {
   id: number;
   network_id: number;
@@ -37,5 +59,8 @@ export interface Node {
   checkin_interval_seconds: number | null;
   lighthouse_reachable: boolean | null;
   lighthouse_checked_at: string | null;
+  unsafe_routes: UnsafeRoute[];
+  available_subnets: AvailableSubnet[];
+  os_platform: string | null;
   created_at: string;
 }

@@ -541,6 +541,7 @@ def _send_heartbeat(
     debug_log: Callable[[str], None] | None = None,
     status_callback: Callable[[str, str], None] | None = None,
     peer_reachability: dict[int, bool] | None = None,
+    tun_dev: str | None = None,
 ) -> None:
     """Best-effort liveness ping. Failures are reported (via status_callback if provided,
     else debug_log) rather than silently swallowed - a node that goes dark should leave a
@@ -549,10 +550,23 @@ def _send_heartbeat(
     Reports the configured poll interval so the server can flag a node offline relative to
     its actual check-in cadence instead of a guessed default. If this node is a lighthouse
     and has pinged its peers, also reports what it found.
+
+    On Linux, also reports os_platform and the interfaces available to advertise as a
+    subnet route (tun_dev, this node's own overlay device, is excluded) - see
+    linux_routing.discover_available_subnets. Lets the backend gate and populate the
+    subnet-router/exit-node UI without ncclient needing its own reporting endpoint.
     """
     body: dict = {"interval_seconds": interval}
     if peer_reachability:
         body["peer_reachability"] = peer_reachability
+    if sys.platform.startswith("linux"):
+        body["os_platform"] = "linux"
+        try:
+            from client import linux_routing
+            body["available_subnets"] = linux_routing.discover_available_subnets(tun_dev)
+        except Exception as e:
+            if debug_log:
+                debug_log(f"subnet discovery failed: {e}")
     try:
         requests.post(
             f"{base}/api/nodes/{node_id}/heartbeat",
@@ -656,6 +670,7 @@ def run_poll_loop(
     os.makedirs(output_dir, exist_ok=True)
     last_etag: str | None = None
     nebula_proc: subprocess.Popen | None = None
+    current_tun_dev: str | None = None  # this node's own tun device, parsed from its config (Linux routing only)
 
     # Clean slate on start: remove any split-horizon from a previous crash
     if accept_dns:
@@ -700,6 +715,7 @@ def run_poll_loop(
                         base, token, node_id, interval, dns_debug_log,
                         status_callback=status_callback,
                         peer_reachability=peer_reachability,
+                        tun_dev=current_tun_dev,
                     )
                 if r.status_code == 304:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
@@ -729,6 +745,21 @@ def run_poll_loop(
                     print(f"Wrote {config_path}")
                 if status_callback:
                     status_callback("connected", "Config updated")
+                if sys.platform.startswith("linux"):
+                    try:
+                        import yaml
+                        from client import linux_routing
+                        parsed = yaml.safe_load(r.content) or {}
+                        tun_section = parsed.get("tun") or {}
+                        current_tun_dev = tun_section.get("dev") or current_tun_dev
+                        linux_routing.apply_routes(
+                            tun_section.get("unsafe_routes") or [],
+                            current_tun_dev or "nebula1",
+                            debug_log=dns_debug_log,
+                        )
+                    except Exception as e:
+                        if dns_debug_log:
+                            dns_debug_log(f"applying unsafe_routes failed: {e}")
                 if nebula_bin:
                     _stop_nebula(nebula_proc)
                     nebula_proc = _start_nebula(nebula_bin, output_dir)

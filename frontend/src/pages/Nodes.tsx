@@ -13,7 +13,7 @@ import {
   Alert,
 } from "flowbite-react";
 import { HiCheckCircle, HiXCircle, HiClock, HiDownload, HiPencil, HiPlus, HiTrash, HiClipboard, HiChevronDown, HiChevronRight } from "react-icons/hi";
-import type { Node, LighthouseOptions, LoggingOptions, PunchyOptions, NodePlatform } from "../types/nodes";
+import type { Node, LighthouseOptions, LoggingOptions, PunchyOptions, NodePlatform, UnsafeRoute, SubnetKind } from "../types/nodes";
 import type { Network } from "../types/networks";
 import {
   listNodes,
@@ -71,6 +71,7 @@ export function Nodes() {
     punchy_delay: string;
     punchy_respond_delay: string;
     platform: NodePlatform;
+    unsafe_routes: UnsafeRoute[];
   }>({
     group: "",
     is_lighthouse: false,
@@ -85,7 +86,10 @@ export function Nodes() {
     punchy_delay: "",
     punchy_respond_delay: "",
     platform: "desktop",
+    unsafe_routes: [],
   });
+  const [otherRouteInput, setOtherRouteInput] = useState("");
+  const [otherRouteError, setOtherRouteError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [reEnrollModal, setReEnrollModal] = useState<{
     open: boolean;
@@ -370,7 +374,10 @@ export function Nodes() {
       punchy_delay: node.punchy_options?.delay ?? "",
       punchy_respond_delay: node.punchy_options?.respond_delay ?? "",
       platform: node.platform,
+      unsafe_routes: node.unsafe_routes ?? [],
     });
+    setOtherRouteInput("");
+    setOtherRouteError(null);
     setDownloadError(null);
   };
 
@@ -386,6 +393,10 @@ export function Nodes() {
     const groupEqual = (formGroup.trim() || "") === (nodeGroup.trim() || "");
     const opts = node.lighthouse_options;
     const logOpts = node.logging_options;
+    const routesEqual = (a: UnsafeRoute[], b: UnsafeRoute[]) => {
+      const norm = (rs: UnsafeRoute[]) => [...rs.map((r) => r.route)].sort().join(",");
+      return norm(a) === norm(b);
+    };
     return (
       !groupEqual ||
       deviceDetailsForm.platform !== node.platform ||
@@ -399,7 +410,8 @@ export function Nodes() {
       (deviceDetailsForm.log_timestamp_format ?? "") !== (logOpts?.timestamp_format ?? "") ||
       deviceDetailsForm.punchy_respond !== (node.punchy_options?.respond ?? true) ||
       (deviceDetailsForm.punchy_delay ?? "") !== (node.punchy_options?.delay ?? "") ||
-      (deviceDetailsForm.punchy_respond_delay ?? "") !== (node.punchy_options?.respond_delay ?? "")
+      (deviceDetailsForm.punchy_respond_delay ?? "") !== (node.punchy_options?.respond_delay ?? "") ||
+      !routesEqual(deviceDetailsForm.unsafe_routes, node.unsafe_routes ?? [])
     );
   };
 
@@ -448,6 +460,7 @@ export function Nodes() {
       logging_options,
       punchy_options,
       platform: deviceDetailsForm.platform,
+      unsafe_routes: deviceDetailsForm.unsafe_routes,
     })
       .then((result) => {
         setDeviceDetailsModal((s) => ({ ...s, showSaved: true, savedFading: false, certResigned: !!result.cert_resigned }));
@@ -482,6 +495,7 @@ export function Nodes() {
               punchy_delay: updated.punchy_options?.delay ?? "",
               punchy_respond_delay: updated.punchy_options?.respond_delay ?? "",
               platform: updated.platform,
+              unsafe_routes: updated.unsafe_routes ?? [],
             });
           });
           loadNodes();
@@ -1567,6 +1581,172 @@ export function Nodes() {
                                     </div>
                                   </div>
 
+                                  {deviceDetailsForm.platform === "desktop" && (
+                                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                        Routing (subnet router / exit node)
+                                      </p>
+                                      {deviceDetailsModal.node?.os_platform !== "linux" ? (
+                                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                                          {deviceDetailsModal.node?.os_platform
+                                            ? "Not supported on this node's OS (Linux only)."
+                                            : "Waiting for this node to check in to see whether it supports this (Linux only)."}
+                                        </p>
+                                      ) : (
+                                        <>
+                                          <div className="flex items-center gap-2">
+                                            <Checkbox
+                                              id="dd_exit_node"
+                                              checked={deviceDetailsForm.unsafe_routes.some((r) => r.route === "0.0.0.0/0")}
+                                              onChange={(e) => {
+                                                const enabled = e.target.checked;
+                                                setDeviceDetailsForm((f) => ({
+                                                  ...f,
+                                                  unsafe_routes: enabled
+                                                    ? [
+                                                        ...f.unsafe_routes.filter((r) => r.route !== "0.0.0.0/0" && r.route !== "::/0"),
+                                                        { route: "0.0.0.0/0", source: "exit_v4" },
+                                                        { route: "::/0", source: "exit_v6" },
+                                                      ]
+                                                    : f.unsafe_routes.filter((r) => r.route !== "0.0.0.0/0" && r.route !== "::/0"),
+                                                }));
+                                              }}
+                                              disabled={!deviceDetailsModal.isEditing}
+                                            />
+                                            <Label htmlFor="dd_exit_node">Exit node (route all traffic)</Label>
+                                          </div>
+
+                                          {(deviceDetailsModal.node?.available_subnets ?? []).length > 0 && (
+                                            <div>
+                                              <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                                                Advertised subnets
+                                              </p>
+                                              <div className="space-y-3">
+                                                {(["ethernet", "wifi", "tailscale", "nebula"] as SubnetKind[]).map((kind) => {
+                                                  const subnetsOfKind = (deviceDetailsModal.node?.available_subnets ?? []).filter(
+                                                    (s) => s.kind === kind
+                                                  );
+                                                  if (subnetsOfKind.length === 0) return null;
+                                                  const kindLabel =
+                                                    kind === "ethernet"
+                                                      ? "Ethernet"
+                                                      : kind === "wifi"
+                                                      ? "Wi-Fi"
+                                                      : kind === "tailscale"
+                                                      ? "Tailscale"
+                                                      : "Nebula";
+                                                  return (
+                                                    <div key={kind}>
+                                                      <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
+                                                        {kindLabel}
+                                                      </p>
+                                                      <div className="flex flex-wrap gap-4">
+                                                        {subnetsOfKind.map((s) => (
+                                                          <div key={s.interface} className="flex items-center gap-2">
+                                                            <Checkbox
+                                                              id={`dd_subnet_${s.interface}`}
+                                                              checked={deviceDetailsForm.unsafe_routes.some(
+                                                                (r) => r.source === "interface" && r.interface === s.interface
+                                                              )}
+                                                              onChange={(e) => {
+                                                                const enabled = e.target.checked;
+                                                                setDeviceDetailsForm((f) => ({
+                                                                  ...f,
+                                                                  unsafe_routes: enabled
+                                                                    ? [
+                                                                        ...f.unsafe_routes.filter(
+                                                                          (r) => !(r.source === "interface" && r.interface === s.interface)
+                                                                        ),
+                                                                        { route: s.cidr, source: "interface", interface: s.interface },
+                                                                      ]
+                                                                    : f.unsafe_routes.filter(
+                                                                        (r) => !(r.source === "interface" && r.interface === s.interface)
+                                                                      ),
+                                                                }));
+                                                              }}
+                                                              disabled={!deviceDetailsModal.isEditing}
+                                                            />
+                                                            <Label htmlFor={`dd_subnet_${s.interface}`}>
+                                                              {s.interface} ({s.cidr})
+                                                            </Label>
+                                                          </div>
+                                                        ))}
+                                                      </div>
+                                                    </div>
+                                                  );
+                                                })}
+                                              </div>
+                                            </div>
+                                          )}
+
+                                          <div>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Other</p>
+                                            {deviceDetailsForm.unsafe_routes
+                                              .filter((r) => r.source === "manual")
+                                              .map((r) => (
+                                                <div key={r.route} className="flex items-center gap-2 mb-1">
+                                                  <span className="text-sm text-gray-700 dark:text-gray-300">{r.route}</span>
+                                                  {deviceDetailsModal.isEditing && (
+                                                    <Button
+                                                      type="button"
+                                                      size="xs"
+                                                      color="gray"
+                                                      onClick={() =>
+                                                        setDeviceDetailsForm((f) => ({
+                                                          ...f,
+                                                          unsafe_routes: f.unsafe_routes.filter((x) => x.route !== r.route),
+                                                        }))
+                                                      }
+                                                    >
+                                                      <HiTrash className="w-3 h-3" />
+                                                    </Button>
+                                                  )}
+                                                </div>
+                                              ))}
+                                            {deviceDetailsModal.isEditing && (
+                                              <div className="flex items-center gap-2 mt-2">
+                                                <TextInput
+                                                  value={otherRouteInput}
+                                                  onChange={(e) => {
+                                                    setOtherRouteInput(e.target.value);
+                                                    setOtherRouteError(null);
+                                                  }}
+                                                  placeholder="e.g. 10.20.0.0/24"
+                                                  className="min-w-0 flex-1"
+                                                />
+                                                <Button
+                                                  type="button"
+                                                  color="gray"
+                                                  onClick={() => {
+                                                    const route = otherRouteInput.trim();
+                                                    if (!/^[0-9a-fA-F.:]+\/\d{1,3}$/.test(route)) {
+                                                      setOtherRouteError("Enter a CIDR, e.g. 10.20.0.0/24 or fd00::/64");
+                                                      return;
+                                                    }
+                                                    if (deviceDetailsForm.unsafe_routes.some((x) => x.route === route)) {
+                                                      setOtherRouteError("That route is already added");
+                                                      return;
+                                                    }
+                                                    setDeviceDetailsForm((f) => ({
+                                                      ...f,
+                                                      unsafe_routes: [...f.unsafe_routes, { route, source: "manual" }],
+                                                    }));
+                                                    setOtherRouteInput("");
+                                                  }}
+                                                >
+                                                  Add
+                                                </Button>
+                                              </div>
+                                            )}
+                                            {otherRouteError && (
+                                              <p className="text-sm text-red-600 dark:text-red-400 mt-1">{otherRouteError}</p>
+                                            )}
+                                          </div>
+                                        </>
+                                      )}
+                                    </div>
+                                  )}
+
                                   <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
                                     <div className="flex flex-wrap gap-2">
                                       <Button type="button" color="gray" onClick={closeDeviceDetailsModal}>
@@ -1602,7 +1782,10 @@ export function Nodes() {
                                                 punchy_delay: node.punchy_options?.delay ?? "",
                                                 punchy_respond_delay: node.punchy_options?.respond_delay ?? "",
                                                 platform: node.platform,
+                                                unsafe_routes: node.unsafe_routes ?? [],
                                               });
+                                              setOtherRouteInput("");
+                                              setOtherRouteError(null);
                                               setDeviceDetailsModal((s) => ({ ...s, isEditing: false }));
                                             }
                                           }}

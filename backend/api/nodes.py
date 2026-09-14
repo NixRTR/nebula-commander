@@ -1,5 +1,6 @@
 """Nodes API: list and manage Nebula nodes."""
 import io
+import ipaddress
 import logging
 import zipfile
 from datetime import datetime
@@ -40,6 +41,7 @@ class NodeUpdate(BaseModel):
     logging_options: Optional[dict[str, Any]] = None
     punchy_options: Optional[dict[str, Any]] = None
     platform: Optional[str] = None  # desktop, ios, android - for converting pre-existing nodes
+    unsafe_routes: Optional[list[dict[str, Any]]] = None  # [{route, source, interface}] - subnet-router/exit-node CIDRs
 
 
 class NodeResponse(BaseModel):
@@ -61,6 +63,9 @@ class NodeResponse(BaseModel):
     checkin_interval_seconds: Optional[int] = None
     lighthouse_reachable: Optional[bool] = None
     lighthouse_checked_at: Optional[str] = None
+    unsafe_routes: list = []
+    available_subnets: list = []
+    os_platform: Optional[str] = None
     created_at: str
 
     class Config:
@@ -116,6 +121,9 @@ async def list_nodes(
             checkin_interval_seconds=n.checkin_interval_seconds,
             lighthouse_reachable=n.lighthouse_reachable,
             lighthouse_checked_at=n.lighthouse_checked_at.isoformat() if n.lighthouse_checked_at else None,
+            unsafe_routes=n.unsafe_routes or [],
+            available_subnets=n.available_subnets or [],
+            os_platform=n.os_platform,
             created_at=n.created_at.isoformat() if n.created_at else "",
         )
         for n in nodes
@@ -298,6 +306,9 @@ async def get_node(
         checkin_interval_seconds=node.checkin_interval_seconds,
         lighthouse_reachable=node.lighthouse_reachable,
         lighthouse_checked_at=node.lighthouse_checked_at.isoformat() if node.lighthouse_checked_at else None,
+        unsafe_routes=node.unsafe_routes or [],
+        available_subnets=node.available_subnets or [],
+        os_platform=node.os_platform,
         created_at=node.created_at.isoformat() if node.created_at else "",
     )
 
@@ -310,7 +321,7 @@ async def update_node(
     user: UserInfo = Depends(require_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Update node group (single), lighthouse flag, public endpoint, or lighthouse options."""
+    """Update node group (single), lighthouse flag, public endpoint, lighthouse options, or unsafe_routes."""
     result = await session.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
     if not node:
@@ -337,6 +348,7 @@ async def update_node(
         else node.punchy_options
     )
     original_platform = node.platform
+    original_unsafe_routes = list(node.unsafe_routes or [])
     if body.group is not None:
         node.groups = [body.group] if (body.group and body.group.strip()) else []
     if body.is_lighthouse is not None:
@@ -375,6 +387,27 @@ async def update_node(
                 detail="Mobile nodes cannot be a lighthouse or relay. Unset those first.",
             )
         node.platform = platform
+    if body.unsafe_routes is not None:
+        if body.unsafe_routes and node.os_platform != "linux":
+            raise HTTPException(
+                status_code=400,
+                detail="Subnet routing / exit node (unsafe_routes) is only supported on Linux nodes.",
+            )
+        validated_routes: list[dict[str, Any]] = []
+        for r in body.unsafe_routes:
+            route = str(r.get("route") or "").strip()
+            try:
+                ipaddress.ip_network(route, strict=False)
+            except ValueError as e:
+                raise HTTPException(status_code=400, detail=f"Invalid route CIDR: {route!r}") from e
+            validated_routes.append(
+                {
+                    "route": route,
+                    "source": r.get("source") or "manual",
+                    "interface": r.get("interface"),
+                }
+            )
+        node.unsafe_routes = validated_routes
 
     await session.flush()
 
@@ -419,6 +452,10 @@ async def update_node(
 
     if original_platform != node.platform:
         changed["platform"] = {"old": original_platform, "new": node.platform}
+
+    new_unsafe_routes = node.unsafe_routes or []
+    if original_unsafe_routes != new_unsafe_routes:
+        changed["unsafe_routes"] = {"old": original_unsafe_routes, "new": new_unsafe_routes}
 
     # A group change alters what's baked into the signed certificate (nebula-cert sign
     # -groups), so re-sign it now rather than leaving the DB and the cert out of sync

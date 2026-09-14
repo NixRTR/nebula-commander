@@ -34,7 +34,7 @@
 - [PayPal and Venmo](https://www.paypal.com/donate/?hosted_button_id=CHLZH2ZJXKQFU)
 - More to come
 
-### Status (as of v0.3.0)
+### Status (as of v0.3.2)
 
 **Implemented**
 
@@ -54,10 +54,13 @@
   sensitive actions (deletions, revocations)
 - Audit logging, an invitation system, and multi-user management
 - Encryption at rest for certificates and keys
+- Subnet routers and exit nodes (Nebula's `unsafe_routes`), Linux nodes only —
+  `ncclient` discovers advertisable local subnets (ethernet/Wi-Fi/Tailscale/other
+  Nebula interfaces) and automatically configures host-level IP forwarding and NAT
 
 **Planned**
 
-- Exit nodes (full-tunnel routing via Nebula's `unsafe_routes`)
+- Subnet router / exit node support for Windows and Docker-deployed nodes
 - Continued client hardening as real-world deployments surface edge cases
 
 ---
