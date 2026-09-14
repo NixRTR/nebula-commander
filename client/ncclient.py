@@ -602,6 +602,33 @@ def _fetch_lighthouse_peers(
     return []
 
 
+def _fetch_advertised_routes(
+    base: str,
+    token: str,
+    debug_log: Callable[[str], None] | None = None,
+) -> list[str]:
+    """
+    Best-effort fetch of the CIDRs *this* device advertises as a subnet router / exit
+    node (empty for nodes that don't advertise any, and on any failure). Deliberately
+    separate from the fetched nebula.yml - a node's own tun.unsafe_routes never contains
+    entries for routes it advertises itself (see backend's
+    config_generator._collect_advertised_routes), so this is the only way ncclient can
+    learn what host-side forwarding/NAT (linux_routing.apply_routes) it should set up.
+    """
+    try:
+        r = requests.get(
+            f"{base}/api/device/advertised-routes",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if r.ok:
+            return r.json().get("routes", [])
+    except requests.RequestException as e:
+        if debug_log:
+            debug_log(f"advertised-routes fetch failed: {e}")
+    return []
+
+
 def _ping_peers(
     peers: list[dict],
     debug_log: Callable[[str], None] | None = None,
@@ -671,6 +698,7 @@ def run_poll_loop(
     last_etag: str | None = None
     nebula_proc: subprocess.Popen | None = None
     current_tun_dev: str | None = None  # this node's own tun device, parsed from its config (Linux routing only)
+    last_advertised_routes: list[str] | None = None  # this node's own advertised routes, for change detection (Linux routing only)
 
     # Clean slate on start: remove any split-horizon from a previous crash
     if accept_dns:
@@ -717,6 +745,20 @@ def run_poll_loop(
                         peer_reachability=peer_reachability,
                         tun_dev=current_tun_dev,
                     )
+                    if sys.platform.startswith("linux"):
+                        advertised_routes = _fetch_advertised_routes(base, token, dns_debug_log)
+                        if advertised_routes != (last_advertised_routes or []):
+                            try:
+                                from client import linux_routing
+                                linux_routing.apply_routes(
+                                    [{"route": route} for route in advertised_routes],
+                                    current_tun_dev or "nebula1",
+                                    debug_log=dns_debug_log,
+                                )
+                                last_advertised_routes = advertised_routes
+                            except Exception as e:
+                                if dns_debug_log:
+                                    dns_debug_log(f"applying advertised routes failed: {e}")
                 if r.status_code == 304:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
                         nebula_proc = _start_nebula(nebula_bin, output_dir)
@@ -746,20 +788,16 @@ def run_poll_loop(
                 if status_callback:
                     status_callback("connected", "Config updated")
                 if sys.platform.startswith("linux"):
+                    # Only tun.dev is read from the node's own config here - its own
+                    # advertised routes never appear in its own tun.unsafe_routes (see
+                    # _fetch_advertised_routes above for why) and are fetched separately.
                     try:
                         import yaml
-                        from client import linux_routing
                         parsed = yaml.safe_load(r.content) or {}
-                        tun_section = parsed.get("tun") or {}
-                        current_tun_dev = tun_section.get("dev") or current_tun_dev
-                        linux_routing.apply_routes(
-                            tun_section.get("unsafe_routes") or [],
-                            current_tun_dev or "nebula1",
-                            debug_log=dns_debug_log,
-                        )
+                        current_tun_dev = (parsed.get("tun") or {}).get("dev") or current_tun_dev
                     except Exception as e:
                         if dns_debug_log:
-                            dns_debug_log(f"applying unsafe_routes failed: {e}")
+                            dns_debug_log(f"parsing tun.dev from config failed: {e}")
                 if nebula_bin:
                     _stop_nebula(nebula_proc)
                     nebula_proc = _start_nebula(nebula_bin, output_dir)

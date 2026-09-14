@@ -104,7 +104,42 @@ def _default_listen(port: int = DEFAULT_LISTEN_PORT) -> dict[str, Any]:
     return {"host": "0.0.0.0", "port": port}  # nosec B104 - Nebula node config needs all interfaces
 
 
-def _default_tun(unsafe_routes: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
+def _collect_advertised_routes(node: Node, peer_nodes: list[Node]) -> list[dict[str, Any]]:
+    """
+    tun.unsafe_routes entries this node needs so it can reach subnets *other* nodes
+    advertise - Nebula requires `via` (the advertising node's own Nebula IP) on every
+    entry, and routes for it, without that, `nebula` refuses to even start ("via ... is
+    not present"). A node never gets an entry for its own advertised routes: it already
+    has direct (non-overlay) access to them, and `via` pointing at itself makes no sense.
+
+    The advertising node also needs the CIDR baked into its own certificate's -subnets
+    claim (see cert_manager._unsafe_subnets_for_cert / CertManager.resign_host_certificate)
+    - Nebula silently refuses to route a subnet the via node's cert doesn't claim, so that
+    half of this has to stay in sync with what's collected here.
+    """
+    gateways_by_route: dict[str, list[str]] = {}
+    for other in peer_nodes:
+        if not other.ip_address:
+            continue
+        for r in other.unsafe_routes or []:
+            route = str(r.get("route") or "").strip()
+            if not route:
+                continue
+            gateways_by_route.setdefault(route, []).append(other.ip_address)
+
+    entries: list[dict[str, Any]] = []
+    for route, gateways in gateways_by_route.items():
+        unique_gateways = sorted(set(gateways))
+        if len(unique_gateways) == 1:
+            entries.append({"route": route, "via": unique_gateways[0]})
+        else:
+            # Multiple nodes advertising the same CIDR: Nebula's ECMP via-list form
+            # (v1.10+), equally weighted.
+            entries.append({"route": route, "via": [{"gateway": g} for g in unique_gateways]})
+    return entries
+
+
+def _default_tun(advertised_routes: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
     tun: dict[str, Any] = {
         "dev": "nebula1",
         "drop_local_broadcast": False,
@@ -113,10 +148,8 @@ def _default_tun(unsafe_routes: Optional[list[dict[str, Any]]] = None) -> dict[s
         "mtu": 1300,
         "routes": [],
     }
-    if unsafe_routes:
-        tun["unsafe_routes"] = [{"route": r["route"]} for r in unsafe_routes if r.get("route")]
-        if not tun["unsafe_routes"]:
-            del tun["unsafe_routes"]
+    if advertised_routes:
+        tun["unsafe_routes"] = advertised_routes
     return tun
 
 
@@ -212,6 +245,28 @@ def _inbound_rules_from_group_firewall(inbound_rules: list[Any]) -> list[dict[st
     return nebula_rules
 
 
+def _add_local_cidr_rules_for_advertised_routes(section: dict[str, Any], node: Node) -> None:
+    """
+    Since Nebula 1.10, a firewall rule only matches traffic to this node's own overlay
+    IP unless it sets `local_cidr` - it does NOT also cover traffic being forwarded to a
+    subnet this node advertises via unsafe_routes. Without this, a gateway node's own
+    inbound rules (whether the default allow-any or a group ACL) would silently drop all
+    forwarded traffic even though the route/cert/nftables side is otherwise correct.
+    Mirrors each existing inbound rule with local_cidr set per advertised CIDR, so
+    forwarded traffic gets the same group ACL as direct access to the node.
+    """
+    advertised = [
+        str(r.get("route") or "").strip() for r in (node.unsafe_routes or []) if r.get("route")
+    ]
+    advertised = [a for a in advertised if a]
+    if not advertised or not section.get("inbound"):
+        return
+    extra_rules = [
+        {**rule, "local_cidr": cidr} for cidr in advertised for rule in section["inbound"]
+    ]
+    section["inbound"] = section["inbound"] + extra_rules
+
+
 def _firewall_section(
     network: Network,
     node: Node,
@@ -238,12 +293,14 @@ def _firewall_section(
 
     if not inbound_rules_raw:
         section["inbound"] = [{"port": "any", "proto": "any", "host": "any"}]
+        _add_local_cidr_rules_for_advertised_routes(section, node)
         return section
 
     section["inbound_action"] = "drop"
     section["inbound"] = _inbound_rules_from_group_firewall(inbound_rules_raw)
     if not section["inbound"]:
         section["inbound"] = [{"port": "any", "proto": "any", "host": "any"}]
+    _add_local_cidr_rules_for_advertised_routes(section, node)
     return section
 
 
@@ -310,7 +367,7 @@ def build_config(
         "relay": _relay_section(node, other_relay_ips),
         "listen": _default_listen(),
         "punchy": _punchy_section(node),
-        "tun": _default_tun(node.unsafe_routes),
+        "tun": _default_tun(_collect_advertised_routes(node, peer_nodes)),
         "logging": _logging_section(node),
         "firewall": _firewall_section(network, node, group_firewalls),
     }

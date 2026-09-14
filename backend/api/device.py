@@ -265,6 +265,36 @@ async def device_lighthouse_peers(
     return LighthousePeersResponse(peers=peers)
 
 
+class AdvertisedRoutesResponse(BaseModel):
+    routes: list[str]
+
+
+@router.get("/advertised-routes", response_model=AdvertisedRoutesResponse)
+async def device_advertised_routes(
+    node_id: int = Depends(require_device_token),
+    session: AsyncSession = Depends(get_session),
+):
+    """
+    Return the CIDRs *this* device itself advertises as a subnet router / exit node
+    (Node.unsafe_routes). Deliberately separate from the generated nebula.yml: a node
+    never gets a `tun.unsafe_routes` entry for routes it advertises itself (Nebula's
+    `via` there points at *other* nodes wanting to reach it, not at itself - see
+    config_generator._collect_advertised_routes) - so ncclient needs this to know what
+    to actually set up host-side (IP forwarding + NAT), separately from what nebula.yml
+    tells the Nebula process to do.
+    """
+    result = await session.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    routes = [
+        str(r.get("route") or "").strip()
+        for r in (node.unsafe_routes or [])
+        if r.get("route")
+    ]
+    return AdvertisedRoutesResponse(routes=[r for r in routes if r])
+
+
 @router.get("/dnsmasq.conf")
 async def device_dnsmasq_config(
     request: Request,

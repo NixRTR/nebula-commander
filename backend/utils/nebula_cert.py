@@ -191,6 +191,7 @@ def cert_sign(
     duration_hours: int = 8760,  # 1 year
     in_pub: Optional[Path] = None,
     subnet_cidr: Optional[str] = None,
+    unsafe_subnets: Optional[list[str]] = None,
     allowed_roots: Optional[List[Path]] = None,
 ) -> None:
     """
@@ -198,6 +199,12 @@ def cert_sign(
     Otherwise nebula-cert will generate a keypair and we only get the cert (not recommended).
     -ip is passed as CIDR. Use subnet_cidr (e.g. 10.100.0.0/24) so the cert uses the network's
     prefix length; that gives hosts "vpnNetworks in common" and allows layer-3 traffic between them.
+
+    unsafe_subnets: CIDRs this node is allowed to route for as a subnet-router/exit-node
+    gateway (Nebula's tun.unsafe_routes on *other* nodes points its `via` at this node only
+    for CIDRs listed here - Nebula silently refuses to route a subnet the via node's own
+    cert doesn't claim). Passed via the deprecated `-subnets` flag (alias for
+    `-unsafe-networks`), matching this file's existing use of `-ip` over `-networks`.
     """
     if allowed_roots is not None:
         _check_path_under_roots(ca_crt, allowed_roots)
@@ -225,6 +232,8 @@ def cert_sign(
     ]
     if groups:
         args.extend(["-groups", ",".join(groups)])
+    if unsafe_subnets:
+        args.extend(["-subnets", ",".join(unsafe_subnets)])
     if in_pub is not None:
         args.extend(["-in-pub", str(in_pub)])
     run_nebula_cert(args)

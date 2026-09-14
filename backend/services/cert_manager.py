@@ -20,6 +20,21 @@ from .ip_allocator import IPAllocator
 logger = logging.getLogger(__name__)
 
 
+def _unsafe_subnets_for_cert(node: Node, network: Network) -> list[str]:
+    """CIDRs this node advertises as a subnet-router/exit-node gateway, for the cert's
+    -subnets claim. v1 certs only accept IPv4 (nebula-cert itself rejects IPv6 there),
+    so ::/0 and other IPv6 routes are dropped for v1-cert networks rather than failing
+    the whole sign - they simply won't route until the network upgrades to v2 certs."""
+    routes = [
+        str(r.get("route") or "").strip()
+        for r in (node.unsafe_routes or [])
+        if r.get("route")
+    ]
+    if network.cert_version == 1:
+        routes = [r for r in routes if ":" not in r]
+    return routes
+
+
 class CertManager:
     """Issue and manage Nebula certificates with betterkeys and IP allocation."""
 
@@ -233,6 +248,7 @@ class CertManager:
                     duration_hours=duration_hours,
                     in_pub=pub_path,
                     subnet_cidr=network.subnet_cidr,
+                    unsafe_subnets=_unsafe_subnets_for_cert(node, network),
                     allowed_roots=_roots,
                 )
                 cert_pem = out_crt_tmp.read_text()
@@ -297,6 +313,7 @@ class CertManager:
                 duration_hours=duration_hours,
                 in_pub=pub_path,
                 subnet_cidr=network.subnet_cidr,
+                unsafe_subnets=_unsafe_subnets_for_cert(node, network),
                 allowed_roots=_roots,
             )
             cert_pem = out_crt_tmp.read_text()

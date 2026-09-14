@@ -457,12 +457,14 @@ async def update_node(
     if original_unsafe_routes != new_unsafe_routes:
         changed["unsafe_routes"] = {"old": original_unsafe_routes, "new": new_unsafe_routes}
 
-    # A group change alters what's baked into the signed certificate (nebula-cert sign
-    # -groups), so re-sign it now rather than leaving the DB and the cert out of sync
-    # until someone thinks to re-enroll. Keeps the existing IP and keypair - the running
-    # device picks up the new cert on its next config poll, no re-enrollment needed.
+    # A group change, or a change to which subnets this node advertises, alters what's
+    # baked into the signed certificate (nebula-cert sign -groups / -subnets) - other
+    # nodes' unsafe_routes can only route "via" this node for CIDRs its own cert claims,
+    # so re-sign now rather than leaving the DB and the cert out of sync until someone
+    # thinks to re-enroll. Keeps the existing IP and keypair - the running device picks
+    # up the new cert on its next config poll, no re-enrollment needed.
     cert_resigned = False
-    if "groups" in changed:
+    if "groups" in changed or "unsafe_routes" in changed:
         if node.public_key and node.ip_address:
             net_result = await session.execute(select(Network).where(Network.id == node.network_id))
             network = net_result.scalar_one_or_none()
@@ -491,6 +493,7 @@ async def update_node(
             details={"changed": changed},
         )
         if cert_resigned:
+            resign_reasons = [r for r in ("groups", "unsafe_routes") if r in changed]
             await log_audit(
                 session,
                 "node_cert_resigned",
@@ -499,7 +502,11 @@ async def update_node(
                 actor_user_id=db_user.id if db_user else None,
                 actor_identifier=user.email or user.sub,
                 client_ip=get_client_ip(request),
-                details={"reason": "group_changed", "new_groups": new_groups},
+                details={
+                    "reason": "+".join(resign_reasons) + "_changed",
+                    "new_groups": new_groups,
+                    "new_unsafe_routes": new_unsafe_routes,
+                },
             )
 
     return {"ok": True, "cert_resigned": cert_resigned}
