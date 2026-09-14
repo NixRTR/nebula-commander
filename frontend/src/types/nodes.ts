@@ -38,6 +38,10 @@ export interface UnsafeRoute {
   route: string;
   source: RouteSource;
   interface?: string | null;
+  /** Node IDs (on this node's network) allowed to actually route to this CIDR via this
+   * node. Opt-in: empty by default, so advertising a route doesn't reach anyone until
+   * explicitly selected. The exit-node pair (exit_v4 + exit_v6) share one selection. */
+  consumers: number[];
 }
 
 export interface Node {

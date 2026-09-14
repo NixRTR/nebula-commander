@@ -393,6 +393,19 @@ async def update_node(
         # other clients (or a non-ncclient nebula install) need to configure IP forwarding
         # and NAT themselves for the route to actually work. The frontend warns about this
         # rather than blocking the admin from setting it.
+        #
+        # consumers: node IDs (on this same network) allowed to receive a `via` route to
+        # this CIDR - opt-in and empty by default, so adding/advertising a route doesn't
+        # silently reach every node until an admin explicitly picks who it's for. Silently
+        # dropped rather than rejected if a ref is invalid/cross-network/self - the picker
+        # UI can't produce those, so treat them as stale rather than erroring the whole save.
+        valid_consumer_ids: set[int] = set()
+        if any(r.get("consumers") for r in body.unsafe_routes):
+            peers_result = await session.execute(
+                select(Node.id).where(Node.network_id == node.network_id, Node.id != node.id)
+            )
+            valid_consumer_ids = {row[0] for row in peers_result.all()}
+
         validated_routes: list[dict[str, Any]] = []
         for r in body.unsafe_routes:
             route = str(r.get("route") or "").strip()
@@ -400,11 +413,19 @@ async def update_node(
                 ipaddress.ip_network(route, strict=False)
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=f"Invalid route CIDR: {route!r}") from e
+            consumers = sorted(
+                {
+                    int(c)
+                    for c in (r.get("consumers") or [])
+                    if isinstance(c, int) and c in valid_consumer_ids
+                }
+            )
             validated_routes.append(
                 {
                     "route": route,
                     "source": r.get("source") or "manual",
                     "interface": r.get("interface"),
+                    "consumers": consumers,
                 }
             )
         node.unsafe_routes = validated_routes
@@ -457,6 +478,14 @@ async def update_node(
     if original_unsafe_routes != new_unsafe_routes:
         changed["unsafe_routes"] = {"old": original_unsafe_routes, "new": new_unsafe_routes}
 
+    # Only the *set of advertised CIDRs* is baked into the certificate (-subnets) - not
+    # which nodes consume them. Compare just that, not the full unsafe_routes value, so
+    # picking a different set of consumer nodes for an unchanged route doesn't force an
+    # unrelated cert resign (and the nebula restart on the gateway that comes with it).
+    original_route_cidrs = sorted({r.get("route") for r in original_unsafe_routes if r.get("route")})
+    new_route_cidrs = sorted({r.get("route") for r in new_unsafe_routes if r.get("route")})
+    advertised_cidrs_changed = original_route_cidrs != new_route_cidrs
+
     # A group change, or a change to which subnets this node advertises, alters what's
     # baked into the signed certificate (nebula-cert sign -groups / -subnets) - other
     # nodes' unsafe_routes can only route "via" this node for CIDRs its own cert claims,
@@ -464,7 +493,7 @@ async def update_node(
     # thinks to re-enroll. Keeps the existing IP and keypair - the running device picks
     # up the new cert on its next config poll, no re-enrollment needed.
     cert_resigned = False
-    if "groups" in changed or "unsafe_routes" in changed:
+    if "groups" in changed or advertised_cidrs_changed:
         if node.public_key and node.ip_address:
             net_result = await session.execute(select(Network).where(Network.id == node.network_id))
             network = net_result.scalar_one_or_none()
@@ -493,7 +522,11 @@ async def update_node(
             details={"changed": changed},
         )
         if cert_resigned:
-            resign_reasons = [r for r in ("groups", "unsafe_routes") if r in changed]
+            resign_reasons = [
+                reason
+                for reason, fired in (("groups", "groups" in changed), ("unsafe_routes", advertised_cidrs_changed))
+                if fired
+            ]
             await log_audit(
                 session,
                 "node_cert_resigned",

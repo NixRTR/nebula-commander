@@ -54,10 +54,12 @@
   sensitive actions (deletions, revocations)
 - Audit logging, an invitation system, and multi-user management
 - Encryption at rest for certificates and keys
-- Subnet routers and exit nodes (Nebula's `unsafe_routes`) — settable on any node;
-  on Linux nodes running `ncclient`, it also discovers advertisable local subnets
-  (ethernet/Wi-Fi/Tailscale/other Nebula interfaces) and automatically configures
-  host-level IP forwarding and NAT. Other clients need that configured manually
+- Subnet routers and exit nodes (Nebula's `unsafe_routes`), opt-in per consumer node
+  — settable on any node; on Linux nodes running `ncclient`, it also discovers
+  advertisable local subnets (ethernet/Wi-Fi/Tailscale/other Nebula interfaces) and
+  automatically configures host-level IP forwarding and NAT. See
+  [docs/unsafe-routes.md](docs/unsafe-routes.md) for how it works, including hosts
+  that don't run `ncclient`
 
 **Planned**
 

@@ -112,6 +112,11 @@ def _collect_advertised_routes(node: Node, peer_nodes: list[Node]) -> list[dict[
     not present"). A node never gets an entry for its own advertised routes: it already
     has direct (non-overlay) access to them, and `via` pointing at itself makes no sense.
 
+    Each advertised route is opt-in per consumer: a route only propagates to nodes listed
+    in its own "consumers" (a list of node IDs, empty by default - see nodes.py's
+    update_node validation). This is deliberately NOT "every node in the network" so an
+    admin can hand a route to specific nodes without exposing it network-wide.
+
     The advertising node also needs the CIDR baked into its own certificate's -subnets
     claim (see cert_manager._unsafe_subnets_for_cert / CertManager.resign_host_certificate)
     - Nebula silently refuses to route a subnet the via node's cert doesn't claim, so that
@@ -124,6 +129,8 @@ def _collect_advertised_routes(node: Node, peer_nodes: list[Node]) -> list[dict[
         for r in other.unsafe_routes or []:
             route = str(r.get("route") or "").strip()
             if not route:
+                continue
+            if node.id not in (r.get("consumers") or []):
                 continue
             gateways_by_route.setdefault(route, []).append(other.ip_address)
 
