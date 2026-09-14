@@ -388,11 +388,11 @@ async def update_node(
             )
         node.platform = platform
     if body.unsafe_routes is not None:
-        if body.unsafe_routes and node.os_platform != "linux":
-            raise HTTPException(
-                status_code=400,
-                detail="Subnet routing / exit node (unsafe_routes) is only supported on Linux nodes.",
-            )
+        # Not gated to os_platform == "linux": unsafe_routes is plain Nebula config, valid
+        # for any client. Only ncclient's *automatic* host forwarding/NAT is Linux-only -
+        # other clients (or a non-ncclient nebula install) need to configure IP forwarding
+        # and NAT themselves for the route to actually work. The frontend warns about this
+        # rather than blocking the admin from setting it.
         validated_routes: list[dict[str, Any]] = []
         for r in body.unsafe_routes:
             route = str(r.get("route") or "").strip()

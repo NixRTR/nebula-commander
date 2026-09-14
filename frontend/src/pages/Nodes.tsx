@@ -1586,14 +1586,13 @@ export function Nodes() {
                                       <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                                         Routing (subnet router / exit node)
                                       </p>
-                                      {deviceDetailsModal.node?.os_platform !== "linux" ? (
-                                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                                      {deviceDetailsModal.node?.os_platform !== "linux" && (
+                                        <p className="text-sm text-amber-600 dark:text-amber-400">
                                           {deviceDetailsModal.node?.os_platform
-                                            ? "Not supported on this node's OS (Linux only)."
-                                            : "Waiting for this node to check in to see whether it supports this (Linux only)."}
+                                            ? "This node isn't running ncclient on Linux, so this isn't applied automatically. IP forwarding and NAT must be configured manually on the node for it to take effect."
+                                            : "This node hasn't checked in yet, so we don't know its OS. Unless it's Linux running ncclient, IP forwarding and NAT must be configured manually for this to take effect."}
                                         </p>
-                                      ) : (
-                                        <>
+                                      )}
                                           <div className="flex items-center gap-2">
                                             <Checkbox
                                               id="dd_exit_node"
@@ -1742,8 +1741,6 @@ export function Nodes() {
                                               <p className="text-sm text-red-600 dark:text-red-400 mt-1">{otherRouteError}</p>
                                             )}
                                           </div>
-                                        </>
-                                      )}
                                     </div>
                                   )}
 
