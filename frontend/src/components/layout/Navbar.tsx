@@ -3,6 +3,7 @@
  */
 import { Navbar as FlowbiteNavbar, Badge, Tooltip } from 'flowbite-react';
 import { HiMenu, HiMoon, HiSun } from 'react-icons/hi';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface NavbarProps {
   username: string;
@@ -11,17 +12,7 @@ interface NavbarProps {
 }
 
 export function Navbar({ username, connectionStatus, onMenuClick }: NavbarProps) {
-  const toggleTheme = () => {
-    const root = document.documentElement;
-    const isDark = root.classList.contains('dark');
-    if (isDark) {
-      root.classList.remove('dark');
-      try { localStorage.setItem('theme', 'light'); } catch {}
-    } else {
-      root.classList.add('dark');
-      try { localStorage.setItem('theme', 'dark'); } catch {}
-    }
-  };
+  const { toggleDark } = useTheme();
 
   const getStatusColor = () => {
     switch (connectionStatus) {
@@ -65,7 +56,7 @@ export function Navbar({ username, connectionStatus, onMenuClick }: NavbarProps)
         <Tooltip content="Toggle theme" placement="bottom">
           <button
             type="button"
-            onClick={toggleTheme}
+            onClick={toggleDark}
             className="p-2 rounded-lg text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-200 dark:focus:ring-gray-600"
             aria-label="Toggle theme"
             title="Toggle theme"

@@ -150,6 +150,10 @@ class User(Base):
     # attribution columns that can't be NULL (Invitation.invited_by_user_id, AccessGrant.granted_by_user_id)
     # get redirected here instead of the real user on delete, so PRAGMA foreign_keys=ON stays satisfiable.
     is_placeholder: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    # Per-user color theme overrides: {tokenKey: {"light": "#rrggbb", "dark": "#rrggbb"}}.
+    # Sparse - only tokens the user has customized; merged over theme_defaults.DEFAULT_THEME
+    # on read. See backend/theme_defaults.py.
+    theme: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     network_permissions: Mapped[list["NetworkPermission"]] = relationship(

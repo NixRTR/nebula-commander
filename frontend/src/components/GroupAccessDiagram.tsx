@@ -3,6 +3,8 @@ import { Card } from "flowbite-react";
 import { listGroupFirewall } from "../api/client";
 import type { GroupFirewallConfig } from "../types/networks";
 import type { Node } from "../types/nodes";
+import { useTheme } from "../contexts/ThemeContext";
+import { contrastTextColor } from "../theme/tokens";
 
 interface Props {
   networkId: number;
@@ -65,6 +67,7 @@ function edgePath(p1: Point, p2: Point): { d: string; midX: number; midY: number
 }
 
 export function GroupAccessDiagram({ networkId, nodes }: Props) {
+  const { resolve } = useTheme();
   const [groups, setGroups] = useState<GroupFirewallConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -166,19 +169,22 @@ export function GroupAccessDiagram({ networkId, nodes }: Props) {
     <Card>
       <div className="flex flex-wrap items-center gap-4 mb-3 text-xs text-gray-500 dark:text-gray-400">
         <div className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full bg-purple-500" />
+          <span className="inline-block w-3 h-3 rounded-full" style={{ backgroundColor: resolve("group.restricted") }} />
           Restricted (inbound rules configured)
         </div>
         <div className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full border-2 border-dashed border-gray-400" />
+          <span
+            className="inline-block w-3 h-3 rounded-full border-2 border-dashed"
+            style={{ borderColor: resolve("group.open") }}
+          />
           Open (any group can reach it)
         </div>
         <div className="flex items-center gap-1.5">
-          <svg width="16" height="8"><line x1="0" y1="4" x2="16" y2="4" stroke="currentColor" strokeWidth="2" markerEnd="url(#legend-arrow)" /></svg>
+          <svg width="16" height="8" style={{ color: resolve("diagram.edge") }}><line x1="0" y1="4" x2="16" y2="4" stroke="currentColor" strokeWidth="2" markerEnd="url(#legend-arrow)" /></svg>
           A can reach B
         </div>
       </div>
-      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-full max-w-lg mx-auto text-gray-400 dark:text-gray-500">
+      <svg viewBox={`0 0 ${SIZE} ${SIZE}`} className="w-full max-w-lg mx-auto" style={{ color: resolve("diagram.edge") }}>
         <defs>
           <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
             <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor" />
@@ -204,8 +210,8 @@ export function GroupAccessDiagram({ networkId, nodes }: Props) {
               cx={p.x}
               cy={p.y}
               r={NODE_RADIUS}
-              fill={p.open ? "transparent" : "#a855f7"}
-              stroke={p.open ? "#9ca3af" : "#a855f7"}
+              fill={p.open ? "transparent" : resolve("group.restricted")}
+              stroke={p.open ? resolve("group.open") : resolve("group.restricted")}
               strokeWidth={2}
               strokeDasharray={p.open ? "4 3" : undefined}
             >
@@ -217,7 +223,7 @@ export function GroupAccessDiagram({ networkId, nodes }: Props) {
               textAnchor="middle"
               dominantBaseline="central"
               fontSize={11}
-              fill={p.open ? "currentColor" : "white"}
+              fill={p.open ? "currentColor" : contrastTextColor(resolve("group.restricted"))}
               className="pointer-events-none select-none"
             >
               {p.name.length > 10 ? `${p.name.slice(0, 9)}…` : p.name}

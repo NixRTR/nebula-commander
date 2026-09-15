@@ -15,6 +15,7 @@ import {
   HiMail,
   HiClipboardList,
   HiInformationCircle,
+  HiColorSwatch,
 } from 'react-icons/hi';
 import { FaGithub, FaComments } from 'react-icons/fa';
 import { AboutModal } from '../AboutModal';
@@ -120,6 +121,16 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 data-onboarding-target="sidebar-client-download"
               >
                 Client Download
+              </FlowbiteSidebar.Item>
+
+              <FlowbiteSidebar.Item
+                as={Link}
+                to="/settings/appearance"
+                icon={HiColorSwatch}
+                active={location.pathname === '/settings/appearance'}
+                onClick={handleItemClick}
+              >
+                Appearance
               </FlowbiteSidebar.Item>
 
               <FlowbiteSidebar.Item

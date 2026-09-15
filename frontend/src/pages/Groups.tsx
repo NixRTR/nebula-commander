@@ -9,6 +9,7 @@ import {
   updateGroupFirewall,
   deleteGroupFirewall,
 } from "../api/client";
+import { useTheme } from "../contexts/ThemeContext";
 
 const PROTOCOLS: InboundFirewallRule["protocol"][] = ["any", "tcp", "udp", "icmp"];
 
@@ -20,6 +21,7 @@ const emptyRule = (): InboundFirewallRule => ({
 });
 
 export function Groups() {
+  const { resolve } = useTheme();
   const [searchParams] = useSearchParams();
   const [networks, setNetworks] = useState<Network[]>([]);
   const [selectedNetworkId, setSelectedNetworkId] = useState<number | "">(() => {
@@ -265,12 +267,18 @@ export function Groups() {
                       <div className="mt-auto">
                         {open ? (
                           <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                            <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-dashed border-gray-400" />
+                            <span
+                              className="inline-block w-2.5 h-2.5 rounded-full border-2 border-dashed"
+                              style={{ borderColor: resolve("group.open") }}
+                            />
                             Open
                           </span>
                         ) : (
                           <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
-                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-purple-500" />
+                            <span
+                              className="inline-block w-2.5 h-2.5 rounded-full"
+                              style={{ backgroundColor: resolve("group.restricted") }}
+                            />
                             {ruleCount} rule{ruleCount === 1 ? "" : "s"}
                           </span>
                         )}

@@ -1,4 +1,5 @@
-"""Users API: system admin user management."""
+"""Users API: system admin user management, plus self-service user preferences."""
+import re
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -6,7 +7,7 @@ from pydantic import BaseModel
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..auth.oidc import UserInfo
+from ..auth.oidc import UserInfo, require_user
 from ..auth.permissions import require_system_admin
 from ..auth.reauth import clear_reauth_challenge, decode_reauth_token, verify_reauth
 from ..database import get_session
@@ -19,8 +20,70 @@ from ..models import (
     AuditLog,
 )
 from ..services.audit import get_client_ip, log_audit
+from ..theme_defaults import ALLOWED_TOKEN_KEYS, DEFAULT_THEME
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+
+_HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+
+
+class ThemeTokenValue(BaseModel):
+    light: str
+    dark: str
+
+
+class ThemeResponse(BaseModel):
+    theme: dict[str, ThemeTokenValue]
+
+
+class ThemeUpdateRequest(BaseModel):
+    theme: dict[str, ThemeTokenValue]
+
+
+@router.get("/me/theme", response_model=ThemeResponse)
+async def get_my_theme(
+    user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Return the current user's color theme: their saved overrides merged over
+    the built-in defaults, so a client always gets a complete token set."""
+    db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
+    overrides = db_user.theme if db_user and db_user.theme else {}
+    merged = {**DEFAULT_THEME, **overrides}
+    return ThemeResponse(theme=merged)
+
+
+@router.put("/me/theme", response_model=ThemeResponse)
+async def update_my_theme(
+    body: ThemeUpdateRequest,
+    user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Merge the given tokens into the current user's saved theme overrides (a
+    partial update - tokens not included are left as whatever they already were).
+    Each key must be a known token; each color must be a plain #rrggbb hex string
+    (no alpha - keeps every token editable with a plain <input type="color">)."""
+    for key, value in body.theme.items():
+        if key not in ALLOWED_TOKEN_KEYS:
+            raise HTTPException(status_code=400, detail=f"Unknown theme token: {key!r}")
+        if not _HEX_COLOR_RE.match(value.light) or not _HEX_COLOR_RE.match(value.dark):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid color for {key!r}: must be a #rrggbb hex string",
+            )
+
+    db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
+    if not db_user:
+        db_user = User(oidc_sub=user.sub, email=user.email, system_role=user.system_role)
+        session.add(db_user)
+        await session.flush()
+
+    existing = dict(db_user.theme) if db_user.theme else {}
+    existing.update({k: v.model_dump() for k, v in body.theme.items()})
+    db_user.theme = existing
+    await session.flush()
+
+    return ThemeResponse(theme={**DEFAULT_THEME, **existing})
 
 
 class UserResponse(BaseModel):

@@ -382,6 +382,10 @@ def _run_sqlite_migrations() -> None:
             cur.execute("ALTER TABLE users ADD COLUMN is_placeholder BOOLEAN DEFAULT 0")
             logger.info("Migration: added column users.is_placeholder")
 
+        if "theme" not in user_columns:
+            cur.execute("ALTER TABLE users ADD COLUMN theme TEXT")
+            logger.info("Migration: added column users.theme")
+
         # Ensure exactly one sentinel "deleted user" row exists, then repair any
         # rows already left dangling by a user delete under the old code (FK
         # enforcement has never been on, so this could already have happened).

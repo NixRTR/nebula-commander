@@ -29,6 +29,8 @@ import {
 import type { CreateEnrollmentCodeResponse } from "../api/client";
 import { startReauthFlow } from "./ReauthComplete";
 import { getEnrollmentState, getCardStatus } from "../utils/nodeStatus";
+import { useTheme } from "../contexts/ThemeContext";
+import { contrastTextColor } from "../theme/tokens";
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -40,6 +42,7 @@ function downloadBlob(blob: Blob, filename: string) {
 }
 
 export function Nodes() {
+  const { resolve } = useTheme();
   const [searchParams] = useSearchParams();
   const [nodes, setNodes] = useState<Node[]>([]);
   const [networks, setNetworks] = useState<Network[]>([]);
@@ -1193,16 +1196,18 @@ export function Nodes() {
                 const cardStatus = getCardStatus(n);
                 const statusBg =
                   cardStatus === "active"
-                    ? "bg-green-100 dark:bg-green-900/40"
+                    ? resolve("status.active")
                     : cardStatus === "inactive"
-                    ? "bg-red-100 dark:bg-red-900/30"
-                    : "bg-gray-100 dark:bg-gray-800";
+                    ? resolve("status.inactive")
+                    : resolve("status.neverActive");
+                const badgeStyle = (bg: string) => ({ backgroundColor: bg, color: contrastTextColor(bg) });
                 return (
                   <button
                     key={n.id}
                     type="button"
                     onClick={() => openDeviceDetails(n)}
-                    className={`relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-left shadow-sm hover:shadow-md transition-shadow ${statusBg}`}
+                    className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-left shadow-sm hover:shadow-md transition-shadow"
+                    style={{ backgroundColor: statusBg }}
                   >
                     <p className="font-semibold text-gray-900 dark:text-white truncate pr-1" title={n.hostname}>
                       {n.hostname}
@@ -1212,42 +1217,42 @@ export function Nodes() {
                     </p>
                     <div className="absolute bottom-2 right-2 flex flex-wrap justify-end gap-1">
                       {n.is_lighthouse && (
-                        <Badge color="purple" size="sm">
+                        <Badge size="sm" style={badgeStyle(resolve("badge.lighthouse"))}>
                           Lighthouse
                         </Badge>
                       )}
                       {n.is_relay && (
-                        <Badge color="indigo" size="sm">
+                        <Badge size="sm" style={badgeStyle(resolve("badge.relay"))}>
                           Relay
                         </Badge>
                       )}
                       {n.platform === "ios" && (
-                        <Badge color="cyan" size="sm">
+                        <Badge size="sm" style={badgeStyle(resolve("badge.ios"))}>
                           iOS
                         </Badge>
                       )}
                       {n.platform === "android" && (
-                        <Badge color="lime" size="sm">
+                        <Badge size="sm" style={badgeStyle(resolve("badge.android"))}>
                           Android
                         </Badge>
                       )}
                       {n.platform === "desktop" && n.os_platform === "windows" && (
-                        <Badge color="blue" size="sm">
+                        <Badge size="sm" style={badgeStyle(resolve("badge.windows"))}>
                           Windows
                         </Badge>
                       )}
                       {n.platform === "desktop" && n.os_platform === "linux" && (
-                        <Badge color="yellow" size="sm">
+                        <Badge size="sm" style={badgeStyle(resolve("badge.linux"))}>
                           Linux
                         </Badge>
                       )}
                       {n.platform === "desktop" && n.os_platform === "macos" && (
-                        <Badge color="dark" size="sm">
+                        <Badge size="sm" style={badgeStyle(resolve("badge.macos"))}>
                           macOS
                         </Badge>
                       )}
                       {!n.is_lighthouse && !n.is_relay && n.platform === "desktop" && !n.os_platform && (
-                        <Badge color="gray" size="sm">
+                        <Badge size="sm" style={badgeStyle(resolve("badge.node"))}>
                           Node
                         </Badge>
                       )}
