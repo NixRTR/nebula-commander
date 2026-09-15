@@ -1,8 +1,7 @@
-import { useCallback, useEffect, useState, Fragment } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Card,
-  Table,
   Badge,
   Button,
   Modal,
@@ -29,7 +28,7 @@ import {
 } from "../api/client";
 import type { CreateEnrollmentCodeResponse } from "../api/client";
 import { startReauthFlow } from "./ReauthComplete";
-import { getEnrollmentState, getLighthouseReachability } from "../utils/nodeStatus";
+import { getEnrollmentState, getCardStatus } from "../utils/nodeStatus";
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
@@ -353,11 +352,7 @@ export function Nodes() {
     !!node?.is_lighthouse &&
     nodes.filter((n) => n.network_id === node.network_id && n.is_lighthouse).length === 1;
 
-  const toggleDeviceDetails = (node: Node) => {
-    if (deviceDetailsModal.node?.id === node.id) {
-      setDeviceDetailsModal({ node: null, isEditing: false, showSaved: false, savedFading: false, certResigned: false });
-      return;
-    }
+  const openDeviceDetails = (node: Node) => {
     setDeviceDetailsModal({ node, isEditing: false, showSaved: false, savedFading: false, certResigned: false });
     const opts = node.lighthouse_options;
     const logOpts = node.logging_options;
@@ -1189,154 +1184,72 @@ export function Nodes() {
             </Card>
           )}
 
-          <div className="overflow-x-auto">
-            <Table>
-              <Table.Head>
-                <Table.HeadCell>Hostname</Table.HeadCell>
-                <Table.HeadCell>Network</Table.HeadCell>
-                <Table.HeadCell>IP Address</Table.HeadCell>
-                <Table.HeadCell>Type</Table.HeadCell>
-                <Table.HeadCell>Status</Table.HeadCell>
-                <Table.HeadCell>Actions</Table.HeadCell>
-              </Table.Head>
-              <Table.Body className="divide-y">
-                {nodes.map((n) => {
-                  const enrollState = getEnrollmentState(n);
-                  return (
-                    <Fragment key={n.id}>
-                    <Table.Row className="bg-white dark:border-gray-700 dark:bg-gray-800">
-                      <Table.Cell>
-                        <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            onClick={() => toggleDeviceDetails(n)}
-                            className="p-0.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
-                            aria-label={deviceDetailsModal.node?.id === n.id ? "Collapse" : "Expand"}
-                          >
-                            {deviceDetailsModal.node?.id === n.id ? (
-                              <HiChevronDown className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-                            ) : (
-                              <HiChevronRight className="w-5 h-5 text-gray-500 dark:text-gray-400" />
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => toggleDeviceDetails(n)}
-                            className="text-purple-600 hover:text-purple-800 dark:text-purple-400 dark:hover:text-purple-300 cursor-pointer underline font-medium text-left"
-                          >
-                            {n.hostname}
-                          </button>
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell>{getNetworkName(n.network_id)}</Table.Cell>
-                      <Table.Cell>{n.ip_address || "—"}</Table.Cell>
-                      <Table.Cell>
-                        <div className="flex flex-wrap gap-1">
-                          {n.is_lighthouse && (
-                            <Badge color="purple" size="sm">
-                              Lighthouse
-                            </Badge>
-                          )}
-                          {n.is_relay && (
-                            <Badge color="indigo" size="sm">
-                              Relay
-                            </Badge>
-                          )}
-                          {n.platform === "ios" && (
-                            <Badge color="cyan" size="sm">
-                              iOS
-                            </Badge>
-                          )}
-                          {n.platform === "android" && (
-                            <Badge color="lime" size="sm">
-                              Android
-                            </Badge>
-                          )}
-                          {!n.is_lighthouse && !n.is_relay && n.platform === "desktop" && (
-                            <span className="text-gray-600 dark:text-gray-400">Node</span>
-                          )}
-                        </div>
-                      </Table.Cell>
-                      <Table.Cell>
-                        {(() => {
-                          // Fixed height/width shared by all four pill states (two are Buttons,
-                          // two are Badges - Flowbite gives those different box models by
-                          // default, which is why they used to render at visibly different
-                          // sizes) so the column reads as one consistent shape regardless of
-                          // state or label length.
-                          const pillClass = "inline-flex h-6 min-w-[6.5rem] items-center justify-center rounded px-2 text-xs font-semibold";
+          <div className="lg:w-2/3">
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {nodes.map((n) => {
+                const cardStatus = getCardStatus(n);
+                const statusBg =
+                  cardStatus === "active"
+                    ? "bg-green-100 dark:bg-green-900/40"
+                    : cardStatus === "inactive"
+                    ? "bg-red-100 dark:bg-red-900/30"
+                    : "bg-gray-100 dark:bg-gray-800";
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => openDeviceDetails(n)}
+                    className={`relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-left shadow-sm hover:shadow-md transition-shadow ${statusBg}`}
+                  >
+                    <p className="font-semibold text-gray-900 dark:text-white truncate pr-1" title={n.hostname}>
+                      {n.hostname}
+                    </p>
+                    <p className="text-xs font-mono text-gray-600 dark:text-gray-400 truncate mt-1">
+                      {n.ip_address || "—"}
+                    </p>
+                    <div className="absolute bottom-2 right-2 flex flex-wrap justify-end gap-1">
+                      {n.is_lighthouse && (
+                        <Badge color="purple" size="sm">
+                          Lighthouse
+                        </Badge>
+                      )}
+                      {n.is_relay && (
+                        <Badge color="indigo" size="sm">
+                          Relay
+                        </Badge>
+                      )}
+                      {n.platform === "ios" && (
+                        <Badge color="cyan" size="sm">
+                          iOS
+                        </Badge>
+                      )}
+                      {n.platform === "android" && (
+                        <Badge color="lime" size="sm">
+                          Android
+                        </Badge>
+                      )}
+                      {!n.is_lighthouse && !n.is_relay && n.platform === "desktop" && (
+                        <Badge color="gray" size="sm">
+                          Node
+                        </Badge>
+                      )}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            {nodes.length === 0 && (
+              <div className="p-4 text-center text-gray-500 dark:text-gray-400">
+                No nodes yet. Create a node to get started.
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
-                          if (enrollState.type === "enroll") {
-                            return (
-                              <button
-                                type="button"
-                                className={`${pillClass} bg-purple-700 text-white hover:bg-purple-800 dark:bg-purple-600 dark:hover:bg-purple-700`}
-                                onClick={() => openEnrollmentCodeModal(n)}
-                              >
-                                Enroll
-                              </button>
-                            );
-                          }
-                          if (enrollState.type === "re-enroll") {
-                            return (
-                              <button
-                                type="button"
-                                className={`${pillClass} bg-yellow-400 text-white hover:bg-yellow-500 dark:hover:bg-yellow-500`}
-                                onClick={() => openEnrollmentCodeModal(n)}
-                              >
-                                Re-Enroll
-                              </button>
-                            );
-                          }
-                          if (enrollState.type === "unknown") {
-                            return (
-                              <Badge color="gray" className={pillClass} title="No lighthouse has reported on this device yet">
-                                Inactive
-                              </Badge>
-                            );
-                          }
-                          // Desktop nodes also get pinged by lighthouses independent of their own
-                          // check-in; surface that as a tooltip on the one pill rather than a
-                          // second pill, since it's supplementary context, not a distinct status.
-                          const lh = n.platform === "desktop" ? getLighthouseReachability(n) : { known: false as const };
-                          const lighthouseTitle =
-                            lh.known && !lh.stale
-                              ? `A lighthouse pinged this device at ${new Date(lh.checkedAt).toLocaleString()} and found it ${lh.reachable ? "reachable" : "unreachable"}. This is independent of the device's own check-in.`
-                              : undefined;
-
-                          if (enrollState.type === "active" || (enrollState.type === "idle" && enrollState.severity === "success")) {
-                            return (
-                              <Badge color="success" className={pillClass} title={lighthouseTitle}>
-                                Active
-                              </Badge>
-                            );
-                          }
-                          // idle (warning) and offline both collapse to "Inactive"; color still
-                          // hints at severity (stale vs. confirmed offline).
-                          const color = enrollState.type === "offline" ? "failure" : "warning";
-                          return (
-                            <Badge color={color} className={pillClass} title={lighthouseTitle}>
-                              Inactive
-                            </Badge>
-                          );
-                        })()}
-                      </Table.Cell>
-                      <Table.Cell>
-                        <div className="flex flex-wrap gap-2 items-center">
-                          <Button size="xs" color="gray" onClick={() => handleDownloadConfig(n)}>
-                            <HiDownload className="w-4 h-4 mr-1" />
-                            Config
-                          </Button>
-                          <Button size="xs" color="failure" onClick={() => openDeleteModal(n)}>
-                            <HiTrash className="w-4 h-4 mr-1" />
-                            Delete
-                          </Button>
-                        </div>
-                      </Table.Cell>
-                    </Table.Row>
-                    {deviceDetailsModal.node?.id === n.id && (
-                      <Table.Row key={`${n.id}-details`} className="bg-gray-50 dark:bg-gray-800/80">
-                        <Table.Cell colSpan={6} className="p-0 align-top">
+      <Modal show={!!deviceDetailsModal.node} onClose={closeDeviceDetailsModal} size="4xl">
+        <Modal.Header>{deviceDetailsModal.node?.hostname}</Modal.Header>
+        <Modal.Body>
                           <div className="p-4 border-t border-gray-200 dark:border-gray-700">
                             <form onSubmit={handleSaveDeviceDetails} className="space-y-6">
                               {deviceDetailsModal.node && (
@@ -1877,6 +1790,16 @@ export function Nodes() {
                                       <Button type="button" color="gray" onClick={closeDeviceDetailsModal}>
                                         Close
                                       </Button>
+                                      {deviceDetailsModal.node && (
+                                        <Button
+                                          type="button"
+                                          color="gray"
+                                          onClick={() => handleDownloadConfig(deviceDetailsModal.node!)}
+                                        >
+                                          <HiDownload className="w-4 h-4 mr-1" />
+                                          Config
+                                        </Button>
+                                      )}
                                       {!deviceDetailsModal.isEditing ? (
                                         <Button
                                           type="button"
@@ -1920,10 +1843,24 @@ export function Nodes() {
                                       )}
                                       {deviceDetailsModal.node && (
                                         <>
+                                          {(() => {
+                                            const enrollState = getEnrollmentState(deviceDetailsModal.node);
+                                            return (
+                                              (enrollState.type === "enroll" || enrollState.type === "re-enroll") && (
+                                                <Button
+                                                  type="button"
+                                                  color="purple"
+                                                  onClick={() => { closeDeviceDetailsModal(); openEnrollmentCodeModal(deviceDetailsModal.node!); }}
+                                                >
+                                                  Get Enrollment Code
+                                                </Button>
+                                              )
+                                            );
+                                          })()}
                                           <Button
                                             type="button"
                                             color="warning"
-                                            onClick={() => openReEnrollModal(deviceDetailsModal.node!)}
+                                            onClick={() => { closeDeviceDetailsModal(); openReEnrollModal(deviceDetailsModal.node!); }}
                                           >
                                             {deviceDetailsModal.node.platform !== "desktop" ? "Reissue Certificate" : "Re-Enroll"}
                                           </Button>
@@ -1931,11 +1868,19 @@ export function Nodes() {
                                             <Button
                                               type="button"
                                               color="failure"
-                                              onClick={() => openRevokeModal(deviceDetailsModal.node!)}
+                                              onClick={() => { closeDeviceDetailsModal(); openRevokeModal(deviceDetailsModal.node!); }}
                                             >
                                               Revoke Certificate
                                             </Button>
                                           )}
+                                          <Button
+                                            type="button"
+                                            color="failure"
+                                            onClick={() => { closeDeviceDetailsModal(); openDeleteModal(deviceDetailsModal.node!); }}
+                                          >
+                                            <HiTrash className="w-4 h-4 mr-1" />
+                                            Delete
+                                          </Button>
                                         </>
                                       )}
                                     </div>
@@ -1967,22 +1912,8 @@ export function Nodes() {
                               )}
                             </form>
                           </div>
-                        </Table.Cell>
-                      </Table.Row>
-                    )}
-                    </Fragment>
-                  );
-                })}
-              </Table.Body>
-            </Table>
-            {nodes.length === 0 && (
-              <div className="p-4 text-center text-gray-500 dark:text-gray-400">
-                No nodes yet. Create a node to get started.
-              </div>
-            )}
-          </div>
-        </Card>
-      )}
+        </Modal.Body>
+      </Modal>
 
       <Modal show={reEnrollModal.open} onClose={closeReEnrollModal} size="md">
         <Modal.Header>

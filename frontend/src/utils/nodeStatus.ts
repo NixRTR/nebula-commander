@@ -100,6 +100,33 @@ export function getEnrollmentState(node: Node): EnrollmentState {
   return { type: "idle", severity: "warning" };
 }
 
+export type CardStatus = "never" | "active" | "inactive";
+
+/**
+ * Collapses the 6-state EnrollmentState machine into the 3 buckets the node status
+ * cards use. `enroll`/`re-enroll` (desktop) and `unknown` (mobile) each cover two
+ * different situations - genuinely never having been seen active, vs. having been
+ * seen before but gone stale/dark - so this checks the underlying evidence
+ * (`last_seen`/`lighthouse_checked_at`) directly rather than collapsing all of them
+ * into "never".
+ */
+export function getCardStatus(node: Node): CardStatus {
+  const state = getEnrollmentState(node);
+  if (node.platform !== "desktop") {
+    if (!node.lighthouse_checked_at) {
+      return "never";
+    }
+    return state.type === "active" ? "active" : "inactive";
+  }
+  if (!node.first_polled_at || !node.last_seen) {
+    return "never";
+  }
+  if (state.type === "active" || (state.type === "idle" && state.severity === "success")) {
+    return "active";
+  }
+  return "inactive";
+}
+
 export function isNodeActive(node: Node): boolean {
   return getEnrollmentState(node).type === "active";
 }
