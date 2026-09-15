@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Card, Table, Button, TextInput, Label, Select } from "flowbite-react";
-import { HiPlus, HiTrash, HiChevronDown, HiChevronRight } from "react-icons/hi";
+import { Card, Table, Button, TextInput, Label, Select, Modal } from "flowbite-react";
+import { HiPlus, HiTrash } from "react-icons/hi";
 import type { Network, GroupFirewallConfig, InboundFirewallRule } from "../types/networks";
 import {
   listNetworks,
@@ -29,7 +29,7 @@ export function Groups() {
   const [groupList, setGroupList] = useState<GroupFirewallConfig[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [expandedGroup, setExpandedGroup] = useState<string | null>(null);
+  const [detailGroup, setDetailGroup] = useState<string | null>(null);
   const [draftRules, setDraftRules] = useState<Record<string, InboundFirewallRule[]>>({});
   const [newGroupName, setNewGroupName] = useState("");
   const [showAddGroup, setShowAddGroup] = useState(false);
@@ -46,9 +46,9 @@ export function Groups() {
     if (selectedNetworkId === "") {
       return;
     }
-    
+
     let cancelled = false;
-    
+
     const loadGroups = async () => {
       try {
         setLoading(true);
@@ -68,9 +68,9 @@ export function Groups() {
         }
       }
     };
-    
+
     loadGroups();
-    
+
     return () => {
       cancelled = true;
     };
@@ -134,7 +134,7 @@ export function Groups() {
           delete next[groupName];
           return next;
         });
-        if (expandedGroup === groupName) setExpandedGroup(null);
+        if (detailGroup === groupName) setDetailGroup(null);
       })
       .catch((e) => setError(e.message))
       .finally(() => setDeleting(null));
@@ -149,11 +149,13 @@ export function Groups() {
       .then(() => {
         setNewGroupName("");
         setShowAddGroup(false);
-        setExpandedGroup(name);
+        setDetailGroup(name);
       })
       .catch((e) => setError(e.message))
       .finally(() => setSaving(null));
   };
+
+  const detailRules = detailGroup ? getRules(detailGroup) : [];
 
   return (
     <div>
@@ -240,161 +242,166 @@ export function Groups() {
         )}
 
         {selectedNetworkId !== "" && !loading && (
-          <div className="space-y-2">
-            {groupList.map((gf) => {
-              const isExpanded = expandedGroup === gf.group_name;
-              const rules = getRules(gf.group_name);
-              return (
-                <div
-                  key={gf.group_name}
-                  className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden"
-                >
-                  <div className="flex items-center gap-2 p-2 bg-gray-50 dark:bg-gray-800">
-                    <Button
-                      type="button"
-                      size="xs"
-                      color="gray"
-                      onClick={() => setExpandedGroup(isExpanded ? null : gf.group_name)}
-                    >
-                      {isExpanded ? (
-                        <HiChevronDown className="w-4 h-4" />
-                      ) : (
-                        <HiChevronRight className="w-4 h-4" />
-                      )}
-                    </Button>
-                    <span className="font-medium flex-1">{gf.group_name}</span>
-                    <Button
-                      type="button"
-                      size="xs"
-                      color="blue"
-                      onClick={() => handleSave(gf.group_name)}
-                      disabled={saving !== null}
-                      isProcessing={saving === gf.group_name}
-                    >
-                      Save
-                    </Button>
-                    <Button
-                      type="button"
-                      size="xs"
-                      color="failure"
-                      onClick={() => handleDeleteGroup(gf.group_name)}
-                      disabled={deleting !== null}
-                      isProcessing={deleting === gf.group_name}
-                    >
-                      <HiTrash className="w-4 h-4" />
-                    </Button>
-                  </div>
-                  {isExpanded && (
-                    <div className="p-4 bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
-                      <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                        Inbound firewall rules: allow traffic from the specified group to this group.
-                        Port range: single port, comma list, or ranges (e.g. 22,80-88,443).
-                      </p>
-                      <div className="overflow-x-auto">
-                        <Table>
-                          <Table.Head>
-                            <Table.HeadCell>Allowed group</Table.HeadCell>
-                            <Table.HeadCell>Protocol</Table.HeadCell>
-                            <Table.HeadCell>Port range</Table.HeadCell>
-                            <Table.HeadCell>Description</Table.HeadCell>
-                            <Table.HeadCell></Table.HeadCell>
-                          </Table.Head>
-                          <Table.Body>
-                            {rules.map((r, idx) => (
-                              <Table.Row key={idx}>
-                                <Table.Cell>
-                                  <Select
-                                    value={r.allowed_group || "All"}
-                                    onChange={(e) =>
-                                      updateRule(gf.group_name, idx, "allowed_group", e.target.value)
-                                    }
-                                    className="min-w-[120px]"
-                                  >
-                                    <option value="All">All</option>
-                                    {groupList.map((g) => (
-                                      <option key={g.group_name} value={g.group_name}>
-                                        {g.group_name}
-                                      </option>
-                                    ))}
-                                  </Select>
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <Select
-                                    value={r.protocol}
-                                    onChange={(e) =>
-                                      updateRule(
-                                        gf.group_name,
-                                        idx,
-                                        "protocol",
-                                        e.target.value as InboundFirewallRule["protocol"]
-                                      )
-                                    }
-                                  >
-                                    {PROTOCOLS.map((p) => (
-                                      <option key={p} value={p}>
-                                        {p}
-                                      </option>
-                                    ))}
-                                  </Select>
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <TextInput
-                                    value={r.port_range}
-                                    onChange={(e) =>
-                                      updateRule(gf.group_name, idx, "port_range", e.target.value)
-                                    }
-                                    placeholder="any or 22,80-88"
-                                    className="min-w-[120px]"
-                                  />
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <TextInput
-                                    value={r.description ?? ""}
-                                    onChange={(e) =>
-                                      updateRule(gf.group_name, idx, "description", e.target.value)
-                                    }
-                                    placeholder="Optional"
-                                    className="min-w-[140px]"
-                                  />
-                                </Table.Cell>
-                                <Table.Cell>
-                                  <Button
-                                    type="button"
-                                    size="xs"
-                                    color="failure"
-                                    onClick={() => removeRule(gf.group_name, idx)}
-                                  >
-                                    <HiTrash className="w-4 h-4" />
-                                  </Button>
-                                </Table.Cell>
-                              </Table.Row>
-                            ))}
-                          </Table.Body>
-                        </Table>
-                      </div>
-                      <Button
-                        type="button"
-                        size="xs"
-                        color="gray"
-                        onClick={() => addRule(gf.group_name)}
-                        className="mt-2"
-                      >
-                        <HiPlus className="w-4 h-4 mr-1" />
-                        Add firewall rule
-                      </Button>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-            {groupList.length === 0 && !showAddGroup && (
+          <>
+            {groupList.length === 0 && !showAddGroup ? (
               <p className="text-gray-500 dark:text-gray-400 py-4">
                 No groups yet. Add a group to define inbound rules for nodes in that group.
               </p>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                {groupList.map((gf) => {
+                  const ruleCount = (gf.inbound_rules || []).length;
+                  const open = ruleCount === 0;
+                  return (
+                    <button
+                      key={gf.group_name}
+                      type="button"
+                      onClick={() => setDetailGroup(gf.group_name)}
+                      className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
+                    >
+                      <p className="font-semibold text-gray-900 dark:text-white truncate" title={gf.group_name}>
+                        {gf.group_name}
+                      </p>
+                      <div className="mt-auto">
+                        {open ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                            <span className="inline-block w-2.5 h-2.5 rounded-full border-2 border-dashed border-gray-400" />
+                            Open
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400">
+                            <span className="inline-block w-2.5 h-2.5 rounded-full bg-purple-500" />
+                            {ruleCount} rule{ruleCount === 1 ? "" : "s"}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
             )}
-          </div>
+          </>
         )}
       </Card>
+
+      <Modal show={detailGroup !== null} onClose={() => setDetailGroup(null)} size="4xl">
+        <Modal.Header>{detailGroup}</Modal.Header>
+        <Modal.Body>
+          {detailGroup && (
+            <>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                Inbound firewall rules: allow traffic from the specified group to this group.
+                Port range: single port, comma list, or ranges (e.g. 22,80-88,443).
+              </p>
+              <div className="overflow-x-auto">
+                <Table>
+                  <Table.Head>
+                    <Table.HeadCell>Allowed group</Table.HeadCell>
+                    <Table.HeadCell>Protocol</Table.HeadCell>
+                    <Table.HeadCell>Port range</Table.HeadCell>
+                    <Table.HeadCell>Description</Table.HeadCell>
+                    <Table.HeadCell></Table.HeadCell>
+                  </Table.Head>
+                  <Table.Body>
+                    {detailRules.map((r, idx) => (
+                      <Table.Row key={idx}>
+                        <Table.Cell>
+                          <Select
+                            value={r.allowed_group || "All"}
+                            onChange={(e) => updateRule(detailGroup, idx, "allowed_group", e.target.value)}
+                            className="min-w-[120px]"
+                          >
+                            <option value="All">All</option>
+                            {groupList.map((g) => (
+                              <option key={g.group_name} value={g.group_name}>
+                                {g.group_name}
+                              </option>
+                            ))}
+                          </Select>
+                        </Table.Cell>
+                        <Table.Cell>
+                          <Select
+                            value={r.protocol}
+                            onChange={(e) =>
+                              updateRule(detailGroup, idx, "protocol", e.target.value as InboundFirewallRule["protocol"])
+                            }
+                          >
+                            {PROTOCOLS.map((p) => (
+                              <option key={p} value={p}>
+                                {p}
+                              </option>
+                            ))}
+                          </Select>
+                        </Table.Cell>
+                        <Table.Cell>
+                          <TextInput
+                            value={r.port_range}
+                            onChange={(e) => updateRule(detailGroup, idx, "port_range", e.target.value)}
+                            placeholder="any or 22,80-88"
+                            className="min-w-[120px]"
+                          />
+                        </Table.Cell>
+                        <Table.Cell>
+                          <TextInput
+                            value={r.description ?? ""}
+                            onChange={(e) => updateRule(detailGroup, idx, "description", e.target.value)}
+                            placeholder="Optional"
+                            className="min-w-[140px]"
+                          />
+                        </Table.Cell>
+                        <Table.Cell>
+                          <Button
+                            type="button"
+                            size="xs"
+                            color="failure"
+                            onClick={() => removeRule(detailGroup, idx)}
+                          >
+                            <HiTrash className="w-4 h-4" />
+                          </Button>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </div>
+              <Button
+                type="button"
+                size="xs"
+                color="gray"
+                onClick={() => addRule(detailGroup)}
+                className="mt-2"
+              >
+                <HiPlus className="w-4 h-4 mr-1" />
+                Add firewall rule
+              </Button>
+            </>
+          )}
+        </Modal.Body>
+        <Modal.Footer>
+          <Button
+            type="button"
+            color="blue"
+            onClick={() => detailGroup && handleSave(detailGroup)}
+            disabled={saving !== null}
+            isProcessing={detailGroup !== null && saving === detailGroup}
+          >
+            Save
+          </Button>
+          <Button
+            type="button"
+            color="failure"
+            onClick={() => detailGroup && handleDeleteGroup(detailGroup)}
+            disabled={deleting !== null}
+            isProcessing={detailGroup !== null && deleting === detailGroup}
+          >
+            <HiTrash className="w-4 h-4 mr-1" />
+            Delete Group
+          </Button>
+          <Button type="button" color="gray" onClick={() => setDetailGroup(null)}>
+            Close
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </div>
   );
 }

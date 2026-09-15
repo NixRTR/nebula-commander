@@ -18,6 +18,11 @@ export interface Network {
   can_manage_nodes?: boolean;
   can_invite_users?: boolean;
   can_manage_firewall?: boolean;
+  /** Summary counts for the card grid. Node active/total isn't here - it's computed
+   * client-side from the node list (see utils/nodeStatus.ts). */
+  group_count: number;
+  dns_entry_count: number;
+  user_count: number;
 }
 
 export interface NetworkCreate {

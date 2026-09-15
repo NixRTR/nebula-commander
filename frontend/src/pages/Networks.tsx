@@ -1,13 +1,16 @@
 import { useEffect, useState } from "react";
-import { Card, Table, Button, TextInput, Label, Modal, Select } from "flowbite-react";
-import { HiPlus, HiTrash } from "react-icons/hi";
-import { Link } from "react-router-dom";
+import { Card, Button, TextInput, Label, Select } from "flowbite-react";
+import { HiPlus } from "react-icons/hi";
+import { useNavigate } from "react-router-dom";
 import type { Network, NetworkCreate } from "../types/networks";
-import { listNetworks, createNetwork } from "../api/client";
-import { startReauthFlow } from "./ReauthComplete";
+import type { Node } from "../types/nodes";
+import { listNetworks, listNodes, createNetwork } from "../api/client";
+import { isNodeActive } from "../utils/nodeStatus";
 
 export function Networks() {
+  const navigate = useNavigate();
   const [networks, setNetworks] = useState<Network[]>([]);
+  const [nodes, setNodes] = useState<Node[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -16,17 +19,14 @@ export function Networks() {
     subnet_cidr: "10.100.0.0/24",
     cert_curve: "25519",
   });
-  const [deleteModal, setDeleteModal] = useState<{
-    open: boolean;
-    network: Network | null;
-    typedName: string;
-    redirecting: boolean;
-  }>({ open: false, network: null, typedName: "", redirecting: false });
 
   const load = () => {
     setLoading(true);
-    listNetworks()
-      .then(setNetworks)
+    Promise.all([listNetworks(), listNodes()])
+      .then(([n, nd]) => {
+        setNetworks(n);
+        setNodes(nd);
+      })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   };
@@ -35,27 +35,6 @@ export function Networks() {
     const id = setTimeout(load, 0);
     return () => clearTimeout(id);
   }, []);
-
-  const openDeleteModal = (network: Network) => {
-    setDeleteModal({ open: true, network, typedName: "", redirecting: false });
-  };
-
-  const closeDeleteModal = () => {
-    setDeleteModal({ open: false, network: null, typedName: "", redirecting: false });
-  };
-
-  const startDeleteNetwork = async () => {
-    const network = deleteModal.network;
-    if (!network || deleteModal.typedName.trim() !== network.name.trim()) return;
-    setError(null);
-    setDeleteModal((m) => ({ ...m, redirecting: true }));
-    try {
-      await startReauthFlow({ kind: "network-delete", networkId: network.id, networkName: network.name });
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to start reauthentication");
-      setDeleteModal((m) => ({ ...m, redirecting: false }));
-    }
-  };
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,6 +45,11 @@ export function Networks() {
         load();
       })
       .catch((e) => setError(e.message));
+  };
+
+  const nodeCounts = (networkId: number): { active: number; total: number } => {
+    const inNetwork = nodes.filter((n) => n.network_id === networkId);
+    return { active: inNetwork.filter(isNodeActive).length, total: inNetwork.length };
   };
 
   return (
@@ -143,105 +127,61 @@ export function Networks() {
         </Card>
       ) : (
         <Card>
-          <div className="overflow-x-auto">
-            <Table>
-              <Table.Head>
-                <Table.HeadCell>ID</Table.HeadCell>
-                <Table.HeadCell>Name</Table.HeadCell>
-                <Table.HeadCell>Subnet</Table.HeadCell>
-                <Table.HeadCell>Created</Table.HeadCell>
-                <Table.HeadCell>Actions</Table.HeadCell>
-              </Table.Head>
-              <Table.Body className="divide-y">
-                {networks.map((n) => (
-                  <Table.Row key={n.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
-                    <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
-                      {n.id}
-                    </Table.Cell>
-                    <Table.Cell>
-                      <Link to={`/networks/${n.id}`} className="text-blue-600 hover:underline dark:text-blue-400">
-                        {n.name}
-                      </Link>
-                    </Table.Cell>
-                    <Table.Cell>{n.subnet_cidr}</Table.Cell>
-                    <Table.Cell>{new Date(n.created_at).toLocaleString()}</Table.Cell>
-                    <Table.Cell>
-                      <Button
-                        color="failure"
-                        size="xs"
-                        onClick={() => openDeleteModal(n)}
-                        title="Delete network"
-                      >
-                        <HiTrash className="h-4 w-4" />
-                      </Button>
-                    </Table.Cell>
-                  </Table.Row>
-                ))}
-              </Table.Body>
-            </Table>
-            {networks.length === 0 && (
-              <div className="p-8 text-center">
-                <p className="text-gray-500 dark:text-gray-400 mb-2">No networks yet.</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                  Create a network to define your overlay subnet. Configure per-group firewall rules on the Groups page.
-                </p>
-                <Button color="purple" onClick={() => setShowForm(true)} data-onboarding-target="networks-create-button">
-                  <HiPlus className="mr-2 h-5 w-5" />
-                  Add your first network
-                </Button>
-              </div>
-            )}
-          </div>
+          {networks.length === 0 ? (
+            <div className="p-8 text-center">
+              <p className="text-gray-500 dark:text-gray-400 mb-2">No networks yet.</p>
+              <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+                Create a network to define your overlay subnet. Configure per-group firewall rules on the Groups page.
+              </p>
+              <Button color="purple" onClick={() => setShowForm(true)} data-onboarding-target="networks-create-button">
+                <HiPlus className="mr-2 h-5 w-5" />
+                Add your first network
+              </Button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {networks.map((n) => {
+                const { active, total } = nodeCounts(n.id);
+                return (
+                  <button
+                    key={n.id}
+                    type="button"
+                    onClick={() => navigate(`/networks/${n.id}`)}
+                    className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
+                  >
+                    <p className="font-semibold text-lg text-gray-900 dark:text-white truncate" title={n.name}>
+                      {n.name}
+                    </p>
+                    <p className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate mb-3">
+                      {n.subnet_cidr}
+                    </p>
+                    <div className="mt-auto grid grid-cols-2 gap-3 text-sm">
+                      <div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Nodes</div>
+                        <div className="font-semibold text-gray-900 dark:text-white">
+                          {active}/{total}
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Groups</div>
+                        <div className="font-semibold text-gray-900 dark:text-white">{n.group_count}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">DNS Entries</div>
+                        <div className="font-semibold text-gray-900 dark:text-white">{n.dns_entry_count}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-gray-500 dark:text-gray-400">Users</div>
+                        <div className="font-semibold text-gray-900 dark:text-white">{n.user_count}</div>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </Card>
       )}
-
-      <Modal
-        show={deleteModal.open}
-        onClose={closeDeleteModal}
-        size="md"
-        dismissible={!deleteModal.redirecting}
-      >
-        <Modal.Header>Delete network</Modal.Header>
-        <Modal.Body>
-          {deleteModal.network && (
-            <>
-              <p className="text-gray-600 dark:text-gray-400 mb-4">
-                Deleting a network removes all nodes, certificates, and settings.
-                This cannot be undone.
-              </p>
-              <p className="text-gray-600 dark:text-gray-400 mb-2">
-                To confirm, type the network name:{" "}
-                <strong>{deleteModal.network.name}</strong>
-              </p>
-              <TextInput
-                type="text"
-                value={deleteModal.typedName}
-                onChange={(e) =>
-                  setDeleteModal((m) => ({ ...m, typedName: e.target.value }))
-                }
-                placeholder={deleteModal.network.name}
-                className="mt-2"
-              />
-            </>
-          )}
-        </Modal.Body>
-        <Modal.Footer>
-          <Button
-            color="failure"
-            onClick={startDeleteNetwork}
-            disabled={
-              !deleteModal.network ||
-              deleteModal.typedName.trim() !== deleteModal.network.name.trim() ||
-              deleteModal.redirecting
-            }
-          >
-            {deleteModal.redirecting ? "Redirecting to reauthenticate..." : "Delete network"}
-          </Button>
-          <Button color="gray" onClick={closeDeleteModal} disabled={deleteModal.redirecting}>
-            Cancel
-          </Button>
-        </Modal.Footer>
-      </Modal>
     </div>
   );
 }

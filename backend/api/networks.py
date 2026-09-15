@@ -5,7 +5,7 @@ from typing import List, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import require_user, UserInfo
@@ -16,7 +16,15 @@ from ..auth.permissions import (
 )
 from ..auth.reauth import verify_reauth, clear_reauth_challenge
 from ..database import get_session
-from ..models import Network, NetworkDNSConfig, NetworkGroupFirewall, NetworkPermission, NetworkSettings, User
+from ..models import (
+    Network,
+    NetworkDNSAlias,
+    NetworkDNSConfig,
+    NetworkGroupFirewall,
+    NetworkPermission,
+    NetworkSettings,
+    User,
+)
 from ..services.audit import get_client_ip, log_audit
 from ..services.ip_allocator import IPAllocator
 
@@ -39,6 +47,12 @@ class NetworkResponse(BaseModel):
     cert_version: int = 2
     cert_curve: str = "25519"
     created_at: str
+    # Summary counts for the Networks list/detail cards. Node active/total is
+    # deliberately not here - that's computed client-side from the node list so the
+    # "is this node active" definition stays in one place (frontend/nodeStatus.ts).
+    group_count: int = 0
+    dns_entry_count: int = 0
+    user_count: int = 0
 
     class Config:
         from_attributes = True
@@ -50,6 +64,32 @@ class NetworkListResponse(NetworkResponse):
     can_manage_nodes: Optional[bool] = None
     can_invite_users: Optional[bool] = None
     can_manage_firewall: Optional[bool] = None
+
+
+async def _get_network_counts(
+    session: AsyncSession, network_ids: list[int]
+) -> dict[int, dict[str, int]]:
+    """Group/DNS-alias/user counts per network, for the summary cards on the Networks
+    list and detail pages. One grouped query per child table rather than N+1
+    per-network queries."""
+    counts: dict[int, dict[str, int]] = {
+        nid: {"group_count": 0, "dns_entry_count": 0, "user_count": 0} for nid in network_ids
+    }
+    if not network_ids:
+        return counts
+    for model, key in (
+        (NetworkGroupFirewall, "group_count"),
+        (NetworkDNSAlias, "dns_entry_count"),
+        (NetworkPermission, "user_count"),
+    ):
+        result = await session.execute(
+            select(model.network_id, func.count())
+            .where(model.network_id.in_(network_ids))
+            .group_by(model.network_id)
+        )
+        for nid, count in result.all():
+            counts[nid][key] = count
+    return counts
 
 
 class NetworkUpdate(BaseModel):
@@ -82,6 +122,7 @@ async def list_networks(
     if user.system_role == "system-admin":
         result = await session.execute(select(Network).order_by(Network.id))
         networks = result.scalars().all()
+        counts = await _get_network_counts(session, [n.id for n in networks])
         return [
             NetworkListResponse(
                 id=n.id,
@@ -95,6 +136,7 @@ async def list_networks(
                 can_manage_nodes=True,
                 can_invite_users=True,
                 can_manage_firewall=True,
+                **counts[n.id],
             )
             for n in networks
         ]
@@ -118,7 +160,8 @@ async def list_networks(
         )
     )
     perms = {p.network_id: p for p in perm_result.scalars().all()}
-    
+    counts = await _get_network_counts(session, [n.id for n in networks])
+
     return [
         NetworkListResponse(
             id=n.id,
@@ -132,6 +175,7 @@ async def list_networks(
             can_manage_nodes=perms[n.id].can_manage_nodes if n.id in perms else None,
             can_invite_users=perms[n.id].can_invite_users if n.id in perms else None,
             can_manage_firewall=perms[n.id].can_manage_firewall if n.id in perms else None,
+            **counts[n.id],
         )
         for n in networks
     ]
@@ -225,6 +269,10 @@ async def create_network(
         cert_version=network.cert_version,
         cert_curve=network.cert_curve,
         created_at=network.created_at.isoformat() if network.created_at else "",
+        # Known exactly from what was just created above - no query needed.
+        group_count=0,
+        dns_entry_count=0,
+        user_count=1,
     )
 
 
@@ -278,6 +326,7 @@ async def get_network(
         cert_version=network.cert_version,
         cert_curve=network.cert_curve,
         created_at=network.created_at.isoformat() if network.created_at else "",
+        **(await _get_network_counts(session, [network.id]))[network.id],
     )
 
 
@@ -355,6 +404,7 @@ async def update_network(
         cert_version=network.cert_version,
         cert_curve=network.cert_curve,
         created_at=network.created_at.isoformat() if network.created_at else "",
+        **(await _get_network_counts(session, [network.id]))[network.id],
     )
 
 
