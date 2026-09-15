@@ -40,8 +40,10 @@ export interface UnsafeRoute {
   interface?: string | null;
   /** Node IDs (on this node's network) allowed to actually route to this CIDR via this
    * node. Opt-in: empty by default, so advertising a route doesn't reach anyone until
-   * explicitly selected. The exit-node pair (exit_v4 + exit_v6) share one selection. */
-  consumers: number[];
+   * explicitly selected. The exit-node pair (exit_v4 + exit_v6) share one selection.
+   * Optional because routes saved before this field existed don't have it in stored
+   * data - the backend backfills it on read, but treat it as possibly absent anyway. */
+  consumers?: number[];
 }
 
 export interface Node {

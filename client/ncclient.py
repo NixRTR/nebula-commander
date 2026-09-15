@@ -96,6 +96,17 @@ def _default_output_dir() -> str:
     return "/etc/nebula"
 
 
+def _detect_os_platform() -> str:
+    """Normalized OS name reported on heartbeat for the node's OS badge in the UI."""
+    if sys.platform == "win32":
+        return "windows"
+    if sys.platform == "darwin":
+        return "macos"
+    if sys.platform.startswith("linux"):
+        return "linux"
+    return sys.platform
+
+
 def cmd_enroll(server: str, code: str) -> None:
     base = _server_url(server)
     url = f"{base}/api/device/enroll"
@@ -551,16 +562,17 @@ def _send_heartbeat(
     its actual check-in cadence instead of a guessed default. If this node is a lighthouse
     and has pinged its peers, also reports what it found.
 
-    On Linux, also reports os_platform and the interfaces available to advertise as a
-    subnet route (tun_dev, this node's own overlay device, is excluded) - see
-    linux_routing.discover_available_subnets. Lets the backend gate and populate the
-    subnet-router/exit-node UI without ncclient needing its own reporting endpoint.
+    Always reports os_platform (linux/windows/macos - see _detect_os_platform), used
+    for the node's OS badge in the UI. On Linux, also reports the interfaces available
+    to advertise as a subnet route (tun_dev, this node's own overlay device, is
+    excluded) - see linux_routing.discover_available_subnets. Lets the backend gate
+    and populate the subnet-router/exit-node UI without ncclient needing its own
+    reporting endpoint.
     """
-    body: dict = {"interval_seconds": interval}
+    body: dict = {"interval_seconds": interval, "os_platform": _detect_os_platform()}
     if peer_reachability:
         body["peer_reachability"] = peer_reachability
     if sys.platform.startswith("linux"):
-        body["os_platform"] = "linux"
         try:
             from client import linux_routing
             body["available_subnets"] = linux_routing.discover_available_subnets(tun_dev)

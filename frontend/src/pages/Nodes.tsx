@@ -396,9 +396,12 @@ export function Nodes() {
    * advertised-subnet / manual route row. */
   const renderConsumerPicker = (
     key: string,
-    consumers: number[],
+    consumersInput: number[] | null | undefined,
     onChange: (consumers: number[]) => void
   ) => {
+    // Defensive: nodes with an unsafe_routes entry saved before "consumers" existed
+    // have this missing from the stored JSON, not just empty - a real node hit this.
+    const consumers = consumersInput ?? [];
     const network = deviceDetailsModal.node?.network_id;
     const candidates = nodes
       .filter((n) => n.network_id === network && n.id !== deviceDetailsModal.node?.id)
@@ -1228,7 +1231,22 @@ export function Nodes() {
                           Android
                         </Badge>
                       )}
-                      {!n.is_lighthouse && !n.is_relay && n.platform === "desktop" && (
+                      {n.platform === "desktop" && n.os_platform === "windows" && (
+                        <Badge color="blue" size="sm">
+                          Windows
+                        </Badge>
+                      )}
+                      {n.platform === "desktop" && n.os_platform === "linux" && (
+                        <Badge color="yellow" size="sm">
+                          Linux
+                        </Badge>
+                      )}
+                      {n.platform === "desktop" && n.os_platform === "macos" && (
+                        <Badge color="dark" size="sm">
+                          macOS
+                        </Badge>
+                      )}
+                      {!n.is_lighthouse && !n.is_relay && n.platform === "desktop" && !n.os_platform && (
                         <Badge color="gray" size="sm">
                           Node
                         </Badge>

@@ -30,6 +30,25 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/nodes", tags=["nodes"])
 
 
+def _normalize_unsafe_routes(routes: Optional[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+    """Backfill 'consumers' (and other keys) on unsafe_routes entries stored before
+    that field existed, so old rows don't hand the frontend an entry it can't render
+    (missing 'consumers' crashes the Routing section's consumer picker - a real node
+    hit this in production). Normalize on every read rather than a one-time DB
+    migration, since it's cheap and self-healing for any other legacy shape too."""
+    normalized = []
+    for r in routes or []:
+        normalized.append(
+            {
+                "route": r.get("route", ""),
+                "source": r.get("source") or "manual",
+                "interface": r.get("interface"),
+                "consumers": r.get("consumers") or [],
+            }
+        )
+    return normalized
+
+
 class NodeUpdate(BaseModel):
     """One group per node. Pass a single group name or null to clear."""
 
@@ -121,7 +140,7 @@ async def list_nodes(
             checkin_interval_seconds=n.checkin_interval_seconds,
             lighthouse_reachable=n.lighthouse_reachable,
             lighthouse_checked_at=n.lighthouse_checked_at.isoformat() if n.lighthouse_checked_at else None,
-            unsafe_routes=n.unsafe_routes or [],
+            unsafe_routes=_normalize_unsafe_routes(n.unsafe_routes),
             available_subnets=n.available_subnets or [],
             os_platform=n.os_platform,
             created_at=n.created_at.isoformat() if n.created_at else "",
@@ -306,7 +325,7 @@ async def get_node(
         checkin_interval_seconds=node.checkin_interval_seconds,
         lighthouse_reachable=node.lighthouse_reachable,
         lighthouse_checked_at=node.lighthouse_checked_at.isoformat() if node.lighthouse_checked_at else None,
-        unsafe_routes=node.unsafe_routes or [],
+        unsafe_routes=_normalize_unsafe_routes(node.unsafe_routes),
         available_subnets=node.available_subnets or [],
         os_platform=node.os_platform,
         created_at=node.created_at.isoformat() if node.created_at else "",
