@@ -335,6 +335,20 @@ export async function updateNode(id: number, data: NodeUpdateData) {
   });
 }
 
+export async function setSubnetRouter(nodeId: number, routerNodeId: number | null) {
+  return apiFetch<{ ok: boolean; router_node_id: number | null }>(`/nodes/${nodeId}/subnet-router`, {
+    method: "PUT",
+    body: JSON.stringify({ router_node_id: routerNodeId }),
+  });
+}
+
+export async function setExitNode(nodeId: number, exitNodeId: number | null) {
+  return apiFetch<{ ok: boolean; exit_node_id: number | null }>(`/nodes/${nodeId}/exit-node`, {
+    method: "PUT",
+    body: JSON.stringify({ exit_node_id: exitNodeId }),
+  });
+}
+
 export async function deleteNode(
   nodeId: number,
   reauthToken: string,

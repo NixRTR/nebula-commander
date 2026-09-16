@@ -19,6 +19,8 @@ import {
   listNetworks,
   getNode,
   updateNode,
+  setSubnetRouter,
+  setExitNode,
   getNodeConfigBlob,
   createEnrollmentCode,
   listGroupFirewall,
@@ -74,6 +76,8 @@ export function Nodes() {
     punchy_respond_delay: string;
     platform: NodePlatform;
     unsafe_routes: UnsafeRoute[];
+    subnet_router_id: number | null;
+    exit_node_id: number | null;
   }>({
     group: "",
     is_lighthouse: false,
@@ -89,6 +93,8 @@ export function Nodes() {
     punchy_respond_delay: "",
     platform: "desktop",
     unsafe_routes: [],
+    subnet_router_id: null,
+    exit_node_id: null,
   });
   const [otherRouteInput, setOtherRouteInput] = useState("");
   const [otherRouteError, setOtherRouteError] = useState<string | null>(null);
@@ -355,6 +361,24 @@ export function Nodes() {
     !!node?.is_lighthouse &&
     nodes.filter((n) => n.network_id === node.network_id && n.is_lighthouse).length === 1;
 
+  /** Consumer-side mirror of the gateway's "Used by" picker: which single other node
+   * (if any) already lists `node` as a consumer of its advertised subnets (interface/
+   * manual routes) or its exit routes. Undefined/null-safe against legacy rows missing
+   * "consumers" - see _normalize_unsafe_routes on the backend. */
+  const findRouteGatewayId = (node: Node, sources: Array<UnsafeRoute["source"]>): number | null => {
+    const gateway = nodes.find(
+      (n) =>
+        n.network_id === node.network_id &&
+        n.id !== node.id &&
+        (n.unsafe_routes ?? []).some(
+          (r) => sources.includes(r.source) && (r.consumers ?? []).includes(node.id)
+        )
+    );
+    return gateway?.id ?? null;
+  };
+  const findSubnetRouterId = (node: Node): number | null => findRouteGatewayId(node, ["interface", "manual"]);
+  const findExitNodeId = (node: Node): number | null => findRouteGatewayId(node, ["exit_v4", "exit_v6"]);
+
   const openDeviceDetails = (node: Node) => {
     setDeviceDetailsModal({ node, isEditing: false, showSaved: false, savedFading: false, certResigned: false });
     const opts = node.lighthouse_options;
@@ -374,6 +398,8 @@ export function Nodes() {
       punchy_respond_delay: node.punchy_options?.respond_delay ?? "",
       platform: node.platform,
       unsafe_routes: node.unsafe_routes ?? [],
+      subnet_router_id: findSubnetRouterId(node),
+      exit_node_id: findExitNodeId(node),
     });
     setOtherRouteInput("");
     setOtherRouteError(null);
@@ -392,6 +418,22 @@ export function Nodes() {
       else next.add(key);
       return next;
     });
+  };
+
+  /** Candidate gateway nodes for the "Use Subnet Router" / "Use Exit Node" dropdowns
+   * on the currently open device-details modal: other nodes on the same network that
+   * advertise at least one matching route. */
+  const routeGatewayCandidates = (sources: Array<UnsafeRoute["source"]>): Node[] => {
+    const current = deviceDetailsModal.node;
+    if (!current) return [];
+    return nodes
+      .filter(
+        (n) =>
+          n.network_id === current.network_id &&
+          n.id !== current.id &&
+          (n.unsafe_routes ?? []).some((r) => sources.includes(r.source))
+      )
+      .sort((a, b) => a.hostname.localeCompare(b.hostname));
   };
 
   /** "Used by" disclosure for one route row: which other nodes on this network may
@@ -484,7 +526,9 @@ export function Nodes() {
       deviceDetailsForm.punchy_respond !== (node.punchy_options?.respond ?? true) ||
       (deviceDetailsForm.punchy_delay ?? "") !== (node.punchy_options?.delay ?? "") ||
       (deviceDetailsForm.punchy_respond_delay ?? "") !== (node.punchy_options?.respond_delay ?? "") ||
-      !routesEqual(deviceDetailsForm.unsafe_routes, node.unsafe_routes ?? [])
+      !routesEqual(deviceDetailsForm.unsafe_routes, node.unsafe_routes ?? []) ||
+      deviceDetailsForm.subnet_router_id !== findSubnetRouterId(node) ||
+      deviceDetailsForm.exit_node_id !== findExitNodeId(node)
     );
   };
 
@@ -524,18 +568,24 @@ export function Nodes() {
       delay: deviceDetailsForm.punchy_delay.trim() || undefined,
       respond_delay: deviceDetailsForm.punchy_respond_delay.trim() || undefined,
     };
-    updateNode(node.id, {
-      is_lighthouse: deviceDetailsForm.is_lighthouse,
-      is_relay: deviceDetailsForm.is_relay,
-      public_endpoint: deviceDetailsForm.public_endpoint.trim() || null,
-      group,
-      lighthouse_options,
-      logging_options,
-      punchy_options,
-      platform: deviceDetailsForm.platform,
-      unsafe_routes: deviceDetailsForm.unsafe_routes,
-    })
-      .then((result) => {
+    const subnetRouterChanged = deviceDetailsForm.subnet_router_id !== findSubnetRouterId(node);
+    const exitNodeChanged = deviceDetailsForm.exit_node_id !== findExitNodeId(node);
+    Promise.all([
+      updateNode(node.id, {
+        is_lighthouse: deviceDetailsForm.is_lighthouse,
+        is_relay: deviceDetailsForm.is_relay,
+        public_endpoint: deviceDetailsForm.public_endpoint.trim() || null,
+        group,
+        lighthouse_options,
+        logging_options,
+        punchy_options,
+        platform: deviceDetailsForm.platform,
+        unsafe_routes: deviceDetailsForm.unsafe_routes,
+      }),
+      subnetRouterChanged ? setSubnetRouter(node.id, deviceDetailsForm.subnet_router_id) : Promise.resolve(null),
+      exitNodeChanged ? setExitNode(node.id, deviceDetailsForm.exit_node_id) : Promise.resolve(null),
+    ])
+      .then(([result]) => {
         setDeviceDetailsModal((s) => ({ ...s, showSaved: true, savedFading: false, certResigned: !!result.cert_resigned }));
         setTimeout(() => setDeviceDetailsModal((s) => ({ ...s, savedFading: true })), 500);
         setTimeout(() => {
@@ -569,6 +619,10 @@ export function Nodes() {
               punchy_respond_delay: updated.punchy_options?.respond_delay ?? "",
               platform: updated.platform,
               unsafe_routes: updated.unsafe_routes ?? [],
+              // Derived cross-node, so `nodes` (refreshed async by loadNodes() below)
+              // may still be stale here - the values we just saved are already correct.
+              subnet_router_id: deviceDetailsForm.subnet_router_id,
+              exit_node_id: deviceDetailsForm.exit_node_id,
             });
           });
           loadNodes();
@@ -1589,6 +1643,80 @@ export function Nodes() {
                                     </div>
                                   </div>
 
+                                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                      Use a subnet router / exit node
+                                    </p>
+                                    <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
+                                      Route this node's traffic through another node on this network that
+                                      advertises a subnet or is set up as an exit node.
+                                    </p>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                      <div className="min-w-0">
+                                        <Label
+                                          htmlFor="dd_use_subnet_router"
+                                          value="Use Subnet Router"
+                                          className="text-gray-500 dark:text-gray-400"
+                                        />
+                                        <Select
+                                          id="dd_use_subnet_router"
+                                          value={deviceDetailsForm.subnet_router_id === null ? "" : String(deviceDetailsForm.subnet_router_id)}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({
+                                              ...f,
+                                              subnet_router_id: e.target.value === "" ? null : parseInt(e.target.value, 10),
+                                            }))
+                                          }
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        >
+                                          <option value="">None</option>
+                                          {routeGatewayCandidates(["interface", "manual"]).map((n) => (
+                                            <option key={n.id} value={String(n.id)}>
+                                              {n.hostname}
+                                            </option>
+                                          ))}
+                                        </Select>
+                                        {routeGatewayCandidates(["interface", "manual"]).length === 0 && (
+                                          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                                            No other node on this network advertises a subnet yet.
+                                          </p>
+                                        )}
+                                      </div>
+                                      <div className="min-w-0">
+                                        <Label
+                                          htmlFor="dd_use_exit_node"
+                                          value="Use Exit Node"
+                                          className="text-gray-500 dark:text-gray-400"
+                                        />
+                                        <Select
+                                          id="dd_use_exit_node"
+                                          value={deviceDetailsForm.exit_node_id === null ? "" : String(deviceDetailsForm.exit_node_id)}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({
+                                              ...f,
+                                              exit_node_id: e.target.value === "" ? null : parseInt(e.target.value, 10),
+                                            }))
+                                          }
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        >
+                                          <option value="">None</option>
+                                          {routeGatewayCandidates(["exit_v4"]).map((n) => (
+                                            <option key={n.id} value={String(n.id)}>
+                                              {n.hostname}
+                                            </option>
+                                          ))}
+                                        </Select>
+                                        {routeGatewayCandidates(["exit_v4"]).length === 0 && (
+                                          <p className="mt-1 text-xs text-gray-400 dark:text-gray-500">
+                                            No other node on this network is set up as an exit node yet.
+                                          </p>
+                                        )}
+                                      </div>
+                                    </div>
+                                  </div>
+
                                   {deviceDetailsForm.platform === "desktop" && (
                                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
                                       <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -1854,6 +1982,8 @@ export function Nodes() {
                                                 punchy_respond_delay: node.punchy_options?.respond_delay ?? "",
                                                 platform: node.platform,
                                                 unsafe_routes: node.unsafe_routes ?? [],
+                                                subnet_router_id: findSubnetRouterId(node),
+                                                exit_node_id: findExitNodeId(node),
                                               });
                                               setOtherRouteInput("");
                                               setOtherRouteError(null);

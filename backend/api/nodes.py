@@ -564,6 +564,138 @@ async def update_node(
     return {"ok": True, "cert_resigned": cert_resigned}
 
 
+async def _set_route_consumer(
+    session: AsyncSession,
+    request: Request,
+    user: UserInfo,
+    node_id: int,
+    gateway_node_id: Optional[int],
+    sources: tuple[str, ...],
+    field_name: str,
+) -> None:
+    """Shared implementation for set_subnet_router/set_exit_node: the consumer-side
+    mirror of the gateway's per-route "Used by" picker. For every unsafe_routes entry
+    on this network whose `source` is in `sources`, make `node_id` a consumer of
+    exactly the given gateway node's matching routes (or of none, if gateway_node_id is
+    None) - clearing it from every other gateway's matching routes first, since a node
+    uses at most one subnet router (and one exit node) at a time. Only touches
+    `consumers`, never `route`/`source` - the advertised-CIDR set (and thus the
+    gateway's certificate) is unaffected, so no cert resign is needed here."""
+    result = await session.execute(select(Node).where(Node.id == node_id))
+    node = result.scalar_one_or_none()
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    await _ensure_user_can_access_node(user, session, node)
+
+    gateway: Optional[Node] = None
+    if gateway_node_id is not None:
+        if gateway_node_id == node_id:
+            raise HTTPException(status_code=400, detail="A node cannot route through itself")
+        gw_result = await session.execute(select(Node).where(Node.id == gateway_node_id))
+        gateway = gw_result.scalar_one_or_none()
+        if not gateway:
+            raise HTTPException(status_code=404, detail="Gateway node not found")
+        await _ensure_user_can_access_node(user, session, gateway)
+        if gateway.network_id != node.network_id:
+            raise HTTPException(status_code=400, detail="Gateway node must be on the same network")
+        if not any(r.get("source") in sources for r in (gateway.unsafe_routes or [])):
+            kind = "an exit route" if "exit_v4" in sources else "a subnet route"
+            raise HTTPException(status_code=400, detail=f"Selected node does not advertise {kind}")
+
+    peers_result = await session.execute(
+        select(Node).where(Node.network_id == node.network_id, Node.id != node.id)
+    )
+    peers = peers_result.scalars().all()
+
+    changed_peers: list[Node] = []
+    for peer in peers:
+        routes = peer.unsafe_routes or []
+        if not routes:
+            continue
+        new_routes = []
+        peer_changed = False
+        for r in routes:
+            if r.get("source") in sources:
+                consumers = set(r.get("consumers") or [])
+                should_include = gateway is not None and peer.id == gateway.id
+                if should_include and node_id not in consumers:
+                    consumers.add(node_id)
+                    peer_changed = True
+                elif not should_include and node_id in consumers:
+                    consumers.discard(node_id)
+                    peer_changed = True
+                new_routes.append({**r, "consumers": sorted(consumers)})
+            else:
+                new_routes.append(r)
+        if peer_changed:
+            peer.unsafe_routes = new_routes
+            changed_peers.append(peer)
+
+    if not changed_peers:
+        return
+
+    await session.flush()
+    user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
+    db_user = user_result.scalar_one_or_none()
+    for peer in changed_peers:
+        await log_audit(
+            session,
+            "node_updated",
+            resource_type="node",
+            resource_id=peer.id,
+            actor_user_id=db_user.id if db_user else None,
+            actor_identifier=user.email or user.sub,
+            client_ip=get_client_ip(request),
+            details={
+                "changed": {
+                    "unsafe_routes": {"reason": f"{field_name}_selection", "consumer_node_id": node_id}
+                }
+            },
+        )
+
+
+class SubnetRouterUpdate(BaseModel):
+    router_node_id: Optional[int] = None
+
+
+@router.put("/{node_id}/subnet-router")
+async def set_subnet_router(
+    node_id: int,
+    body: SubnetRouterUpdate,
+    request: Request,
+    user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Pick the single other node whose advertised subnets (interface/manual
+    unsafe_routes - NOT the exit-node pair) this node should route through. Pass
+    router_node_id: null to stop using a subnet router."""
+    await _set_route_consumer(
+        session, request, user, node_id, body.router_node_id, sources=("interface", "manual"), field_name="router_node_id"
+    )
+    return {"ok": True, "router_node_id": body.router_node_id}
+
+
+class ExitNodeUpdate(BaseModel):
+    exit_node_id: Optional[int] = None
+
+
+@router.put("/{node_id}/exit-node")
+async def set_exit_node(
+    node_id: int,
+    body: ExitNodeUpdate,
+    request: Request,
+    user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Pick the single other node whose exit routes (0.0.0.0/0 + ::/0) this node
+    should route all traffic through. Pass exit_node_id: null to stop using an exit
+    node."""
+    await _set_route_consumer(
+        session, request, user, node_id, body.exit_node_id, sources=("exit_v4", "exit_v6"), field_name="exit_node_id"
+    )
+    return {"ok": True, "exit_node_id": body.exit_node_id}
+
+
 class NodeDeleteRequest(BaseModel):
     reauth_token: str
     confirmation: str  # Must match node hostname
