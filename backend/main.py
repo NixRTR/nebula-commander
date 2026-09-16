@@ -64,7 +64,10 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down...")
 
 
-VERSION = os.getenv("VERSION", "0.1.8")
+# Set from the release tag via the VERSION build-arg in docker/backend/Dockerfile
+# (mirrors VITE_APP_VERSION on the frontend) - "dev" outside that build, rather than
+# a hardcoded version string that would silently go stale after every release.
+VERSION = os.getenv("VERSION", "dev")
 
 app = FastAPI(
     title=settings.app_name,
