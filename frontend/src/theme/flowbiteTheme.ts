@@ -18,8 +18,11 @@ import type { CustomFlowbiteTheme } from "flowbite-react";
 export const flowbiteTheme: CustomFlowbiteTheme = {
   button: {
     color: {
+      // Text color is computed per-theme (theme/applyTheme.ts) as whichever of
+      // black/white contrasts better against the chosen primary color, so a
+      // light/bright primary doesn't wash out to unreadable white-on-white text.
       purple:
-        "border border-transparent bg-[var(--nc-primary-light)] text-white focus:ring-4 focus:ring-[var(--nc-primary-light)]/30 enabled:hover:bg-[var(--nc-primary-light-hover)] dark:bg-[var(--nc-primary-dark)] dark:focus:ring-[var(--nc-primary-dark)]/40 dark:enabled:hover:bg-[var(--nc-primary-dark-hover)]",
+        "border border-transparent bg-[var(--nc-primary-light)] text-[var(--nc-primary-light-contrast)] focus:ring-4 focus:ring-[var(--nc-primary-light)]/30 enabled:hover:bg-[var(--nc-primary-light-hover)] dark:bg-[var(--nc-primary-dark)] dark:text-[var(--nc-primary-dark-contrast)] dark:focus:ring-[var(--nc-primary-dark)]/40 dark:enabled:hover:bg-[var(--nc-primary-dark-hover)]",
     },
   },
   card: {
