@@ -139,8 +139,18 @@ def _dns_client_config_path(output_dir: str) -> str:
 
 
 def _nebula_log_path(output_dir: str) -> str:
-    """Path for Nebula stderr log. Default on Windows: %USERPROFILE%\\.nebula\\nebula.log"""
+    """Path for Nebula's output log. Default on Windows: %USERPROFILE%\\.nebula\\nebula.log"""
     return os.path.join(output_dir, "nebula.log")
+
+
+def _close_quietly(f) -> None:
+    """Close the Nebula log handle, if any. Popen only sets proc.stdout/.stderr for PIPE"""
+    if f is None:
+        return
+    try:
+        f.close()
+    except Exception as e:
+        print(f"Error closing Nebula log file: {e}", file=sys.stderr)
 
 
 def _current_process_handle():
@@ -298,12 +308,13 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
         )
         os.makedirs(output_dir, exist_ok=True)
         nebula_to_console = os.environ.get("NCCLIENT_NEBULA_CONSOLE", "").strip().lower() in ("1", "true", "yes")
+        log_file = None
         try:
             if nebula_to_console:
-                # Inherit stderr so Nebula writes directly to our console (same handle).
+                # Anything logical from Nebula comes from `stdout`. `stderr` handles Go panics.
                 # PIPE + forwarder can miss output on Windows when parent is a GUI app.
                 kwargs = {
-                    "stdout": subprocess.DEVNULL,
+                    "stdout": None,
                     "stderr": None,
                     "start_new_session": True,
                     "cwd": output_dir,
@@ -312,13 +323,14 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
                     [nebula_abs, "-config", config_abs],
                     **kwargs,
                 )
-                log_note = " (stderr to console)"
+                log_note = " (output to console)"
             else:
                 log_path = _nebula_log_path(output_dir)
                 log_file = open(log_path, "a", encoding="utf-8", errors="replace")
                 kwargs = {
-                    "stdout": subprocess.DEVNULL,
-                    "stderr": log_file,
+                    # Fold all logs into `stdout` and then into the log file.
+                    "stdout": log_file,
+                    "stderr": subprocess.STDOUT,
                     "start_new_session": True,
                     "cwd": output_dir,
                     # On Windows, starting a console-mode child from a GUI parent
@@ -332,21 +344,27 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
                     **kwargs,
                 )
                 log_note = ". Log: %s" % log_path
+
+                # Popen leaves proc.stdout None for a file handle, so keep a reference for
+                # _stop_nebula to close.
+                proc._nc_log_file = log_file
             print(f"Started Nebula (elevated, PID {proc.pid}){log_note}", file=sys.stderr)
             if not nebula_to_console:
                 print(manual_run)
             return proc
         except FileNotFoundError:
+            _close_quietly(log_file)
             print(f"Nebula binary not found: {nebula_bin}", file=sys.stderr)
             return None
         except Exception as e:
+            _close_quietly(log_file)
             print(f"Failed to start Nebula: {e}", file=sys.stderr)
             return None
 
     try:
         kwargs = {
-            "stdout": subprocess.DEVNULL,
-            "stderr": None,  # inherit so user sees nebula errors
+            "stdout": None,  # Nebula logs will come out of stdout; this is essential for debugging
+            "stderr": None,  # `stderr` will cover Go runtime panics, not logical Nebula errors.
             "start_new_session": True,
             "cwd": output_dir,
         }
@@ -374,11 +392,7 @@ def _stop_nebula(proc: subprocess.Popen | None) -> None:
             proc.wait()
         except Exception as e:
             print(f"Error stopping Nebula process: {e}", file=sys.stderr)
-        if getattr(proc, "stderr", None) is not None and proc.stderr is not sys.stderr:
-            try:
-                proc.stderr.close()
-            except Exception as e:
-                print(f"Error closing Nebula stderr handle: {e}", file=sys.stderr)
+        _close_quietly(getattr(proc, "_nc_log_file", None))
         print("Stopped Nebula")
         return
     if sys.platform == "win32":
