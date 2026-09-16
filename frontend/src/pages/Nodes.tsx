@@ -10,6 +10,7 @@ import {
   Checkbox,
   Select,
   Alert,
+  Accordion,
 } from "flowbite-react";
 import { HiCheckCircle, HiXCircle, HiClock, HiDownload, HiPencil, HiPlus, HiTrash, HiClipboard, HiChevronDown, HiChevronRight } from "react-icons/hi";
 import type { Node, LighthouseOptions, LoggingOptions, PunchyOptions, NodePlatform, UnsafeRoute, SubnetKind } from "../types/nodes";
@@ -1530,121 +1531,6 @@ export function Nodes() {
 
                                   <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
                                     <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                                      Logging (Nebula config)
-                                    </p>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                                      <div className="min-w-0">
-                                        <Label htmlFor="dd_log_level" value="Level" className="text-gray-500 dark:text-gray-400" />
-                                        <Select
-                                          id="dd_log_level"
-                                          value={deviceDetailsForm.log_level}
-                                          onChange={(e) =>
-                                            setDeviceDetailsForm((f) => ({ ...f, log_level: e.target.value }))
-                                          }
-                                          disabled={!deviceDetailsModal.isEditing}
-                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                        >
-                                          <option value="panic">panic</option>
-                                          <option value="fatal">fatal</option>
-                                          <option value="error">error</option>
-                                          <option value="warning">warning</option>
-                                          <option value="info">info</option>
-                                          <option value="debug">debug</option>
-                                        </Select>
-                                      </div>
-                                      <div className="min-w-0">
-                                        <Label htmlFor="dd_log_format" value="Format" className="text-gray-500 dark:text-gray-400" />
-                                        <Select
-                                          id="dd_log_format"
-                                          value={deviceDetailsForm.log_format}
-                                          onChange={(e) =>
-                                            setDeviceDetailsForm((f) => ({ ...f, log_format: e.target.value }))
-                                          }
-                                          disabled={!deviceDetailsModal.isEditing}
-                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                        >
-                                          <option value="text">text</option>
-                                          <option value="json">json</option>
-                                        </Select>
-                                      </div>
-                                      <div className="min-w-0 flex items-end pb-2">
-                                        <div className="flex items-center gap-2">
-                                          <Checkbox
-                                            id="dd_log_disable_timestamp"
-                                            checked={deviceDetailsForm.log_disable_timestamp}
-                                            onChange={(e) =>
-                                              setDeviceDetailsForm((f) => ({ ...f, log_disable_timestamp: e.target.checked }))
-                                            }
-                                            disabled={!deviceDetailsModal.isEditing}
-                                          />
-                                          <Label htmlFor="dd_log_disable_timestamp">Disable timestamp</Label>
-                                        </div>
-                                      </div>
-                                      <div className="min-w-0">
-                                        <Label htmlFor="dd_log_timestamp_format" value="Timestamp format (Go format, optional)" className="text-gray-500 dark:text-gray-400" />
-                                        <TextInput
-                                          id="dd_log_timestamp_format"
-                                          value={deviceDetailsForm.log_timestamp_format}
-                                          onChange={(e) =>
-                                            setDeviceDetailsForm((f) => ({ ...f, log_timestamp_format: e.target.value }))
-                                          }
-                                          placeholder="e.g. 2006-01-02T15:04:05.000Z07:00"
-                                          disabled={!deviceDetailsModal.isEditing}
-                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                        />
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
-                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                                      Punchy (NAT traversal)
-                                    </p>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                                      <div className="min-w-0 flex items-end pb-2">
-                                        <div className="flex items-center gap-2">
-                                          <Checkbox
-                                            id="dd_punchy_respond"
-                                            checked={deviceDetailsForm.punchy_respond}
-                                            onChange={(e) =>
-                                              setDeviceDetailsForm((f) => ({ ...f, punchy_respond: e.target.checked }))
-                                            }
-                                            disabled={!deviceDetailsModal.isEditing}
-                                          />
-                                          <Label htmlFor="dd_punchy_respond">Respond (punch back)</Label>
-                                        </div>
-                                      </div>
-                                      <div className="min-w-0">
-                                        <Label htmlFor="dd_punchy_delay" value="Delay (e.g. 1s)" className="text-gray-500 dark:text-gray-400" />
-                                        <TextInput
-                                          id="dd_punchy_delay"
-                                          value={deviceDetailsForm.punchy_delay}
-                                          onChange={(e) =>
-                                            setDeviceDetailsForm((f) => ({ ...f, punchy_delay: e.target.value }))
-                                          }
-                                          placeholder="1s"
-                                          disabled={!deviceDetailsModal.isEditing}
-                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                        />
-                                      </div>
-                                      <div className="min-w-0">
-                                        <Label htmlFor="dd_punchy_respond_delay" value="Respond delay (e.g. 5s)" className="text-gray-500 dark:text-gray-400" />
-                                        <TextInput
-                                          id="dd_punchy_respond_delay"
-                                          value={deviceDetailsForm.punchy_respond_delay}
-                                          onChange={(e) =>
-                                            setDeviceDetailsForm((f) => ({ ...f, punchy_respond_delay: e.target.value }))
-                                          }
-                                          placeholder="5s"
-                                          disabled={!deviceDetailsModal.isEditing}
-                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                        />
-                                      </div>
-                                    </div>
-                                  </div>
-
-                                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
-                                    <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                                       Use a subnet router / exit node
                                     </p>
                                     <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
@@ -1717,224 +1603,356 @@ export function Nodes() {
                                     </div>
                                   </div>
 
-                                  {deviceDetailsForm.platform === "desktop" && (
-                                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
-                                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
-                                        Routing (subnet router / exit node)
-                                      </p>
-                                      <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
-                                        Routes are opt-in per node - use "Used by" below each one to pick who
-                                        actually routes through here. See{" "}
-                                        <a
-                                          href="https://nebulacommander.com/docs/usage/unsafe-routes/"
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="underline hover:text-gray-700 dark:hover:text-gray-200"
+                                  <Accordion collapseAll className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                                    <Accordion.Panel>
+                                      <Accordion.Title>Advanced</Accordion.Title>
+                                      <Accordion.Content className="space-y-4">
+                                        <div>
+                                          <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                            Logging (Nebula config)
+                                          </p>
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                                      <div className="min-w-0">
+                                        <Label htmlFor="dd_log_level" value="Level" className="text-gray-500 dark:text-gray-400" />
+                                        <Select
+                                          id="dd_log_level"
+                                          value={deviceDetailsForm.log_level}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, log_level: e.target.value }))
+                                          }
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
                                         >
-                                          the subnet router / exit node docs
-                                        </a>{" "}
-                                        for how this works, including hosts that don't run ncclient.
-                                      </p>
-                                      {deviceDetailsModal.node?.os_platform !== "linux" && (
-                                        <p className="text-sm text-amber-600 dark:text-amber-400">
-                                          {deviceDetailsModal.node?.os_platform
-                                            ? "This node isn't running ncclient on Linux, so this isn't applied automatically. IP forwarding and NAT must be configured manually on the node for it to take effect."
-                                            : "This node hasn't checked in yet, so we don't know its OS. Unless it's Linux running ncclient, IP forwarding and NAT must be configured manually for this to take effect."}
-                                        </p>
-                                      )}
-                                      <div>
+                                          <option value="panic">panic</option>
+                                          <option value="fatal">fatal</option>
+                                          <option value="error">error</option>
+                                          <option value="warning">warning</option>
+                                          <option value="info">info</option>
+                                          <option value="debug">debug</option>
+                                        </Select>
+                                      </div>
+                                      <div className="min-w-0">
+                                        <Label htmlFor="dd_log_format" value="Format" className="text-gray-500 dark:text-gray-400" />
+                                        <Select
+                                          id="dd_log_format"
+                                          value={deviceDetailsForm.log_format}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, log_format: e.target.value }))
+                                          }
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        >
+                                          <option value="text">text</option>
+                                          <option value="json">json</option>
+                                        </Select>
+                                      </div>
+                                      <div className="min-w-0 flex items-end pb-2">
                                         <div className="flex items-center gap-2">
                                           <Checkbox
-                                            id="dd_exit_node"
-                                            checked={deviceDetailsForm.unsafe_routes.some((r) => r.route === "0.0.0.0/0")}
-                                            onChange={(e) => {
-                                              const enabled = e.target.checked;
-                                              setDeviceDetailsForm((f) => ({
-                                                ...f,
-                                                unsafe_routes: enabled
-                                                  ? [
-                                                      ...f.unsafe_routes.filter((r) => r.route !== "0.0.0.0/0" && r.route !== "::/0"),
-                                                      { route: "0.0.0.0/0", source: "exit_v4", consumers: [] },
-                                                      { route: "::/0", source: "exit_v6", consumers: [] },
-                                                    ]
-                                                  : f.unsafe_routes.filter((r) => r.route !== "0.0.0.0/0" && r.route !== "::/0"),
-                                              }));
-                                            }}
+                                            id="dd_log_disable_timestamp"
+                                            checked={deviceDetailsForm.log_disable_timestamp}
+                                            onChange={(e) =>
+                                              setDeviceDetailsForm((f) => ({ ...f, log_disable_timestamp: e.target.checked }))
+                                            }
                                             disabled={!deviceDetailsModal.isEditing}
                                           />
-                                          <Label htmlFor="dd_exit_node">Exit node (route all traffic)</Label>
+                                          <Label htmlFor="dd_log_disable_timestamp">Disable timestamp</Label>
                                         </div>
-                                        {deviceDetailsForm.unsafe_routes.some((r) => r.route === "0.0.0.0/0") &&
-                                          renderConsumerPicker(
-                                            "exit",
-                                            deviceDetailsForm.unsafe_routes.find((r) => r.route === "0.0.0.0/0")?.consumers ?? [],
-                                            (consumers) =>
-                                              setDeviceDetailsForm((f) => ({
-                                                ...f,
-                                                unsafe_routes: f.unsafe_routes.map((r) =>
-                                                  r.route === "0.0.0.0/0" || r.route === "::/0" ? { ...r, consumers } : r
-                                                ),
-                                              }))
-                                          )}
                                       </div>
-
-                                      {(deviceDetailsModal.node?.available_subnets ?? []).length > 0 && (
-                                        <div>
-                                          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
-                                            Advertised subnets
-                                          </p>
-                                          <div className="space-y-3">
-                                            {(["ethernet", "wifi", "tailscale", "nebula"] as SubnetKind[]).map((kind) => {
-                                              const subnetsOfKind = (deviceDetailsModal.node?.available_subnets ?? []).filter(
-                                                (s) => s.kind === kind
-                                              );
-                                              if (subnetsOfKind.length === 0) return null;
-                                              const kindLabel =
-                                                kind === "ethernet"
-                                                  ? "Ethernet"
-                                                  : kind === "wifi"
-                                                  ? "Wi-Fi"
-                                                  : kind === "tailscale"
-                                                  ? "Tailscale"
-                                                  : "Nebula";
-                                              return (
-                                                <div key={kind}>
-                                                  <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
-                                                    {kindLabel}
-                                                  </p>
-                                                  <div className="flex flex-col gap-2">
-                                                    {subnetsOfKind.map((s) => {
-                                                      const entry = deviceDetailsForm.unsafe_routes.find(
-                                                        (r) => r.source === "interface" && r.interface === s.interface
-                                                      );
-                                                      return (
-                                                        <div key={s.interface}>
-                                                          <div className="flex items-center gap-2">
-                                                            <Checkbox
-                                                              id={`dd_subnet_${s.interface}`}
-                                                              checked={!!entry}
-                                                              onChange={(e) => {
-                                                                const enabled = e.target.checked;
-                                                                setDeviceDetailsForm((f) => ({
-                                                                  ...f,
-                                                                  unsafe_routes: enabled
-                                                                    ? [
-                                                                        ...f.unsafe_routes.filter(
-                                                                          (r) => !(r.source === "interface" && r.interface === s.interface)
-                                                                        ),
-                                                                        { route: s.cidr, source: "interface", interface: s.interface, consumers: [] },
-                                                                      ]
-                                                                    : f.unsafe_routes.filter(
-                                                                        (r) => !(r.source === "interface" && r.interface === s.interface)
-                                                                      ),
-                                                                }));
-                                                              }}
-                                                              disabled={!deviceDetailsModal.isEditing}
-                                                            />
-                                                            <Label htmlFor={`dd_subnet_${s.interface}`}>
-                                                              {s.interface} ({s.cidr})
-                                                            </Label>
-                                                          </div>
-                                                          {entry &&
-                                                            renderConsumerPicker(
-                                                              `subnet_${s.interface}`,
-                                                              entry.consumers,
-                                                              (consumers) =>
-                                                                setDeviceDetailsForm((f) => ({
-                                                                  ...f,
-                                                                  unsafe_routes: f.unsafe_routes.map((r) =>
-                                                                    r.source === "interface" && r.interface === s.interface
-                                                                      ? { ...r, consumers }
-                                                                      : r
-                                                                  ),
-                                                                }))
-                                                            )}
-                                                        </div>
-                                                      );
-                                                    })}
-                                                  </div>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      )}
-
-                                      <div>
-                                        <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Other</p>
-                                        {deviceDetailsForm.unsafe_routes
-                                          .filter((r) => r.source === "manual")
-                                          .map((r) => (
-                                            <div key={r.route} className="mb-2">
-                                              <div className="flex items-center gap-2">
-                                                <span className="text-sm text-gray-700 dark:text-gray-300">{r.route}</span>
-                                                {deviceDetailsModal.isEditing && (
-                                                  <Button
-                                                    type="button"
-                                                    size="xs"
-                                                    color="gray"
-                                                    onClick={() =>
-                                                      setDeviceDetailsForm((f) => ({
-                                                        ...f,
-                                                        unsafe_routes: f.unsafe_routes.filter((x) => x.route !== r.route),
-                                                      }))
-                                                    }
-                                                  >
-                                                    <HiTrash className="w-3 h-3" />
-                                                  </Button>
-                                                )}
-                                              </div>
-                                              {renderConsumerPicker(`manual_${r.route}`, r.consumers, (consumers) =>
-                                                setDeviceDetailsForm((f) => ({
-                                                  ...f,
-                                                  unsafe_routes: f.unsafe_routes.map((x) =>
-                                                    x.route === r.route ? { ...x, consumers } : x
-                                                  ),
-                                                }))
-                                              )}
-                                            </div>
-                                          ))}
-                                        {deviceDetailsModal.isEditing && (
-                                          <div className="flex items-center gap-2 mt-2">
-                                            <TextInput
-                                              value={otherRouteInput}
-                                              onChange={(e) => {
-                                                setOtherRouteInput(e.target.value);
-                                                setOtherRouteError(null);
-                                              }}
-                                              placeholder="e.g. 10.20.0.0/24"
-                                              className="min-w-0 flex-1"
-                                            />
-                                            <Button
-                                              type="button"
-                                              color="gray"
-                                              onClick={() => {
-                                                const route = otherRouteInput.trim();
-                                                if (!/^[0-9a-fA-F.:]+\/\d{1,3}$/.test(route)) {
-                                                  setOtherRouteError("Enter a CIDR, e.g. 10.20.0.0/24 or fd00::/64");
-                                                  return;
-                                                }
-                                                if (deviceDetailsForm.unsafe_routes.some((x) => x.route === route)) {
-                                                  setOtherRouteError("That route is already added");
-                                                  return;
-                                                }
-                                                setDeviceDetailsForm((f) => ({
-                                                  ...f,
-                                                  unsafe_routes: [...f.unsafe_routes, { route, source: "manual", consumers: [] }],
-                                                }));
-                                                setOtherRouteInput("");
-                                              }}
-                                            >
-                                              Add
-                                            </Button>
-                                          </div>
-                                        )}
-                                        {otherRouteError && (
-                                          <p className="text-sm text-red-600 dark:text-red-400 mt-1">{otherRouteError}</p>
-                                        )}
+                                      <div className="min-w-0">
+                                        <Label htmlFor="dd_log_timestamp_format" value="Timestamp format (Go format, optional)" className="text-gray-500 dark:text-gray-400" />
+                                        <TextInput
+                                          id="dd_log_timestamp_format"
+                                          value={deviceDetailsForm.log_timestamp_format}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, log_timestamp_format: e.target.value }))
+                                          }
+                                          placeholder="e.g. 2006-01-02T15:04:05.000Z07:00"
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        />
                                       </div>
                                     </div>
-                                  )}
+                                    </div>
+
+                                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                                      <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                        Punchy (NAT traversal)
+                                      </p>
+                                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                                        <div className="min-w-0 flex items-end pb-2">
+                                          <div className="flex items-center gap-2">
+                                            <Checkbox
+                                              id="dd_punchy_respond"
+                                              checked={deviceDetailsForm.punchy_respond}
+                                              onChange={(e) =>
+                                                setDeviceDetailsForm((f) => ({ ...f, punchy_respond: e.target.checked }))
+                                              }
+                                              disabled={!deviceDetailsModal.isEditing}
+                                            />
+                                            <Label htmlFor="dd_punchy_respond">Respond (punch back)</Label>
+                                          </div>
+                                        </div>
+                                        <div className="min-w-0">
+                                          <Label htmlFor="dd_punchy_delay" value="Delay (e.g. 1s)" className="text-gray-500 dark:text-gray-400" />
+                                          <TextInput
+                                            id="dd_punchy_delay"
+                                            value={deviceDetailsForm.punchy_delay}
+                                            onChange={(e) =>
+                                              setDeviceDetailsForm((f) => ({ ...f, punchy_delay: e.target.value }))
+                                            }
+                                            placeholder="1s"
+                                            disabled={!deviceDetailsModal.isEditing}
+                                            className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                          />
+                                        </div>
+                                        <div className="min-w-0">
+                                          <Label htmlFor="dd_punchy_respond_delay" value="Respond delay (e.g. 5s)" className="text-gray-500 dark:text-gray-400" />
+                                          <TextInput
+                                            id="dd_punchy_respond_delay"
+                                            value={deviceDetailsForm.punchy_respond_delay}
+                                            onChange={(e) =>
+                                              setDeviceDetailsForm((f) => ({ ...f, punchy_respond_delay: e.target.value }))
+                                            }
+                                            placeholder="5s"
+                                            disabled={!deviceDetailsModal.isEditing}
+                                            className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    {deviceDetailsForm.platform === "desktop" && (
+                                      <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
+                                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                          Subnet Router & Exit Node Config
+                                        </p>
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
+                                          Configure what this node advertises to the network - the subnets it
+                                          routes to and/or whether it acts as an exit node. Routes are opt-in
+                                          per node - use "Used by" below each one to pick who actually routes
+                                          through here. See{" "}
+                                          <a
+                                            href="https://nebulacommander.com/docs/usage/unsafe-routes/"
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="underline hover:text-gray-700 dark:hover:text-gray-200"
+                                          >
+                                            the subnet router / exit node docs
+                                          </a>{" "}
+                                          for how this works, including hosts that don't run ncclient.
+                                        </p>
+                                        {deviceDetailsModal.node?.os_platform !== "linux" && (
+                                          <p className="text-sm text-amber-600 dark:text-amber-400">
+                                            {deviceDetailsModal.node?.os_platform
+                                              ? "This node isn't running ncclient on Linux, so this isn't applied automatically. IP forwarding and NAT must be configured manually on the node for it to take effect."
+                                              : "This node hasn't checked in yet, so we don't know its OS. Unless it's Linux running ncclient, IP forwarding and NAT must be configured manually for this to take effect."}
+                                          </p>
+                                        )}
+
+                                        {(deviceDetailsModal.node?.available_subnets ?? []).length > 0 && (
+                                          <div>
+                                            <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+                                              Advertised subnets
+                                            </p>
+                                            <div className="space-y-3">
+                                              {(["ethernet", "wifi", "tailscale", "nebula"] as SubnetKind[]).map((kind) => {
+                                                const subnetsOfKind = (deviceDetailsModal.node?.available_subnets ?? []).filter(
+                                                  (s) => s.kind === kind
+                                                );
+                                                if (subnetsOfKind.length === 0) return null;
+                                                const kindLabel =
+                                                  kind === "ethernet"
+                                                    ? "Ethernet"
+                                                    : kind === "wifi"
+                                                    ? "Wi-Fi"
+                                                    : kind === "tailscale"
+                                                    ? "Tailscale"
+                                                    : "Nebula";
+                                                return (
+                                                  <div key={kind}>
+                                                    <p className="text-xs uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">
+                                                      {kindLabel}
+                                                    </p>
+                                                    <div className="flex flex-col gap-2">
+                                                      {subnetsOfKind.map((s) => {
+                                                        const entry = deviceDetailsForm.unsafe_routes.find(
+                                                          (r) => r.source === "interface" && r.interface === s.interface
+                                                        );
+                                                        return (
+                                                          <div key={s.interface}>
+                                                            <div className="flex items-center gap-2">
+                                                              <Checkbox
+                                                                id={`dd_subnet_${s.interface}`}
+                                                                checked={!!entry}
+                                                                onChange={(e) => {
+                                                                  const enabled = e.target.checked;
+                                                                  setDeviceDetailsForm((f) => ({
+                                                                    ...f,
+                                                                    unsafe_routes: enabled
+                                                                      ? [
+                                                                          ...f.unsafe_routes.filter(
+                                                                            (r) => !(r.source === "interface" && r.interface === s.interface)
+                                                                          ),
+                                                                          { route: s.cidr, source: "interface", interface: s.interface, consumers: [] },
+                                                                        ]
+                                                                      : f.unsafe_routes.filter(
+                                                                          (r) => !(r.source === "interface" && r.interface === s.interface)
+                                                                        ),
+                                                                  }));
+                                                                }}
+                                                                disabled={!deviceDetailsModal.isEditing}
+                                                              />
+                                                              <Label htmlFor={`dd_subnet_${s.interface}`}>
+                                                                {s.interface} ({s.cidr})
+                                                              </Label>
+                                                            </div>
+                                                            {entry &&
+                                                              renderConsumerPicker(
+                                                                `subnet_${s.interface}`,
+                                                                entry.consumers,
+                                                                (consumers) =>
+                                                                  setDeviceDetailsForm((f) => ({
+                                                                    ...f,
+                                                                    unsafe_routes: f.unsafe_routes.map((r) =>
+                                                                      r.source === "interface" && r.interface === s.interface
+                                                                        ? { ...r, consumers }
+                                                                        : r
+                                                                    ),
+                                                                  }))
+                                                              )}
+                                                          </div>
+                                                        );
+                                                      })}
+                                                    </div>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          </div>
+                                        )}
+
+                                        <div>
+                                          <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">Other</p>
+                                          {deviceDetailsForm.unsafe_routes
+                                            .filter((r) => r.source === "manual")
+                                            .map((r) => (
+                                              <div key={r.route} className="mb-2">
+                                                <div className="flex items-center gap-2">
+                                                  <span className="text-sm text-gray-700 dark:text-gray-300">{r.route}</span>
+                                                  {deviceDetailsModal.isEditing && (
+                                                    <Button
+                                                      type="button"
+                                                      size="xs"
+                                                      color="gray"
+                                                      onClick={() =>
+                                                        setDeviceDetailsForm((f) => ({
+                                                          ...f,
+                                                          unsafe_routes: f.unsafe_routes.filter((x) => x.route !== r.route),
+                                                        }))
+                                                      }
+                                                    >
+                                                      <HiTrash className="w-3 h-3" />
+                                                    </Button>
+                                                  )}
+                                                </div>
+                                                {renderConsumerPicker(`manual_${r.route}`, r.consumers, (consumers) =>
+                                                  setDeviceDetailsForm((f) => ({
+                                                    ...f,
+                                                    unsafe_routes: f.unsafe_routes.map((x) =>
+                                                      x.route === r.route ? { ...x, consumers } : x
+                                                    ),
+                                                  }))
+                                                )}
+                                              </div>
+                                            ))}
+                                          {deviceDetailsModal.isEditing && (
+                                            <div className="flex items-center gap-2 mt-2">
+                                              <TextInput
+                                                value={otherRouteInput}
+                                                onChange={(e) => {
+                                                  setOtherRouteInput(e.target.value);
+                                                  setOtherRouteError(null);
+                                                }}
+                                                placeholder="e.g. 10.20.0.0/24"
+                                                className="min-w-0 flex-1"
+                                              />
+                                              <Button
+                                                type="button"
+                                                color="gray"
+                                                onClick={() => {
+                                                  const route = otherRouteInput.trim();
+                                                  if (!/^[0-9a-fA-F.:]+\/\d{1,3}$/.test(route)) {
+                                                    setOtherRouteError("Enter a CIDR, e.g. 10.20.0.0/24 or fd00::/64");
+                                                    return;
+                                                  }
+                                                  if (deviceDetailsForm.unsafe_routes.some((x) => x.route === route)) {
+                                                    setOtherRouteError("That route is already added");
+                                                    return;
+                                                  }
+                                                  setDeviceDetailsForm((f) => ({
+                                                    ...f,
+                                                    unsafe_routes: [...f.unsafe_routes, { route, source: "manual", consumers: [] }],
+                                                  }));
+                                                  setOtherRouteInput("");
+                                                }}
+                                              >
+                                                Add
+                                              </Button>
+                                            </div>
+                                          )}
+                                          {otherRouteError && (
+                                            <p className="text-sm text-red-600 dark:text-red-400 mt-1">{otherRouteError}</p>
+                                          )}
+                                        </div>
+                                      </div>
+                                    )}
+
+                                    {deviceDetailsForm.platform === "desktop" && (
+                                      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
+                                        <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
+                                          Exit Node
+                                        </p>
+                                        <div>
+                                          <div className="flex items-center gap-2">
+                                            <Checkbox
+                                              id="dd_exit_node"
+                                              checked={deviceDetailsForm.unsafe_routes.some((r) => r.route === "0.0.0.0/0")}
+                                              onChange={(e) => {
+                                                const enabled = e.target.checked;
+                                                setDeviceDetailsForm((f) => ({
+                                                  ...f,
+                                                  unsafe_routes: enabled
+                                                    ? [
+                                                        ...f.unsafe_routes.filter((r) => r.route !== "0.0.0.0/0" && r.route !== "::/0"),
+                                                        { route: "0.0.0.0/0", source: "exit_v4", consumers: [] },
+                                                        { route: "::/0", source: "exit_v6", consumers: [] },
+                                                      ]
+                                                    : f.unsafe_routes.filter((r) => r.route !== "0.0.0.0/0" && r.route !== "::/0"),
+                                                }));
+                                              }}
+                                              disabled={!deviceDetailsModal.isEditing}
+                                            />
+                                            <Label htmlFor="dd_exit_node">Exit node (route all traffic)</Label>
+                                          </div>
+                                          {deviceDetailsForm.unsafe_routes.some((r) => r.route === "0.0.0.0/0") &&
+                                            renderConsumerPicker(
+                                              "exit",
+                                              deviceDetailsForm.unsafe_routes.find((r) => r.route === "0.0.0.0/0")?.consumers ?? [],
+                                              (consumers) =>
+                                                setDeviceDetailsForm((f) => ({
+                                                  ...f,
+                                                  unsafe_routes: f.unsafe_routes.map((r) =>
+                                                    r.route === "0.0.0.0/0" || r.route === "::/0" ? { ...r, consumers } : r
+                                                  ),
+                                                }))
+                                            )}
+                                        </div>
+                                      </div>
+                                    )}
+                                      </Accordion.Content>
+                                    </Accordion.Panel>
+                                  </Accordion>
 
                                   <div className="flex flex-wrap items-center justify-between gap-2 pt-4 border-t border-gray-200 dark:border-gray-700">
                                     <div className="flex flex-wrap gap-2">
