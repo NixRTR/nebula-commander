@@ -96,6 +96,13 @@ NEBULA_COMMANDER_OIDC_CLIENT_SECRET=YOUR_KEYCLOAK_CLIENT_SECRET_HERE
 # OIDC Scopes (space-separated)
 NEBULA_COMMANDER_OIDC_SCOPES=openid profile email
 
+# Admin role claim/value (optional). Leave unset to use Keycloak's default
+# client-roles shape (resource_access.<client_id>.roles). For other providers,
+# point this at whatever top-level claim your provider emits (e.g. "roles",
+# "groups", or an Auth0-style namespaced claim).
+# NEBULA_COMMANDER_OIDC_ADMIN_ROLE_CLAIM=roles
+# NEBULA_COMMANDER_OIDC_ADMIN_ROLE_VALUE=system-admin
+
 # =============================================================================
 # CORS Configuration
 # =============================================================================

@@ -58,6 +58,13 @@ class Settings(BaseSettings):
     oidc_client_secret_file: Optional[str] = None
     oidc_redirect_uri: Optional[str] = None  # If unset and public_url is set, derived as public_url + /api/auth/callback
     oidc_scopes: str = "openid profile email"
+    # Admin role detection: which claim (and value within it) grants system-admin.
+    # Left unset, falls back to Keycloak's client-roles shape:
+    # resource_access.<client_id>.roles. Set oidc_admin_role_claim to a top-level
+    # claim name (e.g. "roles", "groups", or an Auth0-style namespaced key) for
+    # other providers.
+    oidc_admin_role_claim: Optional[str] = None
+    oidc_admin_role_value: str = "system-admin"
 
     # JWT (for API / session after OIDC)
     jwt_secret_key: str = "change-this-in-production"

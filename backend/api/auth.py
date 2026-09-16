@@ -96,14 +96,14 @@ def get_oauth_client():
         return None
     
     # Register OAuth client if not already registered
-    if not hasattr(oauth, 'keycloak'):
+    if not hasattr(oauth, 'oidc'):
         # Use public issuer URL for discovery when set so the browser redirect (login)
         # goes to the correct host:port; otherwise use internal issuer URL.
         issuer_for_discovery = settings.oidc_public_issuer_url or settings.oidc_issuer_url
         well_known_url = f"{issuer_for_discovery.rstrip('/')}/.well-known/openid-configuration"
 
         oauth.register(
-            name='keycloak',
+            name='oidc',
             client_id=settings.oidc_client_id,
             client_secret=settings.oidc_client_secret,
             server_metadata_url=well_known_url,
@@ -111,7 +111,20 @@ def get_oauth_client():
                 'scope': settings.oidc_scopes,
             }
         )
-    return oauth.keycloak
+    return oauth.oidc
+
+
+async def _get_discovery_metadata() -> dict:
+    """Load (and let authlib cache) OIDC discovery metadata for the registered
+    client. Returns {} if OIDC is not configured or metadata can't be loaded."""
+    client = get_oauth_client()
+    if not client:
+        return {}
+    try:
+        return await client.load_server_metadata()
+    except Exception as e:
+        logger.warning("Failed to load OIDC discovery metadata: %s", e)
+        return {}
 
 
 class DevTokenResponse(BaseModel):
@@ -223,7 +236,7 @@ async def me(current_user: UserInfo = Depends(get_current_user_optional)):
 @router.get("/login")
 async def login(request: Request):
     """
-    Redirect to OIDC provider (Keycloak) for authentication.
+    Redirect to the configured OIDC provider for authentication.
     Only available when OIDC is configured.
     """
     if not settings.oidc_issuer_url:
@@ -243,7 +256,7 @@ async def login(request: Request):
 @router.get("/oidc-status")
 async def oidc_status():
     """
-    Lightweight readiness check for the OIDC provider (Keycloak).
+    Lightweight readiness check for the configured OIDC provider.
     Returns 200 when metadata can be loaded, 503 when the provider is unavailable.
     """
     if not settings.oidc_issuer_url:
@@ -255,7 +268,7 @@ async def oidc_status():
         raise HTTPException(status_code=500, detail="OAuth client not initialized")
 
     try:
-        # Force metadata load; this is where we currently see RemoteProtocolError when Keycloak is down.
+        # Force metadata load; this is where we currently see RemoteProtocolError when the OIDC provider is down.
         await client.load_server_metadata()
         return {"status": "ok"}
     except Exception as exc:  # pragma: no cover - defensive catch for transport errors
@@ -292,14 +305,21 @@ async def callback(request: Request, session: AsyncSession = Depends(get_session
                 # Fetch from userinfo endpoint
                 user_info = await client.userinfo(token=token)
         
-        # Extract roles from Keycloak token
-        resource_access = user_info.get("resource_access", {})
-        client_roles = resource_access.get(settings.oidc_client_id, {}).get("roles", [])
-        
         # Map to system role (only system-admin is elevated; network ownership is per-network in backend)
         system_role = "user"  # default
-        if "system-admin" in client_roles:
-            system_role = "system-admin"
+        if settings.oidc_admin_role_claim:
+            # Provider-agnostic: a single top-level claim configured for this provider.
+            claim_value = user_info.get(settings.oidc_admin_role_claim)
+            if isinstance(claim_value, str):
+                claim_value = [claim_value]
+            if isinstance(claim_value, list) and settings.oidc_admin_role_value in claim_value:
+                system_role = "system-admin"
+        else:
+            # Default: Keycloak's client-roles protocol mapper shape.
+            resource_access = user_info.get("resource_access", {})
+            client_roles = resource_access.get(settings.oidc_client_id, {}).get("roles", [])
+            if settings.oidc_admin_role_value in client_roles:
+                system_role = "system-admin"
         
         # Create our own JWT for the frontend
         expires = datetime.utcnow() + timedelta(minutes=settings.jwt_expiration_minutes)
@@ -370,8 +390,9 @@ async def callback(request: Request, session: AsyncSession = Depends(get_session
 @router.get("/logout")
 async def logout(request: Request, session: AsyncSession = Depends(get_session)):
     """
-    Logout from OIDC provider (Keycloak) and clear session.
-    Redirects to Keycloak logout endpoint.
+    Logout from the configured OIDC provider (if it advertises end_session_endpoint
+    via discovery) and clear the local session; otherwise just clear the local
+    session.
     """
     await log_audit(
         session,
@@ -384,21 +405,23 @@ async def logout(request: Request, session: AsyncSession = Depends(get_session))
         # No OIDC, just redirect to frontend
         frontend_url = get_safe_redirect_url(request)
         return RedirectResponse(url=frontend_url)
-    
-    # Construct Keycloak logout URL using public issuer URL (browser-accessible)
-    # Format: {issuer}/protocol/openid-connect/logout?post_logout_redirect_uri={frontend}&client_id={client_id}
+
     frontend_url = get_safe_redirect_url(request)
-    
-    # Use public issuer URL if set, otherwise fall back to regular issuer URL
-    issuer_url = settings.oidc_public_issuer_url or settings.oidc_issuer_url
-    
-    # Keycloak requires post_logout_redirect_uri (not redirect_uri) and client_id
+
+    metadata = await _get_discovery_metadata()
+    end_session_endpoint = metadata.get("end_session_endpoint")
+    if not end_session_endpoint:
+        # Provider doesn't support RP-Initiated Logout; local-only logout.
+        logger.info("OIDC provider has no end_session_endpoint; performing local-only logout")
+        return RedirectResponse(url=frontend_url)
+
+    # Standard OIDC RP-Initiated Logout params.
     logout_params = urlencode({
         'post_logout_redirect_uri': frontend_url,
         'client_id': settings.oidc_client_id,
     })
-    logout_url = f"{issuer_url}/protocol/openid-connect/logout?{logout_params}"
-    
+    logout_url = f"{end_session_endpoint}?{logout_params}"
+
     return RedirectResponse(url=logout_url)
 
 
@@ -430,8 +453,12 @@ async def create_reauth(
     
     reauth_redirect_uri = _get_reauth_redirect_uri(request)
 
-    # Use Keycloak authorize endpoint with prompt=login; challenge is passed as state (not in redirect_uri)
-    issuer_url = settings.oidc_public_issuer_url or settings.oidc_issuer_url
+    # Use the discovered authorization endpoint with prompt=login; challenge is
+    # passed as state (not in redirect_uri).
+    metadata = await _get_discovery_metadata()
+    authorization_endpoint = metadata.get("authorization_endpoint")
+    if not authorization_endpoint:
+        raise HTTPException(status_code=500, detail="OIDC provider metadata missing authorization_endpoint")
     auth_params = urlencode({
         'client_id': settings.oidc_client_id,
         'redirect_uri': reauth_redirect_uri,
@@ -440,7 +467,7 @@ async def create_reauth(
         'prompt': 'login',  # Force reauthentication
         'state': challenge,
     })
-    reauth_url = f"{issuer_url}/protocol/openid-connect/auth?{auth_params}"
+    reauth_url = f"{authorization_endpoint}?{auth_params}"
     
     return ReauthChallengeResponse(
         challenge=challenge,
@@ -461,8 +488,9 @@ def _get_reauth_redirect_uri(request: Request) -> str:
 @router.get("/reauth/callback")
 async def reauth_callback(request: Request, session: AsyncSession = Depends(get_session)):
     """
-    Reauthentication callback endpoint. Keycloak redirects here with code and state (our challenge).
-    We exchange the code for tokens manually (no authlib session) and validate state ourselves.
+    Reauthentication callback endpoint. The OIDC provider redirects here with code
+    and state (our challenge). We exchange the code for tokens manually (no authlib
+    session) and validate state ourselves.
     """
     challenge = request.query_params.get("state") or ""
     if not challenge:
@@ -483,8 +511,10 @@ async def reauth_callback(request: Request, session: AsyncSession = Depends(get_
         return RedirectResponse(url=f"{frontend_url}/reauth/complete?error=missing_code")
 
     redirect_uri = _get_reauth_redirect_uri(request)
-    issuer_base = (settings.oidc_public_issuer_url or settings.oidc_issuer_url or "").rstrip("/")
-    token_url = f"{issuer_base}/protocol/openid-connect/token"
+    metadata = await _get_discovery_metadata()
+    token_url = metadata.get("token_endpoint")
+    if not token_url:
+        raise HTTPException(status_code=500, detail="OIDC provider metadata missing token_endpoint")
 
     try:
         async with httpx.AsyncClient(timeout=15.0) as http_client:

@@ -89,11 +89,10 @@ docker compose pull
 docker compose up -d
 ```
 
-The app is available at http://localhost (or your configured port). For OIDC with Keycloak:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose-keycloak.yml up -d
-```
+The app is available at http://localhost (or your configured port). Keycloak (the
+default OIDC provider) is included automatically - no extra flags needed. To use a
+different OIDC provider instead (Authentik, Auth0, Okta, etc.) or skip OIDC
+entirely, see [docker/README.md § Using External OIDC Provider](docker/README.md#using-external-oidc-provider).
 
 #### NixOS (experimental)
 

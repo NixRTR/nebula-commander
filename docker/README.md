@@ -473,18 +473,35 @@ For production use:
 
 ### Running Without Keycloak
 
-To run without Keycloak (development mode with dev tokens):
+`docker-compose.yml` includes Keycloak by default (via its top-level `include:`
+directive), so a bare `docker compose up -d` starts Keycloak and its PostgreSQL
+database alongside the backend and frontend, even without the second `-f
+docker-compose-keycloak.yml` flag shown elsewhere in this doc (that flag is
+redundant today - `include:` already pulls it in).
+
+To run without Keycloak (development mode with dev tokens, or when using an
+external OIDC provider - see below), comment out or delete the `include:` block at
+the top of `docker-compose.yml`:
+
+```yaml
+# include:
+#   - path: ./docker-compose-keycloak.yml
+```
+
+Then:
 
 ```bash
 cd docker
 docker compose up -d
 ```
 
-The backend will use the `/api/auth/dev-token` endpoint when OIDC is not configured.
+With no OIDC provider configured, the backend uses the `/api/auth/dev-token`
+endpoint (dev/standalone mode only).
 
 ### Using External OIDC Provider
 
-To use an external OIDC provider (Authentik, Auth0, etc.) instead of the bundled Keycloak:
+To use an external OIDC provider (Authentik, Auth0, Okta, etc.) instead of the
+bundled Keycloak:
 
 1. Configure your OIDC provider with:
    - Redirect URI: your public app URL + `/api/auth/callback` (e.g. `https://nebula.example.com/api/auth/callback`)
@@ -498,10 +515,17 @@ To use an external OIDC provider (Authentik, Auth0, etc.) instead of the bundled
    NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL=https://your-oidc-provider.com
    NEBULA_COMMANDER_OIDC_CLIENT_ID=your-client-id
    NEBULA_COMMANDER_OIDC_CLIENT_SECRET=your-client-secret
+   # Optional: admin-role detection for providers that don't use Keycloak's
+   # resource_access.<client_id>.roles claim shape. Point this at whatever
+   # top-level claim your provider emits (e.g. "roles", "groups", or an
+   # Auth0-style namespaced claim). Leave unset to use the Keycloak default.
+   NEBULA_COMMANDER_OIDC_ADMIN_ROLE_CLAIM=roles
+   NEBULA_COMMANDER_OIDC_ADMIN_ROLE_VALUE=system-admin
    ```
    (Redirect URI is derived from `NEBULA_COMMANDER_PUBLIC_URL` when unset.)
 
-3. Run without Keycloak:
+3. Disable the bundled Keycloak (it's included by default - see "Running Without
+   Keycloak" above), then run:
    ```bash
    docker compose up -d
    ```

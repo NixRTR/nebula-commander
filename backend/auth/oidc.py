@@ -31,19 +31,30 @@ _jwks_cache_issuer: Optional[str] = None
 
 
 def _fetch_jwks(issuer_url: str) -> dict:
-    """Fetch JWKS from OIDC issuer. Caches result."""
+    """Fetch JWKS from OIDC issuer. Caches result per issuer.
+
+    Resolves jwks_uri via OIDC discovery when available, falling back to the
+    conventional /.well-known/jwks.json path (matches Keycloak) if discovery
+    fails.
+    """
     global _jwks_cache_issuer, _jwks_cache
     base = issuer_url.rstrip("/")
-    jwks_url = f"{base}/.well-known/jwks.json"
-    if _jwks_cache_issuer != jwks_url:
+    if _jwks_cache_issuer != base:
+        jwks_url = f"{base}/.well-known/jwks.json"
         try:
             with httpx.Client(timeout=10.0) as client:
+                try:
+                    discovery = client.get(f"{base}/.well-known/openid-configuration")
+                    discovery.raise_for_status()
+                    jwks_url = discovery.json().get("jwks_uri", jwks_url)
+                except Exception as e:
+                    logger.debug("OIDC discovery failed for %s, falling back to conventional JWKS path: %s", base, e)
                 r = client.get(jwks_url)
                 r.raise_for_status()
                 _jwks_cache = r.json()
-                _jwks_cache_issuer = jwks_url
+                _jwks_cache_issuer = base
         except Exception as e:
-            logger.warning("Failed to fetch JWKS from %s: %s", jwks_url, e)
+            logger.warning("Failed to fetch JWKS for issuer %s: %s", base, e)
             _jwks_cache = {}
     return _jwks_cache
 
@@ -68,7 +79,7 @@ def decode_token(token: str) -> Optional[dict]:
     """Decode and validate JWT. Uses OIDC JWKS if issuer is set, else JWT secret."""
     try:
         if settings.oidc_issuer_url:
-            # Try OIDC JWKS validation first (for tokens from Keycloak)
+            # Try OIDC JWKS validation first (for tokens from the configured OIDC provider)
             key_data = _get_signing_key_from_jwks(token, settings.oidc_issuer_url)
             if key_data:
                 key = jwk.construct(key_data)

@@ -122,7 +122,7 @@ in
       issuerUrl = mkOption {
         type = types.nullOr types.str;
         default = null;
-        description = "OIDC issuer URL (e.g. Keycloak realm URL). Leave null to use dev-token auth instead.";
+        description = "OIDC issuer URL (e.g. Keycloak realm URL, or any OIDC-compliant provider). Leave null to use dev-token auth instead.";
       };
       publicIssuerUrl = mkOption {
         type = types.nullOr types.str;

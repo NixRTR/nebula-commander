@@ -108,7 +108,7 @@ const Login: React.FC = () => {
         )}
 
         <div className="text-center text-xs text-gray-500">
-          <p>Protected by Keycloak authentication</p>
+          <p>Protected by single sign-on</p>
         </div>
       </div>
     </div>

@@ -78,7 +78,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       localStorage.removeItem('token');
       setUser(null);
       
-      // Redirect to backend logout endpoint (which redirects to Keycloak)
+      // Redirect to backend logout endpoint (which redirects to the configured OIDC provider, if any)
       window.location.href = '/api/auth/logout';
     } catch (error) {
       console.error('Logout failed:', error);
