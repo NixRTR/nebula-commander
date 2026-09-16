@@ -65,13 +65,17 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const toggleDark = useCallback(() => {
     setIsDark((prev) => {
       const next = !prev;
+      const mode = next ? "dark" : "light";
       if (next) {
         document.documentElement.classList.add("dark");
-        localStorage.setItem("theme", "dark");
       } else {
         document.documentElement.classList.remove("dark");
-        localStorage.setItem("theme", "light");
       }
+      localStorage.setItem("theme", mode);
+      // Keep Flowbite's own dark-mode store in sync too - see the matching
+      // comment in main.tsx. If this ever drifts from "theme", Flowbite's
+      // stale copy wins on the next reload and silently overrides this toggle.
+      localStorage.setItem("flowbite-theme-mode", mode);
       return next;
     });
   }, []);

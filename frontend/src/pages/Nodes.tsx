@@ -1264,12 +1264,14 @@ export function Nodes() {
                     className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 p-3 text-left shadow-sm hover:shadow-md transition-shadow"
                     style={{ backgroundColor: statusBg }}
                   >
-                    <p className="font-semibold text-gray-900 dark:text-white truncate pr-1" title={n.hostname}>
-                      {n.hostname}
-                    </p>
-                    <p className="text-xs font-mono text-gray-600 dark:text-gray-400 truncate mt-1">
-                      {n.ip_address || "—"}
-                    </p>
+                    <div className="absolute top-2 left-3 right-3 z-10">
+                      <p className="font-semibold text-gray-900 dark:text-white truncate" title={n.hostname}>
+                        {n.hostname}
+                      </p>
+                      <p className="text-xs font-mono text-gray-600 dark:text-gray-400 truncate mt-1">
+                        {n.ip_address || "—"}
+                      </p>
+                    </div>
                     <div className="absolute bottom-2 right-2 flex flex-wrap justify-end gap-1">
                       {n.is_lighthouse && (
                         <Badge size="sm" style={badgeStyle(resolve("badge.lighthouse"))}>

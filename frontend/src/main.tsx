@@ -25,12 +25,16 @@ if (initialIsDark) {
   document.documentElement.classList.remove('dark');
 }
 
-// Flowbite's own <Flowbite> wrapper independently manages the `dark` class
-// via its own `flowbite-theme-mode` localStorage key (unrelated to ours) as
-// soon as it mounts, defaulting to "light" if that key was never set - which
-// would silently undo the class set above. Passing `mode` explicitly here
-// seeds Flowbite's internal state to match, so it never fights our own
-// dark/light toggle (owned by ThemeContext).
+// Flowbite's own <Flowbite> wrapper independently manages the `dark` class via
+// its own `flowbite-theme-mode` localStorage key (unrelated to ours). Its
+// mount effect prefers whatever is ALREADY in that key over the `mode` prop
+// below, so once the two keys disagree even once (e.g. after our own toggle
+// updates "theme" but not "flowbite-theme-mode"), Flowbite's stale key wins on
+// every subsequent load and silently overrides our class - permanently stuck
+// out of sync. Overwriting it here, right before Flowbite mounts, means it
+// always reads a fresh value that matches ours instead of a stale one.
+localStorage.setItem('flowbite-theme-mode', initialIsDark ? 'dark' : 'light');
+
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
     <Flowbite theme={{ mode: initialIsDark ? 'dark' : 'light', theme: flowbiteTheme }}>
