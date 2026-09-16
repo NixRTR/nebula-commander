@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Table, Badge, Button, Modal, Label, Select, TextInput } from 'flowbite-react';
-import { HiEye, HiPencil, HiTrash } from 'react-icons/hi';
+import { Card, Badge, Button, Modal, Label, Select, TextInput } from 'flowbite-react';
+import { HiPencil, HiTrash } from 'react-icons/hi';
 import { RequireSystemAdmin } from '../components/permissions/RequireSystemAdmin';
 import { apiClient } from '../api/client';
 import { startReauthFlow } from './ReauthComplete';
@@ -28,15 +28,16 @@ export const Users: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedUser, setSelectedUser] = useState<UserDetail | null>(null);
-  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDetailsModal, setShowDetailsModal] = useState(false);
+  const [isEditingRole, setIsEditingRole] = useState(false);
   const [editingRole, setEditingRole] = useState('');
+  const [savingRole, setSavingRole] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [userToDelete, setUserToDelete] = useState<User | null>(null);
   const [deleteStep, setDeleteStep] = useState<1 | 2>(1);
   const [typedEmail, setTypedEmail] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
-  const [showDetailsModal, setShowDetailsModal] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -58,30 +59,34 @@ export const Users: React.FC = () => {
     try {
       const response = await apiClient.get(`/users/${userId}`);
       setSelectedUser(response.data);
+      setIsEditingRole(false);
       setShowDetailsModal(true);
     } catch (error) {
       console.error('Failed to fetch user details:', error);
     }
   };
 
-  const handleEditRole = (user: User) => {
-    setSelectedUser(user as UserDetail);
-    setEditingRole(user.system_role);
-    setShowEditModal(true);
+  const handleStartEditRole = () => {
+    if (!selectedUser) return;
+    setEditingRole(selectedUser.system_role);
+    setIsEditingRole(true);
   };
 
   const handleSaveRole = async () => {
     if (!selectedUser) return;
-
+    setSavingRole(true);
     try {
       await apiClient.patch(`/users/${selectedUser.id}`, {
         system_role: editingRole,
       });
-      setShowEditModal(false);
+      setIsEditingRole(false);
+      await fetchUserDetails(selectedUser.id);
       fetchUsers();
     } catch (error) {
       console.error('Failed to update user role:', error);
       alert('Failed to update user role');
+    } finally {
+      setSavingRole(false);
     }
   };
 
@@ -91,6 +96,14 @@ export const Users: React.FC = () => {
     setDeleteStep(1);
     setTypedEmail('');
     setDeleteError(null);
+  };
+
+  const openDeleteConfirm = (user: User) => {
+    setUserToDelete(user);
+    setDeleteStep(1);
+    setTypedEmail('');
+    setDeleteError(null);
+    setShowDeleteConfirm(true);
   };
 
   const handleDeleteUser = async () => {
@@ -130,80 +143,42 @@ export const Users: React.FC = () => {
           <Card>
             <p className="text-gray-600 dark:text-gray-400">Loading users...</p>
           </Card>
-        ) : (
+        ) : users.length === 0 ? (
           <Card>
-            <div className="overflow-x-auto">
-              <Table>
-                <Table.Head>
-                  <Table.HeadCell>Email</Table.HeadCell>
-                  <Table.HeadCell>System Role</Table.HeadCell>
-                  <Table.HeadCell>Networks</Table.HeadCell>
-                  <Table.HeadCell>Created</Table.HeadCell>
-                  <Table.HeadCell>
-                    <span className="sr-only">Actions</span>
-                  </Table.HeadCell>
-                </Table.Head>
-                <Table.Body className="divide-y">
-                  {users.map((user) => (
-                    <Table.Row key={user.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
-                      <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
-                        {user.email || 'N/A'}
-                      </Table.Cell>
-                      <Table.Cell>
-                        <Badge color={getRoleBadgeColor(user.system_role)}>
-                          {user.system_role}
-                        </Badge>
-                      </Table.Cell>
-                      <Table.Cell>{user.network_count}</Table.Cell>
-                      <Table.Cell>{new Date(user.created_at).toLocaleDateString()}</Table.Cell>
-                      <Table.Cell>
-                        <div className="flex gap-2">
-                          <Button
-                            size="xs"
-                            color="gray"
-                            onClick={() => fetchUserDetails(user.id)}
-                          >
-                            <HiEye className="mr-1 h-4 w-4" />
-                            View
-                          </Button>
-                          <Button
-                            size="xs"
-                            color="purple"
-                            onClick={() => handleEditRole(user)}
-                          >
-                            <HiPencil className="mr-1 h-4 w-4" />
-                            Edit Role
-                          </Button>
-                          <Button
-                            size="xs"
-                            color="failure"
-                            onClick={() => {
-                              setUserToDelete(user);
-                              setDeleteStep(1);
-                              setTypedEmail('');
-                              setDeleteError(null);
-                              setShowDeleteConfirm(true);
-                            }}
-                          >
-                            <HiTrash className="mr-1 h-4 w-4" />
-                            Delete
-                          </Button>
-                        </div>
-                      </Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table>
-              {users.length === 0 && (
-                <div className="p-8 text-center">
-                  <p className="text-gray-500 dark:text-gray-400">No users found.</p>
-                </div>
-              )}
+            <div className="p-8 text-center">
+              <p className="text-gray-500 dark:text-gray-400">No users found.</p>
             </div>
           </Card>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {users.map((user) => (
+              <button
+                key={user.id}
+                type="button"
+                onClick={() => fetchUserDetails(user.id)}
+                className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
+              >
+                <p
+                  className="font-semibold text-gray-900 dark:text-white truncate pr-1"
+                  title={user.email || 'N/A'}
+                >
+                  {user.email || 'N/A'}
+                </p>
+                <div className="mt-1">
+                  <Badge color={getRoleBadgeColor(user.system_role)} size="sm">
+                    {user.system_role}
+                  </Badge>
+                </div>
+                <div className="mt-auto">
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Networks</div>
+                  <div className="font-semibold text-gray-900 dark:text-white">{user.network_count}</div>
+                </div>
+              </button>
+            ))}
+          </div>
         )}
 
-        {/* User Details Modal */}
+        {/* User Details Modal - view + inline role edit + delete trigger */}
         <Modal show={showDetailsModal && selectedUser !== null} onClose={() => setShowDetailsModal(false)}>
           <Modal.Header>User Details</Modal.Header>
           <Modal.Body>
@@ -215,7 +190,33 @@ export const Users: React.FC = () => {
                 </div>
                 <div>
                   <Label value="System Role" />
-                  <p className="text-sm text-gray-900 dark:text-white">{selectedUser.system_role}</p>
+                  {isEditingRole ? (
+                    <div className="flex items-center gap-2 mt-1">
+                      <Select
+                        id="role"
+                        value={editingRole}
+                        onChange={(e) => setEditingRole(e.target.value)}
+                        className="flex-1"
+                      >
+                        <option value="user">User</option>
+                        <option value="system-admin">System Admin</option>
+                      </Select>
+                      <Button size="sm" onClick={handleSaveRole} isProcessing={savingRole} disabled={savingRole}>
+                        Save
+                      </Button>
+                      <Button size="sm" color="gray" onClick={() => setIsEditingRole(false)} disabled={savingRole}>
+                        Cancel
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2 mt-1">
+                      <p className="text-sm text-gray-900 dark:text-white">{selectedUser.system_role}</p>
+                      <Button size="xs" color="gray" onClick={handleStartEditRole}>
+                        <HiPencil className="mr-1 h-3.5 w-3.5" />
+                        Edit
+                      </Button>
+                    </div>
+                  )}
                 </div>
                 <div>
                   <Label value="Created" />
@@ -255,36 +256,22 @@ export const Users: React.FC = () => {
               </div>
             )}
           </Modal.Body>
-          <Modal.Footer>
+          <Modal.Footer className="justify-between">
             <Button color="gray" onClick={() => setShowDetailsModal(false)}>
               Close
             </Button>
-          </Modal.Footer>
-        </Modal>
-
-        {/* Edit Role Modal */}
-        <Modal show={showEditModal} onClose={() => setShowEditModal(false)}>
-          <Modal.Header>Edit User Role</Modal.Header>
-          <Modal.Body>
-            <div className="space-y-4">
-              <div>
-                <Label htmlFor="role" value="System Role" />
-                <Select
-                  id="role"
-                  value={editingRole}
-                  onChange={(e) => setEditingRole(e.target.value)}
-                >
-                  <option value="user">User</option>
-                  <option value="system-admin">System Admin</option>
-                </Select>
-              </div>
-            </div>
-          </Modal.Body>
-          <Modal.Footer>
-            <Button onClick={handleSaveRole}>Save</Button>
-            <Button color="gray" onClick={() => setShowEditModal(false)}>
-              Cancel
-            </Button>
+            {selectedUser && (
+              <Button
+                color="failure"
+                onClick={() => {
+                  setShowDetailsModal(false);
+                  openDeleteConfirm(selectedUser);
+                }}
+              >
+                <HiTrash className="mr-1 h-4 w-4" />
+                Delete User
+              </Button>
+            )}
           </Modal.Footer>
         </Modal>
 

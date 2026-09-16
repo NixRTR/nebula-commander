@@ -4,7 +4,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
-from sqlalchemy import select, func, update
+from sqlalchemy import select, func, update, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import UserInfo, require_user
@@ -13,6 +13,7 @@ from ..auth.reauth import clear_reauth_challenge, decode_reauth_token, verify_re
 from ..database import get_session
 from ..models import (
     User,
+    SavedTheme,
     NetworkPermission,
     NodePermission,
     AccessGrant,
@@ -40,6 +41,20 @@ class ThemeUpdateRequest(BaseModel):
     theme: dict[str, ThemeTokenValue]
 
 
+def _validate_theme_tokens(tokens: dict[str, ThemeTokenValue]) -> None:
+    """Shared by update_my_theme and create_my_saved_theme: every key must be a
+    known token, every color a plain #rrggbb hex string (no alpha - keeps every
+    token editable with a plain <input type="color">)."""
+    for key, value in tokens.items():
+        if key not in ALLOWED_TOKEN_KEYS:
+            raise HTTPException(status_code=400, detail=f"Unknown theme token: {key!r}")
+        if not _HEX_COLOR_RE.match(value.light) or not _HEX_COLOR_RE.match(value.dark):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid color for {key!r}: must be a #rrggbb hex string",
+            )
+
+
 @router.get("/me/theme", response_model=ThemeResponse)
 async def get_my_theme(
     user: UserInfo = Depends(require_user),
@@ -63,14 +78,7 @@ async def update_my_theme(
     partial update - tokens not included are left as whatever they already were).
     Each key must be a known token; each color must be a plain #rrggbb hex string
     (no alpha - keeps every token editable with a plain <input type="color">)."""
-    for key, value in body.theme.items():
-        if key not in ALLOWED_TOKEN_KEYS:
-            raise HTTPException(status_code=400, detail=f"Unknown theme token: {key!r}")
-        if not _HEX_COLOR_RE.match(value.light) or not _HEX_COLOR_RE.match(value.dark):
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid color for {key!r}: must be a #rrggbb hex string",
-            )
+    _validate_theme_tokens(body.theme)
 
     db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
     if not db_user:
@@ -84,6 +92,103 @@ async def update_my_theme(
     await session.flush()
 
     return ThemeResponse(theme={**DEFAULT_THEME, **existing})
+
+
+class SavedThemeCreate(BaseModel):
+    name: str
+    tokens: dict[str, ThemeTokenValue]
+
+
+class SavedThemeResponse(BaseModel):
+    id: int
+    name: str
+    tokens: dict[str, ThemeTokenValue]
+    created_at: str
+
+    class Config:
+        from_attributes = True
+
+
+@router.get("/me/themes", response_model=list[SavedThemeResponse])
+async def list_my_saved_themes(
+    user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """List the current user's saved theme presets (a private, per-account
+    library - full token sets included since this is a small personal list)."""
+    db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
+    if not db_user:
+        return []
+    result = await session.execute(
+        select(SavedTheme).where(SavedTheme.user_id == db_user.id).order_by(SavedTheme.created_at)
+    )
+    return [
+        SavedThemeResponse(
+            id=st.id, name=st.name, tokens=st.tokens, created_at=st.created_at.isoformat()
+        )
+        for st in result.scalars().all()
+    ]
+
+
+@router.post("/me/themes", response_model=SavedThemeResponse, status_code=status.HTTP_201_CREATED)
+async def create_my_saved_theme(
+    body: SavedThemeCreate,
+    user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Save the given token set as a new named preset. No "apply" endpoint
+    exists - applying a saved theme is just PUT /me/theme with its `tokens`,
+    since a saved snapshot always has every token key."""
+    name = body.name.strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Name is required")
+    if len(name) > 100:
+        raise HTTPException(status_code=400, detail="Name must be 100 characters or fewer")
+    _validate_theme_tokens(body.tokens)
+
+    db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
+    if not db_user:
+        db_user = User(oidc_sub=user.sub, email=user.email, system_role=user.system_role)
+        session.add(db_user)
+        await session.flush()
+
+    existing = await session.scalar(
+        select(SavedTheme).where(SavedTheme.user_id == db_user.id, SavedTheme.name == name)
+    )
+    if existing:
+        raise HTTPException(status_code=400, detail="A saved theme with this name already exists")
+
+    saved = SavedTheme(
+        user_id=db_user.id, name=name, tokens={k: v.model_dump() for k, v in body.tokens.items()}
+    )
+    session.add(saved)
+    await session.flush()
+
+    return SavedThemeResponse(
+        id=saved.id, name=saved.name, tokens=saved.tokens, created_at=saved.created_at.isoformat()
+    )
+
+
+@router.delete("/me/themes/{theme_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_my_saved_theme(
+    theme_id: int,
+    user: UserInfo = Depends(require_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete one of the current user's saved theme presets. Ownership is
+    checked (not just id) so one user can't delete another's by guessing an id."""
+    db_user = await session.scalar(select(User).where(User.oidc_sub == user.sub))
+    saved = None
+    if db_user:
+        saved = await session.scalar(
+            select(SavedTheme).where(SavedTheme.id == theme_id, SavedTheme.user_id == db_user.id)
+        )
+    if not saved:
+        raise HTTPException(status_code=404, detail="Saved theme not found")
+
+    await session.delete(saved)
+    await session.flush()
+    return None
 
 
 class UserResponse(BaseModel):
@@ -294,6 +399,10 @@ async def delete_user(
     await session.execute(
         update(AuditLog).where(AuditLog.actor_user_id == user.id).values(actor_user_id=None)
     )
+    # SavedTheme rows are the user's own data (not attribution), so delete them
+    # outright rather than redirecting to the sentinel - no ORM cascade is
+    # configured for this table.
+    await session.execute(delete(SavedTheme).where(SavedTheme.user_id == user.id))
 
     await session.delete(user)
     await session.flush()

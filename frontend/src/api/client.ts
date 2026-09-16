@@ -363,6 +363,32 @@ export async function deleteNode(
   }
 }
 
+export interface SavedTheme {
+  id: number;
+  name: string;
+  tokens: import("../theme/tokens").ThemeTokens;
+  created_at: string;
+}
+
+export async function listSavedThemes() {
+  return apiFetch<SavedTheme[]>("/users/me/themes");
+}
+
+export async function createSavedTheme(name: string, tokens: import("../theme/tokens").ThemeTokens) {
+  return apiFetch<SavedTheme>("/users/me/themes", {
+    method: "POST",
+    body: JSON.stringify({ name, tokens }),
+  });
+}
+
+export async function deleteSavedTheme(id: number): Promise<void> {
+  try {
+    await apiClient.delete(`/users/me/themes/${id}`);
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
+  }
+}
+
 export async function revokeNodeCertificate(
   nodeId: number,
   reauthToken: string,

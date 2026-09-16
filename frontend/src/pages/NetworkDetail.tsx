@@ -235,7 +235,7 @@ export const NetworkDetail: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setUsersExpanded((v) => !v)}
-                className="aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
+                className="aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
               >
                 <div className="flex items-center justify-between">
                   <p className="font-semibold text-gray-900 dark:text-white">Users</p>
@@ -260,7 +260,7 @@ export const NetworkDetail: React.FC = () => {
               <button
                 type="button"
                 onClick={() => navigate(`/nodes?network=${networkId}`)}
-                className="aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
+                className="aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
               >
                 <p className="font-semibold text-gray-900 dark:text-white">Nodes</p>
                 <div className="mt-auto">
@@ -274,7 +274,7 @@ export const NetworkDetail: React.FC = () => {
               <button
                 type="button"
                 onClick={() => navigate(`/groups?network=${networkId}`)}
-                className="aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
+                className="aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
               >
                 <p className="font-semibold text-gray-900 dark:text-white">Groups</p>
                 <div className="mt-auto">
@@ -309,7 +309,7 @@ export const NetworkDetail: React.FC = () => {
                       </Table.Head>
                       <Table.Body className="divide-y">
                         {users.map((user) => (
-                          <Table.Row key={user.user_id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
+                          <Table.Row key={user.user_id} className="bg-[var(--nc-bg2-light)] dark:border-gray-700 dark:bg-[var(--nc-bg2-dark)]">
                             <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
                               {user.email}
                             </Table.Cell>

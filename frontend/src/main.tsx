@@ -4,15 +4,16 @@ import { Flowbite } from "flowbite-react";
 import App from "./App";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { flowbiteTheme } from "./theme/flowbiteTheme";
-import { applyPrimaryColor } from "./theme/applyTheme";
+import { applyThemeCssVars } from "./theme/applyTheme";
 import { DEFAULT_THEME } from "./theme/tokens";
 import "./index.css";
 
-// Seed the primary-color CSS vars with the defaults before mount, so the
-// Flowbite Button "purple" override (which reads them via `var(...)`) always
-// has a valid value on first paint. ThemeContext overwrites these with the
-// user's saved theme shortly after mount once GET /me/theme resolves.
-applyPrimaryColor(DEFAULT_THEME);
+// Seed the theme CSS vars (primary button color, page/container backgrounds)
+// with the defaults before mount, so the Flowbite Button/Card/Navbar/Sidebar
+// overrides (which read them via `var(...)`) always have a valid value on
+// first paint. ThemeContext overwrites these with the user's saved theme
+// shortly after mount once GET /me/theme resolves.
+applyThemeCssVars(DEFAULT_THEME);
 
 // Initialize dark/light mode from localStorage or system preference, before
 // React mounts, so there's no flash of the wrong mode. ThemeContext reads

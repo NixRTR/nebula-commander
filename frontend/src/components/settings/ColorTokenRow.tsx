@@ -21,6 +21,7 @@ export function ColorTokenRow({ label, value, onChange }: ColorTokenRowProps) {
             className="h-8 w-10 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent p-0.5"
             aria-label={`${label} light mode color`}
           />
+          <span className="font-mono w-16">{value.light}</span>
         </label>
         <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           Dark
@@ -31,6 +32,7 @@ export function ColorTokenRow({ label, value, onChange }: ColorTokenRowProps) {
             className="h-8 w-10 rounded border border-gray-300 dark:border-gray-600 cursor-pointer bg-transparent p-0.5"
             aria-label={`${label} dark mode color`}
           />
+          <span className="font-mono w-16">{value.dark}</span>
         </label>
       </div>
     </div>

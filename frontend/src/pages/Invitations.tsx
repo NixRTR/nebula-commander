@@ -305,7 +305,7 @@ export const Invitations: React.FC = () => {
                     </Table.Head>
                     <Table.Body className="divide-y">
                       {invitations.map((invitation) => (
-                        <Table.Row key={invitation.id} className="bg-white dark:border-gray-700 dark:bg-gray-800">
+                        <Table.Row key={invitation.id} className="bg-[var(--nc-bg2-light)] dark:border-gray-700 dark:bg-[var(--nc-bg2-dark)]">
                           <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
                             {invitation.email}
                           </Table.Cell>

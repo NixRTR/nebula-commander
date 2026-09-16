@@ -13,17 +13,22 @@ function darken(hex: string, amount: number): string {
 }
 
 /**
- * Writes the primary color (plus a precomputed hover shade) as CSS custom
- * properties on the document root. This is the only token that needs CSS
- * vars - it's consumed by the Flowbite Button "purple" override (see
- * flowbiteTheme.ts) via Tailwind arbitrary-value classes. Every other token
- * is read directly through ThemeContext.resolve() and applied via inline
- * `style`, which needs no CSS variable.
+ * Writes the tokens that need to be consumable from plain CSS/Tailwind
+ * arbitrary-value classes (rather than via ThemeContext.resolve() + inline
+ * `style`) as CSS custom properties on the document root: the primary button
+ * color (plus a precomputed hover shade), the page background, and the
+ * secondary/container background (Card/Navbar/Sidebar, via flowbiteTheme.ts,
+ * plus a handful of manual card-tile surfaces). Every other token is read
+ * directly through ThemeContext.resolve() and applied via inline `style`.
  */
-export function applyPrimaryColor(theme: ThemeTokens): void {
+export function applyThemeCssVars(theme: ThemeTokens): void {
   const root = document.documentElement.style;
   root.setProperty("--nc-primary-light", theme.primary.light);
   root.setProperty("--nc-primary-dark", theme.primary.dark);
   root.setProperty("--nc-primary-light-hover", darken(theme.primary.light, 0.15));
   root.setProperty("--nc-primary-dark-hover", darken(theme.primary.dark, 0.15));
+  root.setProperty("--nc-bg-light", theme.background.light);
+  root.setProperty("--nc-bg-dark", theme.background.dark);
+  root.setProperty("--nc-bg2-light", theme.background2.light);
+  root.setProperty("--nc-bg2-dark", theme.background2.dark);
 }

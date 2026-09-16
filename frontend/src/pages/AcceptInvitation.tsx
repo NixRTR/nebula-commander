@@ -80,7 +80,7 @@ export const AcceptInvitation: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--nc-bg-light)] dark:bg-[var(--nc-bg-dark)]">
         <Card className="w-full max-w-md">
           <div className="text-center">
             <Spinner size="xl" />
@@ -93,7 +93,7 @@ export const AcceptInvitation: React.FC = () => {
 
   if (error) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--nc-bg-light)] dark:bg-[var(--nc-bg-dark)] p-4">
         <Card className="w-full max-w-md">
           <div className="text-center">
             <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900">
@@ -116,7 +116,7 @@ export const AcceptInvitation: React.FC = () => {
 
   if (accepted) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
+      <div className="min-h-screen flex items-center justify-center bg-[var(--nc-bg-light)] dark:bg-[var(--nc-bg-dark)] p-4">
         <Card className="w-full max-w-md">
           <div className="text-center">
             <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 dark:bg-green-900">
@@ -137,7 +137,7 @@ export const AcceptInvitation: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 dark:bg-gray-900 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-[var(--nc-bg-light)] dark:bg-[var(--nc-bg-dark)] p-4">
       <Card className="w-full max-w-md">
         <div className="text-center mb-6">
           <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Network Invitation</h2>

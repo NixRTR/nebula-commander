@@ -22,6 +22,10 @@ class ThemeTokenValue(TypedDict):
 
 
 DEFAULT_THEME: dict[str, ThemeTokenValue] = {
+    # Page background (App.tsx <main>, index.css body) and secondary/container
+    # background (Card/Navbar/Sidebar and manual card-tile surfaces).
+    "background": {"light": "#f9fafb", "dark": "#111827"},  # gray-50 / gray-900
+    "background2": {"light": "#ffffff", "dark": "#1f2937"},  # white / gray-800
     # Primary action color (Flowbite Button "purple" today: bg-purple-700 light,
     # dark:bg-purple-600).
     "primary": {"light": "#7e22ce", "dark": "#9333ea"},

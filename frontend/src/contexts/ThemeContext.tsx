@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { apiClient } from "../api/client";
 import { DEFAULT_THEME, ThemeTokenKey, ThemeTokens, ThemeTokenValue } from "../theme/tokens";
-import { applyPrimaryColor } from "../theme/applyTheme";
+import { applyThemeCssVars } from "../theme/applyTheme";
 
 interface ThemeContextType {
   isDark: boolean;
@@ -39,7 +39,7 @@ export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    applyPrimaryColor(theme);
+    applyThemeCssVars(theme);
   }, [theme]);
 
   useEffect(() => {

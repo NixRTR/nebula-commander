@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
-import { Card, Button } from "flowbite-react";
-import { HiServer, HiGlobe, HiUserGroup, HiChevronRight, HiPlus } from "react-icons/hi";
+import { Link, useNavigate } from "react-router-dom";
+import { Button } from "flowbite-react";
+import { HiPlus } from "react-icons/hi";
 import type { Network } from "../types/networks";
 import type { Node } from "../types/nodes";
 import { listGroupFirewall } from "../api/client";
@@ -58,6 +58,7 @@ function StatCell({ state, singular, plural }: { state: StatState; singular: str
 }
 
 export function NetworkStatus({ networks, nodes }: NetworkStatusProps) {
+  const navigate = useNavigate();
   const { hasNetworkPermission } = usePermissions();
   const [dnsCounts, setDnsCounts] = useState<Record<number, StatState>>({});
   const [groupCounts, setGroupCounts] = useState<Record<number, StatState>>({});
@@ -123,7 +124,7 @@ export function NetworkStatus({ networks, nodes }: NetworkStatusProps) {
         Overview of nodes, DNS records, and groups across your networks.
       </p>
 
-      <div className="space-y-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
         {networks.map((net) => {
           const netNodes = nodes.filter((n) => n.network_id === net.id);
           const total = netNodes.length;
@@ -133,67 +134,42 @@ export function NetworkStatus({ networks, nodes }: NetworkStatusProps) {
           const groupState = groupCounts[net.id] ?? { status: "loading" as const };
 
           return (
-            <Card key={net.id}>
-              <div className="flex justify-between items-start">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900 dark:text-white">{net.name}</h2>
-                  <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                    Subnet <strong>{net.subnet_cidr}</strong> &middot; Created{" "}
-                    {new Date(net.created_at).toLocaleDateString()}
-                  </p>
-                </div>
-                <Link
-                  to={`/networks/${net.id}`}
-                  className="inline-flex items-center gap-1 text-sm font-medium text-purple-600 dark:text-purple-400 hover:underline whitespace-nowrap"
-                >
-                  View network
-                  <HiChevronRight className="h-4 w-4" />
-                </Link>
-              </div>
+            <button
+              key={net.id}
+              type="button"
+              onClick={() => navigate(`/networks/${net.id}`)}
+              className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
+            >
+              <p className="font-semibold text-lg text-gray-900 dark:text-white truncate" title={net.name}>
+                {net.name}
+              </p>
+              <p className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate mb-3">
+                {net.subnet_cidr}
+              </p>
 
-              <div className="border-t border-gray-200 dark:border-gray-700 my-4" />
-
-              <div className="grid grid-cols-3 gap-6">
+              <div className="mt-auto grid grid-cols-2 gap-3 text-sm">
                 <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <HiServer className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      Nodes
-                    </span>
-                  </div>
-                  <div className="flex items-baseline gap-1">
+                  <div className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
                     <StatusDot total={total} active={active} offline={offline} />
-                    <span className="text-2xl font-bold text-gray-900 dark:text-white">{active}</span>
-                    <span className="text-sm text-gray-400 dark:text-gray-500">/ {total} active</span>
+                    Nodes
+                  </div>
+                  <div className="font-semibold text-gray-900 dark:text-white">
+                    {active}/{total}
                   </div>
                   {offline > 0 && (
-                    <p className="text-sm text-red-600 dark:text-red-400 mt-1">
-                      {offline} offline
-                    </p>
+                    <div className="text-xs text-red-600 dark:text-red-400">{offline} offline</div>
                   )}
                 </div>
-
                 <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <HiGlobe className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      DNS Records
-                    </span>
-                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">DNS Records</div>
                   <StatCell state={dnsState} singular="record" plural="records" />
                 </div>
-
                 <div>
-                  <div className="flex items-center gap-1.5 mb-2">
-                    <HiUserGroup className="h-4 w-4 text-gray-500 dark:text-gray-400" />
-                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                      Groups
-                    </span>
-                  </div>
+                  <div className="text-xs text-gray-500 dark:text-gray-400">Groups</div>
                   <StatCell state={groupState} singular="group" plural="groups" />
                 </div>
               </div>
-            </Card>
+            </button>
           );
         })}
       </div>

@@ -170,6 +170,25 @@ class User(Base):
     )
 
 
+class SavedTheme(Base):
+    """A user's named, saved snapshot of their full theme token set - a personal
+    library of presets they can switch between. See backend/theme_defaults.py.
+    Applying one is just a PUT /me/theme with its `tokens`, so there's no
+    separate "active theme" pointer to keep in sync here."""
+
+    __tablename__ = "saved_themes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    tokens: Mapped[dict] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "name", name="uq_saved_theme_user_name"),
+    )
+
+
 class EnrollmentCode(Base):
     """One-time enrollment code for a node (dnclient-style)."""
 

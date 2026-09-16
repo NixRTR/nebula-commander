@@ -67,7 +67,7 @@ function AppContent() {
               onMenuClick={() => setSidebarOpen(!sidebarOpen)}
             />
 
-            <main className="flex-1 overflow-y-auto p-6 bg-gray-50 dark:bg-gray-900">
+            <main className="flex-1 overflow-y-auto p-6 bg-[var(--nc-bg-light)] dark:bg-[var(--nc-bg-dark)]">
               <Suspense fallback={<PageLoader />}>
                 <Routes>
                   <Route path="/" element={<Home />} />
