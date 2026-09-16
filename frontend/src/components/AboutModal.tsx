@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { Modal, Button } from "flowbite-react";
+import { getApiInfo } from "../api/client";
 
 interface AboutModalProps {
   show: boolean;
@@ -12,12 +14,30 @@ const GITHUB_NEBULACDR = "https://github.com/NixRTR/nebulacdr.com";
 const LICENSE_MIT = "https://opensource.org/licenses/MIT";
 const LICENSE_GPL3 = "https://www.gnu.org/licenses/gpl-3.0.html";
 
+const FRONTEND_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
+
 export function AboutModal({ show, onClose }: AboutModalProps) {
+  const [backendVersion, setBackendVersion] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!show) return;
+    getApiInfo()
+      .then((info) => setBackendVersion(info.version))
+      .catch(() => setBackendVersion(null));
+  }, [show]);
+
   return (
     <Modal show={show} onClose={onClose} size="md">
       <Modal.Header>About Nebula Commander</Modal.Header>
       <Modal.Body>
         <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
+          <section>
+            <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Version</h4>
+            <ul className="list-disc list-inside space-y-0.5">
+              <li>Frontend — {FRONTEND_VERSION}</li>
+              <li>Backend — {backendVersion ?? "unknown"}</li>
+            </ul>
+          </section>
           <section>
             <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Licenses</h4>
             <ul className="list-disc list-inside space-y-0.5">

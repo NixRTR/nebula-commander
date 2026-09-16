@@ -5,6 +5,11 @@
 FROM node:20-alpine AS builder
 WORKDIR /app
 
+# Accept version as build arg (e.g. 0.1.5 from tag v0.1.5) - baked into the bundle
+# below as VITE_APP_VERSION so the About screen can display it (see AboutModal.tsx).
+ARG VERSION=latest
+ENV VITE_APP_VERSION=${VERSION}
+
 COPY frontend/package.json frontend/package-lock.json* ./
 RUN npm ci --legacy-peer-deps || npm install --legacy-peer-deps
 
@@ -16,7 +21,9 @@ FROM nginx:alpine
 
 RUN apk add --no-cache curl
 
-# Accept version as build arg (e.g. 0.1.5 from tag v0.1.5)
+# Re-declare for this stage - ARGs don't carry across FROM boundaries. Used below
+# only for downloading matching ncclient binaries, not for the frontend bundle
+# (already baked in during the builder stage above).
 ARG VERSION=latest
 # Set to 1 in CI (GitHub Actions) to download ncclient binaries from releases. Default 0 for local builds.
 ARG DOWNLOAD_BINARIES=0

@@ -202,6 +202,18 @@ export async function apiFetch<T>(
   }
 }
 
+export interface ApiInfo {
+  name: string;
+  version: string;
+  status: string;
+}
+
+/** Backend name/version/status - GET /api itself (no auth required). Used by
+ * AboutModal to display the running backend version. */
+export async function getApiInfo() {
+  return apiFetch<ApiInfo>("");
+}
+
 export async function listNetworks() {
   return apiFetch<import("../types/networks").Network[]>("/networks");
 }
