@@ -20,6 +20,7 @@ import {
 import { FaGithub, FaComments } from 'react-icons/fa';
 import { AboutModal } from '../AboutModal';
 import { usePermissions } from '../../contexts/PermissionContext';
+import { useVersionCheck } from '../../hooks/useVersionCheck';
 
 interface SidebarProps {
   onLogout: () => void;
@@ -31,6 +32,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
   const [showAboutModal, setShowAboutModal] = useState(false);
   const location = useLocation();
   const { isSystemAdmin, isNetworkOwner } = usePermissions();
+  const versionCheck = useVersionCheck();
 
   const handleItemClick = () => {
     if (window.innerWidth < 1650) {
@@ -210,18 +212,26 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               >
                 GitHub
               </FlowbiteSidebar.Item>
-              <FlowbiteSidebar.Item
-                icon={HiInformationCircle}
-                style={{ cursor: 'pointer' }}
-                onClick={() => setShowAboutModal(true)}
-              >
-                About
-              </FlowbiteSidebar.Item>
+              <div className="relative">
+                {versionCheck?.update_available && (
+                  <span
+                    className="absolute left-3 top-1 z-10 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-gray-800"
+                    title={`Update available: v${versionCheck.latest_version}`}
+                  />
+                )}
+                <FlowbiteSidebar.Item
+                  icon={HiInformationCircle}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => setShowAboutModal(true)}
+                >
+                  About
+                </FlowbiteSidebar.Item>
+              </div>
             </FlowbiteSidebar.ItemGroup>
           </FlowbiteSidebar.Items>
         </FlowbiteSidebar>
       </div>
-      <AboutModal show={showAboutModal} onClose={() => setShowAboutModal(false)} />
+      <AboutModal show={showAboutModal} onClose={() => setShowAboutModal(false)} versionCheck={versionCheck} />
     </>
   );
 }

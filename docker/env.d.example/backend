@@ -184,3 +184,12 @@ NEBULA_COMMANDER_SMTP_FROM_NAME=Nebula Commander
 # WARNING: Never enable in production!
 NEBULA_COMMANDER_DEBUG=false
 
+# =============================================================================
+# Update Check
+# =============================================================================
+
+# Check GitHub for a newer release, shown as a notification in the web UI's
+# About screen. Set to false to disable all outbound calls to github.com (e.g.
+# for air-gapped or privacy-conscious deployments).
+NEBULA_COMMANDER_UPDATE_CHECK_ENABLED=true
+

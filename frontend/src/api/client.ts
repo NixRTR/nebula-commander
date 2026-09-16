@@ -214,6 +214,20 @@ export async function getApiInfo() {
   return apiFetch<ApiInfo>("");
 }
 
+export interface VersionCheck {
+  current_version: string;
+  latest_version: string | null;
+  release_url: string | null;
+  update_available: boolean;
+  check_enabled: boolean;
+}
+
+/** Compare the running version against the latest GitHub release (no auth required).
+ * Used to show the update-available badge/notice in the sidebar and About modal. */
+export async function getVersionCheck() {
+  return apiFetch<VersionCheck>("/version-check");
+}
+
 export async function listNetworks() {
   return apiFetch<import("../types/networks").Network[]>("/networks");
 }

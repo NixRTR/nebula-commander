@@ -26,6 +26,11 @@ class Settings(BaseSettings):
     app_name: str = "Nebula Commander"
     debug: bool = False
 
+    # Check GitHub for a newer release (used by the About screen's update
+    # notification). Set to False for air-gapped/privacy-conscious deployments
+    # that don't want any outbound calls to github.com.
+    update_check_enabled: bool = True
+
     # Server
     host: str = "0.0.0.0"  # nosec B104 - containerized service, Docker handles network isolation
     port: int = 8081

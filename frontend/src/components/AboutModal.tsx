@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
 import { Modal, Button } from "flowbite-react";
-import { getApiInfo } from "../api/client";
+import { getApiInfo, type VersionCheck } from "../api/client";
 
 interface AboutModalProps {
   show: boolean;
   onClose: () => void;
+  versionCheck?: VersionCheck | null;
 }
 
 const PAYPAL_DONATE_URL = "https://www.paypal.com/donate/?hosted_button_id=CHLZH2ZJXKQFU";
@@ -14,9 +15,15 @@ const GITHUB_NEBULACDR = "https://github.com/NixRTR/nebulacdr.com";
 const LICENSE_MIT = "https://opensource.org/licenses/MIT";
 const LICENSE_GPL3 = "https://www.gnu.org/licenses/gpl-3.0.html";
 
-const FRONTEND_VERSION = import.meta.env.VITE_APP_VERSION || "dev";
+// Only trust the baked-in version if it actually looks like a release version
+// (X.Y.Z...) - a Docker build without a resolved release tag falls back to the
+// literal string "latest", which is a tag name, not a version, and would be
+// misleading to show as one.
+const rawFrontendVersion = import.meta.env.VITE_APP_VERSION;
+const FRONTEND_VERSION =
+  rawFrontendVersion && /^\d+\.\d+\.\d+/.test(rawFrontendVersion) ? rawFrontendVersion : "dev";
 
-export function AboutModal({ show, onClose }: AboutModalProps) {
+export function AboutModal({ show, onClose, versionCheck }: AboutModalProps) {
   const [backendVersion, setBackendVersion] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +44,21 @@ export function AboutModal({ show, onClose }: AboutModalProps) {
               <li>Frontend — {FRONTEND_VERSION}</li>
               <li>Backend — {backendVersion ?? "unknown"}</li>
             </ul>
+            {versionCheck?.update_available && versionCheck.latest_version && (
+              <p className="mt-2 inline-flex flex-wrap items-center gap-1.5 rounded-md bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-300 px-2 py-1 text-sm">
+                <span>🆕 Update available: v{versionCheck.latest_version}</span>
+                {versionCheck.release_url && (
+                  <a
+                    href={versionCheck.release_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium underline hover:no-underline"
+                  >
+                    View release
+                  </a>
+                )}
+              </p>
+            )}
           </section>
           <section>
             <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Licenses</h4>
