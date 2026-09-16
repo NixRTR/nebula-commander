@@ -6,43 +6,67 @@ node** (it advertises `0.0.0.0/0`/`::/0` and routes all of another node's traffi
 way `tailscale up --advertise-exit-node` does). Both build on Nebula's own
 [`unsafe_routes`](https://nebula.defined.net/docs/config/tun/#tununsafe_routes) feature.
 
-This doc covers how it's configured, what happens automatically for nodes running
-`ncclient` on Linux, and — the part that's easy to miss — what you have to do yourself
-for everything else (Windows, macOS, Docker-deployed `ncclient`, or bare `nebula`).
+This doc covers how it's configured from both sides — the gateway that advertises a
+route, and the other nodes that actually use it — what happens automatically for
+nodes running `ncclient` on Linux, and — the part that's easy to miss — what you
+have to do yourself for everything else (Windows, macOS, Docker-deployed `ncclient`,
+or bare `nebula`).
 
-## Setting up a route
+## Two sides of the same setting
 
-In a node's details panel (**Nodes → *hostname* → Edit**), under **Routing (subnet
-router / exit node)**:
+Every route has a **gateway** (the node advertising it) and one or more
+**consumers** (the nodes that actually route through it). Nebula Commander exposes
+both sides in a node's details panel:
 
-- **Exit node** — a single checkbox. Checking it advertises both `0.0.0.0/0` and
-  `::/0` from this node.
-- **Advertised subnets** — a checklist of local interfaces `ncclient` discovered on
-  this node (ethernet, Wi-Fi, Tailscale, or another Nebula interface on the same host;
-  Docker interfaces are never offered). Only populated for nodes actively running
-  `ncclient` on Linux.
-- **Other** — type any CIDR by hand. Use this for a subnet reachable through the node
-  by some other means `ncclient` can't detect on its own, or on a node not running
-  `ncclient` at all.
+- On the **gateway** node, under **Advanced → Subnet Router & Exit Node Config**
+  (and **Advanced → Exit Node**), you choose what this node advertises and, per
+  route, a **"Used by"** checklist of which other nodes are allowed to consume it.
+- On a **consumer** node, the visible (non-Advanced) **Use Subnet Router** and
+  **Use Exit Node** dropdowns let you pick a gateway directly, without opening the
+  gateway's own settings.
 
-### Routes are opt-in per node
+Both mechanisms write to the same data: picking a gateway from a consumer's
+dropdown adds that consumer to the gateway's "Used by" list for every matching
+route, and clears it from any other gateway's routes of the same kind (a node uses
+at most one subnet router and one exit node at a time). **Either way, a route
+reaches nobody until an admin explicitly says who it's for** — advertising a route
+is never enough on its own.
 
-A route you add here reaches **nobody** until you say who it's for. Under each route
-(the exit-node toggle, each subnet, each manual entry) is a **"Used by"** disclosure —
-expand it and check off which other nodes on the network should actually receive a
-route to it. This is deliberate: advertising a route doesn't silently expose it
-network-wide, and different nodes can be given access to different routes from the
-same gateway (e.g. your laptop gets the exit node, but a home-automation subnet is
-only routed to the two nodes that actually need it).
+## Setting up a route (gateway side)
 
-Unchecked nodes simply never get a `tun.unsafe_routes` entry for that CIDR - they
-can't reach it through this gateway at all, safely and without any firewall changes
-needed on their end.
+In a node's details panel (**Nodes → *hostname* → Edit**), expand **Advanced**:
+
+- **Exit Node** — a single checkbox, **Exit node (route all traffic)**. Checking it
+  advertises both `0.0.0.0/0` and `::/0` from this node.
+- **Subnet Router & Exit Node Config → Advertised subnets** — a checklist of local
+  interfaces `ncclient` discovered on this node (ethernet, Wi-Fi, Tailscale, or
+  another Nebula interface on the same host; Docker interfaces are never offered).
+  Only populated for nodes actively running `ncclient` on Linux.
+- **Subnet Router & Exit Node Config → Other** — type any CIDR by hand. Use this for
+  a subnet reachable through the node by some other means `ncclient` can't detect on
+  its own, or on a node not running `ncclient` at all.
+
+Under each route is a **"Used by"** disclosure — expand it and check off which other
+nodes on the network should actually receive a route to it.
+
+## Picking a route (consumer side)
+
+On any other node's details panel — visible without opening Advanced:
+
+- **Use Subnet Router** — a dropdown listing every other node on the network that
+  advertises at least one subnet. Choosing one routes this node's traffic for all of
+  that gateway's advertised subnets through it; **None** stops using one.
+- **Use Exit Node** — the same idea for full-tunnel routing: a dropdown of every
+  other node advertising an exit route.
+
+This works for every platform, not just desktop/`ncclient` nodes - a mobile node can
+pick a subnet router or exit node too, since consuming a route needs no host
+automation, just the generated Nebula config.
 
 ## What happens automatically (Linux nodes running `ncclient`)
 
-For a node whose `ncclient` has confirmed it's Linux (shown by the absence of the
-amber warning in the Routing section):
+For a gateway node whose `ncclient` has confirmed it's Linux (shown by the absence
+of the amber warning under Advanced → Subnet Router & Exit Node Config):
 
 1. Nebula Commander generates the correct `tun.unsafe_routes` entry (with the
    required `via`) in every *consumer* node's config, and signs the gateway's own
@@ -127,6 +151,8 @@ automatically for every subnet it advertises, but a manually-written config for 
 non-`ncclient` host needs the same treatment by hand. See [Nebula's firewall
 docs](https://nebula.defined.net/docs/config/firewall/) for the exact rule shape.
 
-**The route works for one node but not another** - check that node's "Used by"
-selection on the gateway. A route only reaches nodes explicitly checked; an
-unselected node's config simply won't contain the route at all.
+**The route works for one node but not another** - check that node's selection:
+either its own **Use Subnet Router**/**Use Exit Node** dropdown, or the "Used by"
+list on the gateway it should be using. A route only reaches nodes explicitly
+selected on one side or the other; an unselected node's config simply won't contain
+the route at all.

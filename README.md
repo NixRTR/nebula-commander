@@ -34,18 +34,19 @@
 - [PayPal and Venmo](https://www.paypal.com/donate/?hosted_button_id=CHLZH2ZJXKQFU)
 - More to come
 
-### Status (as of v0.3.2)
+### Status (as of v0.4.0)
 
 **Implemented**
 
 - Networks, nodes, IP allocation, and certificate management — including automatic
   re-signing when a node's group changes, no re-enrollment needed
 - Nebula v2 certificates, with P256 as an opt-in curve
-- Firewall group rules
+- Firewall group rules, with a visual group access diagram
 - Magic DNS: split-horizon DNS via dnsmasq (Linux/Docker) and NRPT (Windows), with
   wildcard alias support
 - Client UI via web interface — a full React dashboard for networks, nodes, groups,
-  DNS, users, invitations, and the audit log
+  DNS, users, invitations, and the audit log, with a consistent square-card layout
+  across the list pages (Networks, Nodes, Groups, Users, Home)
 - Device client (`ncclient`): CLI, a Windows service + tray app, a Docker image, and
   a NixOS module (`services.ncclient`), plus mobile support (iOS/Android via the
   official Mobile Nebula app)
@@ -54,16 +55,21 @@
   sensitive actions (deletions, revocations)
 - Audit logging, an invitation system, and multi-user management
 - Encryption at rest for certificates and keys
-- Subnet routers and exit nodes (Nebula's `unsafe_routes`), opt-in per consumer node
-  — settable on any node; on Linux nodes running `ncclient`, it also discovers
-  advertisable local subnets (ethernet/Wi-Fi/Tailscale/other Nebula interfaces) and
-  automatically configures host-level IP forwarding and NAT. See
+- Subnet routers and exit nodes (Nebula's `unsafe_routes`), opt-in per consumer
+  node, configurable from either side — a gateway's "Used by" picker, or a simple
+  "Use Subnet Router"/"Use Exit Node" dropdown on any other node. On Linux nodes
+  running `ncclient` it also discovers advertisable local subnets
+  (ethernet/Wi-Fi/Tailscale/other Nebula interfaces) and automatically configures
+  host-level IP forwarding and NAT. See
   [docs/unsafe-routes.md](docs/unsafe-routes.md) for how it works, including hosts
   that don't run `ncclient`
+- Per-account color theming — every user can customize button, status, badge, and
+  background colors independently for light and dark mode, and save named presets
 
 **Planned**
 
-- Subnet router / exit node support for Windows and Docker-deployed nodes
+- Automatic host-level route/NAT configuration for subnet routers and exit nodes on
+  Windows and Docker-deployed nodes
 - Continued client hardening as real-world deployments surface edge cases
 
 ---
@@ -149,7 +155,7 @@ export NEBULA_COMMANDER_CERT_STORE_PATH="./backend/certs"
 # Required: encryption key. Generate once:
 # python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 export NEBULA_COMMANDER_ENCRYPTION_KEY="your-fernet-key-here"
-export DEBUG=true
+export NEBULA_COMMANDER_DEBUG=true
 python -m uvicorn backend.main:app --reload --port 8081
 ```
 
