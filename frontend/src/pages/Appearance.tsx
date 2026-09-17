@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { Card, Button, Badge, TextInput } from "flowbite-react";
-import { HiRefresh, HiSave, HiTrash, HiCheck } from "react-icons/hi";
+import { HiRefresh, HiSave, HiTrash, HiCheck, HiDownload } from "react-icons/hi";
 import { useTheme } from "../contexts/ThemeContext";
 import { useToast } from "../contexts/ToastContext";
 import { DEFAULT_THEME, ThemeTokenKey, ThemeTokens, ThemeTokenValue, contrastTextColor } from "../theme/tokens";
+import { themeToYaml, downloadTextFile, slugifyFilename } from "../theme/themeYaml";
 import { ColorTokenRow } from "../components/settings/ColorTokenRow";
 import { listSavedThemes, createSavedTheme, deleteSavedTheme, SavedTheme } from "../api/client";
 
@@ -99,6 +100,14 @@ export function Appearance() {
     setEdits(DEFAULT_THEME);
   };
 
+  const handleExportYaml = () => {
+    downloadTextFile("nebula-commander-theme.yaml", themeToYaml(edits, "Current theme"));
+  };
+
+  const handleExportSavedTheme = (st: SavedTheme) => {
+    downloadTextFile(`${slugifyFilename(st.name)}.yaml`, themeToYaml(st.tokens, st.name));
+  };
+
   const handleSaveAsTheme = async () => {
     const name = newThemeName.trim();
     if (!name) return;
@@ -151,7 +160,7 @@ export function Appearance() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-2xl font-semibold text-gray-900 dark:text-white">Appearance</h1>
+      <h1 className="text-2xl font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">Appearance</h1>
       <p className="text-sm text-gray-600 dark:text-gray-400">
         Customize the colors used across Nebula Commander. Changes are saved to your account and
         apply to both light and dark mode - you're currently editing in{" "}
@@ -160,7 +169,7 @@ export function Appearance() {
       </p>
 
       <Card>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">Live preview</h2>
+        <h2 className="text-lg font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-2">Live preview</h2>
         <div className="flex flex-wrap items-center gap-3">
           <Button color="purple">Primary button</Button>
           <span
@@ -188,7 +197,7 @@ export function Appearance() {
       </Card>
 
       <Card>
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">Saved Themes</h2>
+        <h2 className="text-lg font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-1">Saved Themes</h2>
         <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
           Save your current color choices below as a named theme you can switch back to later.
         </p>
@@ -214,7 +223,7 @@ export function Appearance() {
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {savedThemes.map((st) => (
               <div key={st.id} className="flex items-center justify-between gap-2 py-2">
-                <span className="text-sm text-gray-900 dark:text-white truncate">{st.name}</span>
+                <span className="text-sm text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate">{st.name}</span>
                 <div className="flex gap-2 shrink-0">
                   <Button
                     size="xs"
@@ -225,6 +234,9 @@ export function Appearance() {
                   >
                     <HiCheck className="w-3.5 h-3.5 mr-1" />
                     Apply
+                  </Button>
+                  <Button size="xs" color="gray" onClick={() => handleExportSavedTheme(st)}>
+                    <HiDownload className="w-3.5 h-3.5" />
                   </Button>
                   <Button
                     size="xs"
@@ -244,7 +256,7 @@ export function Appearance() {
 
       {GROUPS.map((group) => (
         <Card key={group.title}>
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">{group.title}</h2>
+          <h2 className="text-lg font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-1">{group.title}</h2>
           <div className="divide-y divide-gray-100 dark:divide-gray-700">
             {group.tokens.map(({ key, label }) => (
               <ColorTokenRow
@@ -266,6 +278,10 @@ export function Appearance() {
         <Button color="gray" onClick={handleReset} disabled={saving}>
           <HiRefresh className="w-4 h-4 mr-1" />
           Reset to defaults
+        </Button>
+        <Button color="gray" onClick={handleExportYaml}>
+          <HiDownload className="w-4 h-4 mr-1" />
+          Export YAML
         </Button>
       </div>
     </div>
