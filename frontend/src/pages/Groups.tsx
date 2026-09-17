@@ -261,7 +261,7 @@ export function Groups() {
                       onClick={() => setDetailGroup(gf.group_name)}
                       className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
                     >
-                      <p className="font-semibold text-gray-900 dark:text-white truncate" title={gf.group_name}>
+                      <p className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={gf.group_name}>
                         {gf.group_name}
                       </p>
                       <div className="mt-auto">

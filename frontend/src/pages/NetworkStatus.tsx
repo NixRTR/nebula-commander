@@ -49,7 +49,7 @@ function StatCell({ state, singular, plural }: { state: StatState; singular: str
   }
   return (
     <div className="flex items-baseline gap-1">
-      <span className="text-2xl font-bold text-gray-900 dark:text-white">{state.count}</span>
+      <span className="text-2xl font-bold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{state.count}</span>
       <span className="text-sm text-gray-400 dark:text-gray-500">
         {state.count === 1 ? singular : plural}
       </span>
@@ -140,7 +140,7 @@ export function NetworkStatus({ networks, nodes }: NetworkStatusProps) {
               onClick={() => navigate(`/networks/${net.id}`)}
               className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
             >
-              <p className="font-semibold text-lg text-gray-900 dark:text-white truncate" title={net.name}>
+              <p className="font-semibold text-lg text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={net.name}>
                 {net.name}
               </p>
               <p className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate mb-3">
@@ -153,7 +153,7 @@ export function NetworkStatus({ networks, nodes }: NetworkStatusProps) {
                     <StatusDot total={total} active={active} offline={offline} />
                     Nodes
                   </div>
-                  <div className="font-semibold text-gray-900 dark:text-white">
+                  <div className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                     {active}/{total}
                   </div>
                   {offline > 0 && (

@@ -40,7 +40,7 @@ export function Navbar({ username, connectionStatus, onMenuClick }: NavbarProps)
         </button>
 
         <FlowbiteNavbar.Brand>
-          <span className="flex items-center gap-2 self-center whitespace-nowrap text-xl font-semibold text-gray-900 dark:text-white">
+          <span className="flex items-center gap-2 self-center whitespace-nowrap text-xl font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
             <img
               src="/logo.svg"
               alt="Nebula Commander"

@@ -238,7 +238,7 @@ export const NetworkDetail: React.FC = () => {
                 className="aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
               >
                 <div className="flex items-center justify-between">
-                  <p className="font-semibold text-gray-900 dark:text-white">Users</p>
+                  <p className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">Users</p>
                   {usersExpanded ? (
                     <HiChevronDown className="w-4 h-4 text-gray-400" />
                   ) : (
@@ -248,11 +248,11 @@ export const NetworkDetail: React.FC = () => {
                 <div className="mt-auto grid grid-cols-2 gap-3 text-sm">
                   <div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Owners</div>
-                    <div className="font-semibold text-2xl text-gray-900 dark:text-white">{ownerCount}</div>
+                    <div className="font-semibold text-2xl text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{ownerCount}</div>
                   </div>
                   <div>
                     <div className="text-xs text-gray-500 dark:text-gray-400">Members</div>
-                    <div className="font-semibold text-2xl text-gray-900 dark:text-white">{memberCount}</div>
+                    <div className="font-semibold text-2xl text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{memberCount}</div>
                   </div>
                 </div>
               </button>
@@ -262,10 +262,10 @@ export const NetworkDetail: React.FC = () => {
                 onClick={() => navigate(`/nodes?network=${networkId}`)}
                 className="aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
               >
-                <p className="font-semibold text-gray-900 dark:text-white">Nodes</p>
+                <p className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">Nodes</p>
                 <div className="mt-auto">
                   <div className="text-xs text-gray-500 dark:text-gray-400">Active / Total</div>
-                  <div className="font-semibold text-2xl text-gray-900 dark:text-white">
+                  <div className="font-semibold text-2xl text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                     {activeNodeCount}/{nodes.length}
                   </div>
                 </div>
@@ -276,10 +276,10 @@ export const NetworkDetail: React.FC = () => {
                 onClick={() => navigate(`/groups?network=${networkId}`)}
                 className="aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
               >
-                <p className="font-semibold text-gray-900 dark:text-white">Groups</p>
+                <p className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">Groups</p>
                 <div className="mt-auto">
                   <div className="text-xs text-gray-500 dark:text-gray-400">Total</div>
-                  <div className="font-semibold text-2xl text-gray-900 dark:text-white">
+                  <div className="font-semibold text-2xl text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                     {network?.group_count ?? 0}
                   </div>
                 </div>
@@ -310,7 +310,7 @@ export const NetworkDetail: React.FC = () => {
                       <Table.Body className="divide-y">
                         {users.map((user) => (
                           <Table.Row key={user.user_id} className="bg-[var(--nc-bg2-light)] dark:border-gray-700 dark:bg-[var(--nc-bg2-dark)]">
-                            <Table.Cell className="whitespace-nowrap font-medium text-gray-900 dark:text-white">
+                            <Table.Cell className="whitespace-nowrap font-medium text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                               {user.email}
                             </Table.Cell>
                             <Table.Cell>
@@ -454,7 +454,7 @@ export const NetworkDetail: React.FC = () => {
               {selectedUser && (
                 <div>
                   <Label value="User" />
-                  <p className="text-sm text-gray-900 dark:text-white font-medium">{selectedUser.email}</p>
+                  <p className="text-sm text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] font-medium">{selectedUser.email}</p>
                 </div>
               )}
 

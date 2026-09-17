@@ -64,7 +64,7 @@ export const Toast: React.FC<ToastProps> = ({ toast, onDismiss }) => {
         {getIcon()}
       </div>
       <div className="ml-3 text-sm font-normal">
-        <span className="mb-1 text-sm font-semibold text-gray-900 dark:text-white">
+        <span className="mb-1 text-sm font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
           {toast.title}
         </span>
         {toast.message && (

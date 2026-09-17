@@ -39,7 +39,7 @@ export function AboutModal({ show, onClose, versionCheck }: AboutModalProps) {
       <Modal.Body>
         <div className="space-y-4 text-sm text-gray-700 dark:text-gray-300">
           <section>
-            <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Version</h4>
+            <h4 className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-1">Version</h4>
             <ul className="list-disc list-inside space-y-0.5">
               <li>Frontend — {FRONTEND_VERSION}</li>
               <li>Backend — {backendVersion ?? "unknown"}</li>
@@ -61,7 +61,7 @@ export function AboutModal({ show, onClose, versionCheck }: AboutModalProps) {
             )}
           </section>
           <section>
-            <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Licenses</h4>
+            <h4 className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-1">Licenses</h4>
             <ul className="list-disc list-inside space-y-0.5">
               <li>Backend — <a href={LICENSE_MIT} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">MIT</a></li>
               <li>Frontend — <a href={LICENSE_MIT} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">MIT</a></li>
@@ -69,7 +69,7 @@ export function AboutModal({ show, onClose, versionCheck }: AboutModalProps) {
             </ul>
           </section>
           <section>
-            <h4 className="font-semibold text-gray-900 dark:text-white mb-1">GitHub repositories</h4>
+            <h4 className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-1">GitHub repositories</h4>
             <ul className="list-disc list-inside space-y-0.5">
               <li>
                 <a href={GITHUB_NEBULA_COMMANDER} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
@@ -85,11 +85,11 @@ export function AboutModal({ show, onClose, versionCheck }: AboutModalProps) {
             </ul>
           </section>
           <section>
-            <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Author</h4>
+            <h4 className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-1">Author</h4>
             <p>William Kenny (BeardedTek)</p>
           </section>
           <section>
-            <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Organization</h4>
+            <h4 className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-1">Organization</h4>
             <p>
               <a href={GITHUB_NIXRTR} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
                 NixRTR
@@ -98,7 +98,7 @@ export function AboutModal({ show, onClose, versionCheck }: AboutModalProps) {
             </p>
           </section>
           <section>
-            <h4 className="font-semibold text-gray-900 dark:text-white mb-1">Donation</h4>
+            <h4 className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-1">Donation</h4>
             <p>
               <a href={PAYPAL_DONATE_URL} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
                 Donate via PayPal

@@ -10,7 +10,7 @@ interface ColorTokenRowProps {
 export function ColorTokenRow({ label, value, onChange }: ColorTokenRowProps) {
   return (
     <div className="flex items-center justify-between gap-4 py-2">
-      <span className="text-sm text-gray-900 dark:text-white">{label}</span>
+      <span className="text-sm text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{label}</span>
       <div className="flex items-center gap-4">
         <label className="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
           Light

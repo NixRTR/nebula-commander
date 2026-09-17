@@ -159,7 +159,7 @@ export const Users: React.FC = () => {
                 className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
               >
                 <p
-                  className="font-semibold text-gray-900 dark:text-white truncate pr-1"
+                  className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate pr-1"
                   title={user.email || 'N/A'}
                 >
                   {user.email || 'N/A'}
@@ -171,7 +171,7 @@ export const Users: React.FC = () => {
                 </div>
                 <div className="mt-auto">
                   <div className="text-xs text-gray-500 dark:text-gray-400">Networks</div>
-                  <div className="font-semibold text-gray-900 dark:text-white">{user.network_count}</div>
+                  <div className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{user.network_count}</div>
                 </div>
               </button>
             ))}
@@ -186,7 +186,7 @@ export const Users: React.FC = () => {
               <div className="space-y-4">
                 <div>
                   <Label value="Email" />
-                  <p className="text-sm text-gray-900 dark:text-white">{selectedUser.email || 'N/A'}</p>
+                  <p className="text-sm text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{selectedUser.email || 'N/A'}</p>
                 </div>
                 <div>
                   <Label value="System Role" />
@@ -210,7 +210,7 @@ export const Users: React.FC = () => {
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 mt-1">
-                      <p className="text-sm text-gray-900 dark:text-white">{selectedUser.system_role}</p>
+                      <p className="text-sm text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{selectedUser.system_role}</p>
                       <Button size="xs" color="gray" onClick={handleStartEditRole}>
                         <HiPencil className="mr-1 h-3.5 w-3.5" />
                         Edit
@@ -220,7 +220,7 @@ export const Users: React.FC = () => {
                 </div>
                 <div>
                   <Label value="Created" />
-                  <p className="text-sm text-gray-900 dark:text-white">
+                  <p className="text-sm text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                     {new Date(selectedUser.created_at).toLocaleString()}
                   </p>
                 </div>
@@ -231,7 +231,7 @@ export const Users: React.FC = () => {
                     <div className="mt-2 space-y-2">
                       {selectedUser.networks.map((network) => (
                         <Card key={network.id}>
-                          <h5 className="text-sm font-bold text-gray-900 dark:text-white">
+                          <h5 className="text-sm font-bold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                             {network.name}
                           </h5>
                           <p className="text-sm text-gray-700 dark:text-gray-400">

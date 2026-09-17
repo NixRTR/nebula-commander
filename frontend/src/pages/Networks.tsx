@@ -149,7 +149,7 @@ export function Networks() {
                     onClick={() => navigate(`/networks/${n.id}`)}
                     className="relative aspect-square rounded-lg border border-gray-200 dark:border-gray-700 bg-[var(--nc-bg2-light)] dark:bg-[var(--nc-bg2-dark)] p-4 text-left shadow-sm hover:shadow-md transition-shadow flex flex-col"
                   >
-                    <p className="font-semibold text-lg text-gray-900 dark:text-white truncate" title={n.name}>
+                    <p className="font-semibold text-lg text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={n.name}>
                       {n.name}
                     </p>
                     <p className="text-xs font-mono text-gray-500 dark:text-gray-400 truncate mb-3">
@@ -158,21 +158,21 @@ export function Networks() {
                     <div className="mt-auto grid grid-cols-2 gap-3 text-sm">
                       <div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">Nodes</div>
-                        <div className="font-semibold text-gray-900 dark:text-white">
+                        <div className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                           {active}/{total}
                         </div>
                       </div>
                       <div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">Groups</div>
-                        <div className="font-semibold text-gray-900 dark:text-white">{n.group_count}</div>
+                        <div className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{n.group_count}</div>
                       </div>
                       <div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">DNS Entries</div>
-                        <div className="font-semibold text-gray-900 dark:text-white">{n.dns_entry_count}</div>
+                        <div className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{n.dns_entry_count}</div>
                       </div>
                       <div>
                         <div className="text-xs text-gray-500 dark:text-gray-400">Users</div>
-                        <div className="font-semibold text-gray-900 dark:text-white">{n.user_count}</div>
+                        <div className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{n.user_count}</div>
                       </div>
                     </div>
                   </button>

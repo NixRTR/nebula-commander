@@ -99,7 +99,7 @@ export const AcceptInvitation: React.FC = () => {
             <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900">
               <HiXCircle className="h-6 w-6 text-red-600 dark:text-red-400" />
             </div>
-            <h2 className="mt-4 text-2xl font-bold text-gray-900 dark:text-white">Invalid Invitation</h2>
+            <h2 className="mt-4 text-2xl font-bold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">Invalid Invitation</h2>
             <p className="mt-2 text-gray-600 dark:text-gray-400">{error}</p>
             <Button
               color="gray"
@@ -122,7 +122,7 @@ export const AcceptInvitation: React.FC = () => {
             <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 dark:bg-green-900">
               <HiCheckCircle className="h-6 w-6 text-green-600 dark:text-green-400" />
             </div>
-            <h2 className="mt-4 text-2xl font-bold text-gray-900 dark:text-white">Invitation Accepted!</h2>
+            <h2 className="mt-4 text-2xl font-bold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">Invitation Accepted!</h2>
             <p className="mt-2 text-gray-600 dark:text-gray-400">
               You now have access to the network. Redirecting...
             </p>
@@ -140,7 +140,7 @@ export const AcceptInvitation: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-[var(--nc-bg-light)] dark:bg-[var(--nc-bg-dark)] p-4">
       <Card className="w-full max-w-md">
         <div className="text-center mb-6">
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Network Invitation</h2>
+          <h2 className="text-3xl font-bold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">Network Invitation</h2>
           <p className="mt-2 text-sm text-gray-600 dark:text-gray-400">
             You've been invited to join a network
           </p>
@@ -152,11 +152,11 @@ export const AcceptInvitation: React.FC = () => {
             <dl className="space-y-3">
               <div>
                 <dt className="text-xs text-gray-500 dark:text-gray-400">Network</dt>
-                <dd className="text-sm font-medium text-gray-900 dark:text-white">{invitation.network_name}</dd>
+                <dd className="text-sm font-medium text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{invitation.network_name}</dd>
               </div>
               <div>
                 <dt className="text-xs text-gray-500 dark:text-gray-400">Invited by</dt>
-                <dd className="text-sm font-medium text-gray-900 dark:text-white">{invitation.invited_by_email}</dd>
+                <dd className="text-sm font-medium text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{invitation.invited_by_email}</dd>
               </div>
               <div>
                 <dt className="text-xs text-gray-500 dark:text-gray-400">Role</dt>
@@ -183,7 +183,7 @@ export const AcceptInvitation: React.FC = () => {
               </div>
               <div>
                 <dt className="text-xs text-gray-500 dark:text-gray-400">Expires</dt>
-                <dd className="text-sm font-medium text-gray-900 dark:text-white">
+                <dd className="text-sm font-medium text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                   {new Date(invitation.expires_at).toLocaleDateString()}
                 </dd>
               </div>

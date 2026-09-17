@@ -1105,7 +1105,7 @@ export function Nodes() {
 
           {enrollmentCodeModal.open && (
             <Card className="mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              <h3 className="text-lg font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                 Enrollment code for {enrollmentCodeModal.nodeId != null ? (nodes.find((n) => n.id === enrollmentCodeModal.nodeId)?.hostname ?? `Node ${enrollmentCodeModal.nodeId}`) : "new node"}
               </h3>
               <div className="pt-2">
@@ -1201,7 +1201,7 @@ export function Nodes() {
 
           {mobileConfigPanel.open && (
             <Card className="mb-4">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+              <h3 className="text-lg font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">
                 {mobileConfigPanel.reissued ? "Certificate reissued for " : "Mobile config ready for "}
                 {mobileConfigPanel.hostname} ({mobileConfigPanel.platform === "ios" ? "iOS" : "Android"})
               </h3>
@@ -1256,6 +1256,7 @@ export function Nodes() {
                     ? resolve("status.inactive")
                     : resolve("status.neverActive");
                 const badgeStyle = (bg: string) => ({ backgroundColor: bg, color: contrastTextColor(bg) });
+                const statusTextColor = contrastTextColor(statusBg);
                 return (
                   <button
                     key={n.id}
@@ -1265,10 +1266,13 @@ export function Nodes() {
                     style={{ backgroundColor: statusBg }}
                   >
                     <div className="absolute top-2 left-3 right-3 z-10">
-                      <p className="font-semibold text-gray-900 dark:text-white truncate" title={n.hostname}>
+                      <p className="font-semibold truncate" style={{ color: statusTextColor }} title={n.hostname}>
                         {n.hostname}
                       </p>
-                      <p className="text-xs font-mono text-gray-600 dark:text-gray-400 truncate mt-1">
+                      <p
+                        className="text-xs font-mono truncate mt-1"
+                        style={{ color: statusTextColor, opacity: 0.75 }}
+                      >
                         {n.ip_address || "—"}
                       </p>
                     </div>
@@ -1337,21 +1341,21 @@ export function Nodes() {
                                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                                     <div className="min-w-0">
                                       <Label value="ID" className="text-gray-500 dark:text-gray-400" />
-                                      <p className="text-gray-900 dark:text-white truncate" title={String(deviceDetailsModal.node.id)}>{deviceDetailsModal.node.id}</p>
+                                      <p className="text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={String(deviceDetailsModal.node.id)}>{deviceDetailsModal.node.id}</p>
                                     </div>
                                     <div className="min-w-0">
                                       <Label value="Hostname" className="text-gray-500 dark:text-gray-400" />
-                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.hostname}>{deviceDetailsModal.node.hostname}</p>
+                                      <p className="text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={deviceDetailsModal.node.hostname}>{deviceDetailsModal.node.hostname}</p>
                                     </div>
                                     <div className="min-w-0">
                                       <Label value="Network" className="text-gray-500 dark:text-gray-400" />
-                                      <p className="text-gray-900 dark:text-white truncate" title={getNetworkName(deviceDetailsModal.node.network_id)}>
+                                      <p className="text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={getNetworkName(deviceDetailsModal.node.network_id)}>
                                         {getNetworkName(deviceDetailsModal.node.network_id)}
                                       </p>
                                     </div>
                                     <div className="min-w-0">
                                       <Label value="IP Address" className="text-gray-500 dark:text-gray-400" />
-                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.ip_address || "—"}>
+                                      <p className="text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={deviceDetailsModal.node.ip_address || "—"}>
                                         {deviceDetailsModal.node.ip_address || "—"}
                                       </p>
                                     </div>
@@ -1361,7 +1365,7 @@ export function Nodes() {
                                     </div>
                                     <div className="min-w-0">
                                       <Label value="Created At" className="text-gray-500 dark:text-gray-400" />
-                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.created_at ? new Date(deviceDetailsModal.node.created_at).toLocaleString() : "—"}>
+                                      <p className="text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={deviceDetailsModal.node.created_at ? new Date(deviceDetailsModal.node.created_at).toLocaleString() : "—"}>
                                         {deviceDetailsModal.node.created_at
                                           ? new Date(deviceDetailsModal.node.created_at).toLocaleString()
                                           : "—"}
@@ -1369,7 +1373,7 @@ export function Nodes() {
                                     </div>
                                     <div className="min-w-0">
                                       <Label value="Last Seen" className="text-gray-500 dark:text-gray-400" />
-                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.last_seen ? new Date(deviceDetailsModal.node.last_seen).toLocaleString() : "—"}>
+                                      <p className="text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={deviceDetailsModal.node.last_seen ? new Date(deviceDetailsModal.node.last_seen).toLocaleString() : "—"}>
                                         {deviceDetailsModal.node.last_seen
                                           ? new Date(deviceDetailsModal.node.last_seen).toLocaleString()
                                           : "—"}
@@ -1377,7 +1381,7 @@ export function Nodes() {
                                     </div>
                                     <div className="min-w-0">
                                       <Label value="First Polled At" className="text-gray-500 dark:text-gray-400" />
-                                      <p className="text-gray-900 dark:text-white truncate" title={deviceDetailsModal.node.first_polled_at ? new Date(deviceDetailsModal.node.first_polled_at).toLocaleString() : "—"}>
+                                      <p className="text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] truncate" title={deviceDetailsModal.node.first_polled_at ? new Date(deviceDetailsModal.node.first_polled_at).toLocaleString() : "—"}>
                                         {deviceDetailsModal.node.first_polled_at
                                           ? new Date(deviceDetailsModal.node.first_polled_at).toLocaleString()
                                           : "—"}

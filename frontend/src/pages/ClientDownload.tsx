@@ -109,7 +109,7 @@ export function ClientDownload() {
                   key={d.file}
                   href={`/downloads/${d.file}`}
                   download={d.file}
-                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
                 >
                   <HiDownload className="w-5 h-5 shrink-0" />
                   <span>{d.name}</span>
@@ -160,7 +160,7 @@ export function ClientDownload() {
                 <a
                   href={`/downloads/${DOWNLOADS.find((d) => d.platform === "windows")?.file}`}
                   download
-                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
                 >
                   <HiDownload className="w-5 h-5 shrink-0" />
                   <span>ncclient-windows-amd64.exe</span>
@@ -176,7 +176,7 @@ export function ClientDownload() {
                     key={d.file}
                     href={`/downloads/${d.file}`}
                     download={d.file}
-                    className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-gray-900 dark:text-white transition-colors"
+                    className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
                   >
                     <HiDownload className="w-5 h-5 shrink-0" />
                     <span>{d.name}</span>
@@ -191,7 +191,7 @@ export function ClientDownload() {
                 <a
                   href="/downloads/NebulaCommander-windows-amd64.msi"
                   download="NebulaCommander-windows-amd64.msi"
-                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 text-gray-900 dark:text-white transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
                 >
                   <HiDownload className="w-5 h-5 shrink-0" />
                   <span>Download NebulaCommander-windows-amd64.msi</span>
@@ -237,7 +237,7 @@ export function ClientDownload() {
                   key={d.file}
                   href={`/downloads/${d.file}`}
                   download={d.file}
-                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-900 dark:text-white transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
                 >
                   <HiDownload className="w-5 h-5 shrink-0" />
                   <span>{d.name}</span>
