@@ -1,0 +1,81 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    <RootNamespace>NebulaCommanderApp</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x86;x64;ARM64</Platforms>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">win-$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString().ToLowerInvariant())</RuntimeIdentifier>
+    <PublishProfile Condition="Exists('Properties\PublishProfiles\win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+
+    <!--
+      Unpackaged desktop app (no MSIX): the installer/MSI drops the published
+      exe directly, the same way it already does for ncclient-tray.exe/
+      ncclient-service.exe - see installer/windows/Product.wxs. No app
+      identity/store deployment is used.
+    -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- Needed even though we're unpackaged: PublishSingleFile's resources.pri
+         generation depends on this tooling being enabled; it does not by
+         itself cause an MSIX to be produced (WindowsPackageType=None above
+         is what controls that). -->
+    <EnableMsixTooling>true</EnableMsixTooling>
+    <!-- Bundles the Windows App SDK runtime into the published output so the
+         exe has no separate WinAppSDK/VCLibs prerequisite to install. -->
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <ApplicationIcon>Assets\AppIcon.ico</ApplicationIcon>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\AppIcon.ico" />
+    <Content Include="Assets\Logo.png" />
+  </ItemGroup>
+
+  <!--
+    WinUI 3 has no first-party tray icon API; System.Windows.Forms.NotifyIcon is
+    the standard way to get one in a WinUI 3 desktop app without hand-rolling
+    Shell_NotifyIcon/Win32 message-loop plumbing. Referenced via
+    FrameworkReference rather than the <UseWindowsForms>true</UseWindowsForms>
+    MSBuild property: that property pulls in the WindowsDesktop SDK's WPF/
+    WinForms XAML markup-compiler targets, which then collide with the WinUI
+    XAML compiler over the project's own .xaml files (MC6000: "must include
+    PresentationCore, PresentationFramework"). FrameworkReference gets the
+    System.Windows.Forms/System.Drawing assemblies without that side effect.
+  -->
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.WindowsDesktop.App.WindowsForms" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2705" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.0" />
+    <PackageReference Include="YamlDotNet" Version="16.2.1" />
+  </ItemGroup>
+
+  <!-- Publish Properties -->
+  <PropertyGroup>
+    <PublishReadyToRun Condition="'$(Configuration)' == 'Debug'">False</PublishReadyToRun>
+    <PublishReadyToRun Condition="'$(Configuration)' != 'Debug'">True</PublishReadyToRun>
+    <!--
+      Left off in every configuration, not just Debug: WinUI/XAML apps rely
+      heavily on types resolved via reflection/metadata (x:Bind, x:Class,
+      DependencyProperty registration) that member-trimming can silently
+      strip, producing a build that runs fine in `dotnet run` but crashes or
+      blank-screens only in the trimmed published exe. Not worth the size
+      savings here.
+    -->
+    <PublishTrimmed>False</PublishTrimmed>
+  </PropertyGroup>
+</Project>

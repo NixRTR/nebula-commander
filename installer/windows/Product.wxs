@@ -21,9 +21,11 @@
     <Property Id="ARPPRODUCTICON" Value="NcclientExe" />
     <Icon Id="NcclientExe" SourceFile="redist\ncclient.exe" />
 
-    <!-- Launch the tray app from the finish dialog's optional checkbox. -->
+    <!-- Launch the windowed app (not the old ncclient-tray.exe) from the finish
+         dialog's optional checkbox - it's the default GUI client now. Both still
+         get installed with their own Start Menu shortcuts either way. -->
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Nebula Commander now" />
-    <Property Id="WixShellExecTarget" Value="[#NcclientTrayExe]" />
+    <Property Id="WixShellExecTarget" Value="[#NebulaCommanderAppExe]" />
     <CustomAction Id="LaunchApplication" DllEntry="WixShellExec" Impersonate="yes" BinaryRef="Wix4UtilCA_X86" />
 
     <!-- WixUI_Minimal shows a license page by default; without this it falls back to
@@ -80,8 +82,24 @@
               Source="redist\ncclient-tray.exe"
               KeyPath="yes">
           <Shortcut Id="TrayStartMenuShortcut"
-                    Name="Nebula Commander Tray"
+                    Name="Nebula Commander Tray (Classic)"
                     Description="Nebula Commander system tray application"
+                    Directory="ProgramMenuDir"
+                    WorkingDirectory="INSTALLDIR" />
+        </File>
+      </Component>
+      <!-- The windowed WinUI 3 app (client/windows-app/) - side-tab Status/
+           Enrollment/Settings UI, minimizes to tray on close. Self-contained
+           single-file publish, so just one file to ship, same as the exes
+           above. Talks to NcclientServiceExe exactly like the tray does: same
+           %ProgramData%\nebula-commander\ shared state and named pipe. -->
+      <Component Id="NebulaCommanderAppExe" Guid="02804C73-586C-4ACC-BF1B-7235A2CF233C">
+        <File Id="NebulaCommanderAppExe"
+              Source="redist\NebulaCommanderApp.exe"
+              KeyPath="yes">
+          <Shortcut Id="AppStartMenuShortcut"
+                    Name="Nebula Commander"
+                    Description="Nebula Commander"
                     Directory="ProgramMenuDir"
                     WorkingDirectory="INSTALLDIR" />
         </File>

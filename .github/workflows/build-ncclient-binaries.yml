@@ -8,6 +8,7 @@ on:
     paths:
       - 'client/binaries/**'
       - 'client/windows/**'
+      - 'client/windows-app/**'
       - 'client/ncclient.py'
       - 'installer/windows/**'
       - '.github/workflows/build-ncclient-binaries.yml'
@@ -197,11 +198,54 @@ jobs:
           path: artifacts/ncclient-service-windows-amd64.exe
           if-no-files-found: error
 
-  # Build Windows MSI installer (ncclient + ncclient-tray + ncclient-service)
+  # Build the windowed WinUI 3 app (client/windows-app/) - side-tab Status/
+  # Enrollment/Settings UI, minimizes to tray on close. Self-contained
+  # single-file publish: WindowsAppSDKSelfContained+SelfContained+
+  # PublishSingleFile are already set in the csproj, so this is a plain
+  # `dotnet publish` with no extra flags needed.
+  build-windows-app:
+    name: Build Windows App (WinUI 3)
+    runs-on: windows-latest
+    needs: build  # Wait for CLI build to complete, same as build-windows-tray
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Publish self-contained single-file exe
+        working-directory: client/windows-app
+        run: dotnet publish -c Release -r win-x64
+
+      - name: Prepare artifact
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          cp "client/windows-app/bin/Release/net10.0-windows10.0.26100.0/win-x64/publish/NebulaCommanderApp.exe" artifacts/NebulaCommanderApp-windows-amd64.exe
+
+      - name: Display file info
+        shell: bash
+        run: |
+          ls -lh artifacts/
+          file artifacts/NebulaCommanderApp-windows-amd64.exe || true
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: NebulaCommanderApp-windows-amd64.exe
+          path: artifacts/NebulaCommanderApp-windows-amd64.exe
+          if-no-files-found: error
+
+  # Build Windows MSI installer (ncclient + ncclient-tray + ncclient-service + NebulaCommanderApp)
   build-msi:
     name: Build Windows MSI
     runs-on: windows-latest
-    needs: [build, build-windows-tray]
+    needs: [build, build-windows-tray, build-windows-app]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout code
@@ -218,6 +262,7 @@ jobs:
           Copy-Item "artifacts-in\ncclient-windows-amd64.exe\ncclient-windows-amd64.exe" "installer\windows\redist\ncclient.exe"
           Copy-Item "artifacts-in\ncclient-tray-windows-amd64.exe\ncclient-tray-windows-amd64.exe" "installer\windows\redist\ncclient-tray.exe"
           Copy-Item "artifacts-in\ncclient-service-windows-amd64.exe\ncclient-service-windows-amd64.exe" "installer\windows\redist\ncclient-service.exe"
+          Copy-Item "artifacts-in\NebulaCommanderApp-windows-amd64.exe\NebulaCommanderApp-windows-amd64.exe" "installer\windows\redist\NebulaCommanderApp.exe"
 
       - name: Install WiX 5
         run: dotnet tool install --global wix --version 5.0.2
@@ -295,7 +340,7 @@ jobs:
   # Generate checksums artifact (for Actions UI; release gets checksums from upload-release job)
   checksums:
     name: Generate Checksums
-    needs: [build, build-windows-tray]
+    needs: [build, build-windows-tray, build-windows-app]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
@@ -317,7 +362,7 @@ jobs:
             rmdir "$d" 2>/dev/null || true
             mv "./.tmp_$d" "./$d"
           done
-          sha256sum ncclient* > SHA256SUMS.txt
+          sha256sum ncclient* NebulaCommander* > SHA256SUMS.txt
           echo "=== Checksums ==="
           cat SHA256SUMS.txt
 
@@ -330,7 +375,7 @@ jobs:
   # Summary job to report build status
   summary:
     name: Build Summary
-    needs: [build, build-windows-tray]
+    needs: [build, build-windows-tray, build-windows-app]
     runs-on: ubuntu-latest
     if: always()
     steps:

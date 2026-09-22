@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="NebulaCommanderApp.Pages.EnrollmentPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:NebulaCommanderApp.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <ScrollViewer>
+        <StackPanel Padding="24,16,24,24" Spacing="16" MaxWidth="480" HorizontalAlignment="Left">
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Enrollment" />
+            <TextBlock
+                Text="Enroll this device with a one-time code from the Nebula Commander UI (Nodes → Enroll)."
+                TextWrapping="Wrap"
+                Opacity="0.7" />
+
+            <InfoBar
+                x:Name="AlreadyEnrolledBar"
+                Title="Already enrolled"
+                Message="Enrolling again will replace this device's token and re-point it at the server below."
+                Severity="Informational"
+                IsOpen="False"
+                IsClosable="False" />
+
+            <TextBox
+                x:Name="ServerBox"
+                Header="Server URL"
+                PlaceholderText="https://nebula-commander.example.com" />
+
+            <TextBox
+                x:Name="CodeBox"
+                Header="Enrollment code"
+                PlaceholderText="XXXXXXXX" />
+
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button x:Name="EnrollButton" Content="Enroll" Style="{StaticResource AccentButtonStyle}" Click="EnrollButton_Click" />
+                <ProgressRing x:Name="EnrollProgress" IsActive="False" Width="20" Height="20" />
+            </StackPanel>
+
+            <InfoBar
+                x:Name="ResultBar"
+                IsOpen="False"
+                IsClosable="False" />
+        </StackPanel>
+    </ScrollViewer>
+</Page>

@@ -1,0 +1,10 @@
+{
+  "profiles": {
+    "NebulaCommanderApp (Package)": {
+      "commandName": "MsixPackage"
+    },
+    "NebulaCommanderApp (Unpackaged)": {
+      "commandName": "Project"
+    }
+  }
+}

@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<Page
+    x:Class="NebulaCommanderApp.Pages.StatusPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:local="using:NebulaCommanderApp.Pages"
+    xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+    mc:Ignorable="d">
+
+    <Page.Resources>
+        <Style x:Key="CardStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="16" />
+        </Style>
+        <Style x:Key="CardHeaderStyle" TargetType="TextBlock">
+            <Setter Property="Style" Value="{StaticResource BodyStrongTextBlockStyle}" />
+        </Style>
+        <Style x:Key="DotStyle" TargetType="Ellipse">
+            <Setter Property="Width" Value="10" />
+            <Setter Property="Height" Value="10" />
+            <Setter Property="Fill" Value="Gray" />
+        </Style>
+        <Style x:Key="MutedTextStyle" TargetType="TextBlock">
+            <Setter Property="Opacity" Value="0.7" />
+        </Style>
+    </Page.Resources>
+
+    <ScrollViewer>
+        <StackPanel Padding="24,16,24,24" Spacing="16" MaxWidth="720" HorizontalAlignment="Left">
+
+            <!-- Header -->
+            <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <Image Source="/Assets/Logo.png" Width="36" Height="36" />
+                <TextBlock Text="Status" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+                <Button x:Name="RefreshButton" Content="Refresh" Click="RefreshButton_Click" Margin="12,0,0,0" VerticalAlignment="Center" />
+                <ProgressRing x:Name="RefreshProgress" IsActive="False" Width="16" Height="16" VerticalAlignment="Center" />
+            </StackPanel>
+
+            <!-- Connection -->
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Connection" Style="{StaticResource CardHeaderStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="Server:" VerticalAlignment="Center" />
+                        <HyperlinkButton x:Name="ServerLink" Padding="0" Click="ServerLink_Click" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="TestConnectionButton" Content="Test Connection" Click="TestConnectionButton_Click" />
+                        <TextBlock x:Name="TestConnectionResult" VerticalAlignment="Center" Style="{StaticResource MutedTextStyle}" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Service -->
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Nebula Commander Service" Style="{StaticResource CardHeaderStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse x:Name="ServiceDot" Style="{StaticResource DotStyle}" />
+                        <TextBlock x:Name="ServiceStateText" />
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="ServiceStartButton" Content="Start" Click="ServiceStartButton_Click" />
+                        <Button x:Name="ServiceStopButton" Content="Stop" Click="ServiceStopButton_Click" />
+                        <Button x:Name="ServiceRestartButton" Content="Restart" Click="ServiceRestartButton_Click" />
+                        <ProgressRing x:Name="ServiceProgress" IsActive="False" Width="16" Height="16" VerticalAlignment="Center" />
+                    </StackPanel>
+                    <TextBlock x:Name="ServiceActionResult" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- Nebula interface -->
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Nebula Interface" Style="{StaticResource CardHeaderStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse x:Name="NebulaDot" Style="{StaticResource DotStyle}" />
+                        <TextBlock x:Name="NebulaStateText" />
+                    </StackPanel>
+                    <TextBlock x:Name="NebulaDetailText" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- DNS -->
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Split-Horizon DNS" Style="{StaticResource CardHeaderStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <Ellipse x:Name="DnsDot" Style="{StaticResource DotStyle}" />
+                        <TextBlock x:Name="DnsStateText" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+            <!-- Routing (exit node / subnet router) -->
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Exit Node / Subnet Router" Style="{StaticResource CardHeaderStyle}" />
+                    <TextBlock Text="This device advertises:" Style="{StaticResource MutedTextStyle}" />
+                    <TextBlock x:Name="AdvertisingText" TextWrapping="Wrap" />
+                    <TextBlock Text="This device is using:" Style="{StaticResource MutedTextStyle}" Margin="0,8,0,0" />
+                    <TextBlock x:Name="ConsumingText" TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
+
+            <!-- Configuration -->
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="Configuration" Style="{StaticResource CardHeaderStyle}" />
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button x:Name="ViewConfigButton" Content="View Config" Click="ViewConfigButton_Click" />
+                        <Button x:Name="OpenFolderButton" Content="Open Containing Folder" Click="OpenFolderButton_Click" />
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
+        </StackPanel>
+    </ScrollViewer>
+</Page>
