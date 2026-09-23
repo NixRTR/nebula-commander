@@ -138,6 +138,153 @@ def _dns_client_config_path(output_dir: str) -> str:
     return os.path.join(output_dir, "dns-client.json")
 
 
+def _available_routes_path(output_dir: str) -> str:
+    return os.path.join(output_dir, "available-routes.json")
+
+
+_EXIT_NODE_CIDRS = ("0.0.0.0/0", "::/0")
+
+
+def _route_kind(route: str) -> str:
+    return "exit" if route in _EXIT_NODE_CIDRS else "subnet"
+
+
+def _via_ip(via) -> "str | None":
+    """Flatten a tun.unsafe_routes entry's `via` to a single IP: it's normally a
+    plain string, but Nebula's ECMP form (multiple gateways advertising the same
+    CIDR) makes it a list of {"gateway": ip}. The client only needs an
+    identifying key for accept/reject matching, not full routing detail - that
+    still comes from the untouched entry itself when a route is kept."""
+    if isinstance(via, str):
+        return via
+    if isinstance(via, list) and via:
+        first = via[0]
+        if isinstance(first, dict):
+            return first.get("gateway")
+    return None
+
+
+def extract_available_routes(config_yaml_bytes: bytes) -> list[dict]:
+    """Parse a server-provided config.yaml's tun.unsafe_routes into a flat,
+    human/UI-friendly list: [{route, via, kind}]. This is everything the
+    server currently authorizes this node to consume (see backend's per-route
+    "consumers" list) - written to available-routes.json unconditionally, so
+    a CLI/GUI can show it regardless of what's been locally accepted."""
+    import yaml
+
+    try:
+        parsed = yaml.safe_load(config_yaml_bytes) or {}
+    except Exception:
+        return []
+    entries = (parsed.get("tun") or {}).get("unsafe_routes") or []
+    result = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        route = str(e.get("route") or "").strip()
+        if not route:
+            continue
+        result.append({"route": route, "via": _via_ip(e.get("via")), "kind": _route_kind(route)})
+    return result
+
+
+def filter_accepted_routes(
+    config_yaml_bytes: bytes,
+    accepted_subnet_routes: list[dict] | None,
+    accepted_exit_node: dict | None,
+) -> bytes:
+    """
+    Rewrite config.yaml's tun.unsafe_routes down to just what's been locally
+    accepted (settings.json's accepted_subnet_routes/accepted_exit_node) -
+    the server-authorized list (see extract_available_routes) is everything
+    this node is *allowed* to consume; this is the separate, local
+    device-consent gate on top of that, deliberately mirroring accept_dns
+    (a device only applies split-horizon DNS if its own owner opted in
+    locally too, even though the network already has DNS configured
+    server-side).
+
+    Returns the input completely unchanged (byte-for-byte) if nothing was
+    actually removed, to avoid any reformatting risk on the PKI block (cert/
+    key text) when there's nothing to filter.
+    """
+    import yaml
+
+    accepted_subnet_keys = {
+        (r.get("route"), r.get("via")) for r in (accepted_subnet_routes or [])
+    }
+    accepted_exit_via = (accepted_exit_node or {}).get("via")
+
+    try:
+        parsed = yaml.safe_load(config_yaml_bytes) or {}
+    except Exception:
+        return config_yaml_bytes
+    tun = parsed.get("tun") or {}
+    entries = tun.get("unsafe_routes") or []
+    if not entries:
+        return config_yaml_bytes
+
+    kept = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        route = str(e.get("route") or "").strip()
+        via_ip = _via_ip(e.get("via"))
+        if _route_kind(route) == "exit":
+            if accepted_exit_via and via_ip == accepted_exit_via:
+                kept.append(e)
+        elif (route, via_ip) in accepted_subnet_keys:
+            kept.append(e)
+
+    if kept == entries:
+        return config_yaml_bytes
+
+    tun["unsafe_routes"] = kept
+    parsed["tun"] = tun
+    return yaml.dump(parsed, default_flow_style=False, sort_keys=False, allow_unicode=True).encode("utf-8")
+
+
+def validate_new_subnet_route(new_route: str, currently_accepted: list[dict] | None) -> "str | None":
+    """Returns an error message if accepting new_route would overlap an
+    already-accepted subnet route's CIDR, else None. Exit-node CIDRs are
+    never part of this check - accepting an exit node doesn't conflict with
+    also accepting subnet routes (Nebula's longest-prefix-match naturally
+    prefers the specific subnet over the exit node's 0.0.0.0/0 catch-all
+    anyway)."""
+    import ipaddress
+
+    try:
+        new_net = ipaddress.ip_network(new_route, strict=False)
+    except ValueError as e:
+        return f"Invalid CIDR {new_route!r}: {e}"
+    for r in currently_accepted or []:
+        existing_route = r.get("route")
+        try:
+            existing_net = ipaddress.ip_network(existing_route, strict=False)
+        except (ValueError, TypeError):
+            continue
+        if new_net.overlaps(existing_net):
+            return f"{new_route} overlaps already-accepted {existing_route} (via {r.get('via')})"
+    return None
+
+
+def _route_selection_fingerprint(accepted_subnet_routes: list[dict] | None, accepted_exit_node: dict | None):
+    """Hashable snapshot of the current local route selection, used by
+    run_poll_loop to notice a purely local accept/reject change (nothing
+    server-side changed) and force a refetch+reapply."""
+    subnet_key = tuple(sorted((r.get("route"), r.get("via")) for r in (accepted_subnet_routes or [])))
+    exit_key = (accepted_exit_node or {}).get("via")
+    return (subnet_key, exit_key)
+
+
+def _write_available_routes(path: str, routes: list[dict]) -> None:
+    import json
+
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(routes, f, indent=2)
+    os.replace(tmp, path)
+
+
 def _nebula_log_path(output_dir: str) -> str:
     """Path for Nebula's output log. Default on Windows: %USERPROFILE%\\.nebula\\nebula.log"""
     return os.path.join(output_dir, "nebula.log")
@@ -725,6 +872,7 @@ def run_poll_loop(
     nebula_proc: subprocess.Popen | None = None
     current_tun_dev: str | None = None  # this node's own tun device, parsed from its config (Linux routing only)
     last_advertised_routes: list[str] | None = None  # this node's own advertised routes, for change detection (Linux routing only)
+    last_route_selection_fingerprint = None  # locally accepted subnet routes/exit node - see _route_selection_fingerprint
 
     # Clean slate on start: remove any split-horizon from a previous crash
     if accept_dns:
@@ -750,6 +898,22 @@ def run_poll_loop(
     try:
         while not stop_event.is_set():
             try:
+                # Accept/reject of specific subnet routes and exit nodes is a purely
+                # local decision (settings.json) - the server side doesn't know or
+                # care what's been accepted, so a change here never shows up as a
+                # different ETag. Re-read on every iteration and force a full
+                # refetch+reapply (ignore any cached ETag) when the selection has
+                # changed since it was last applied, so this is picked up within one
+                # poll cycle - or immediately after a poll_now pipe nudge - the same
+                # way a server-side config change already is.
+                current_settings = load_settings()
+                accepted_subnet_routes = current_settings.get("accepted_subnet_routes") or []
+                accepted_exit_node = current_settings.get("accepted_exit_node")
+                route_selection_fingerprint = _route_selection_fingerprint(accepted_subnet_routes, accepted_exit_node)
+                if route_selection_fingerprint != last_route_selection_fingerprint:
+                    last_route_selection_fingerprint = route_selection_fingerprint
+                    last_etag = None
+
                 headers = {"Authorization": f"Bearer {token}"}
                 if last_etag is not None:
                     headers["If-None-Match"] = last_etag
@@ -806,9 +970,20 @@ def run_poll_loop(
                     _sleep()
                     continue
                 last_etag = config_id
+
+                # available-routes.json is everything the server authorizes this node
+                # to consume (see backend's per-route "consumers" list), written
+                # unconditionally - config.yaml only gets the locally-accepted subset
+                # (settings.json's accepted_subnet_routes/accepted_exit_node).
+                try:
+                    _write_available_routes(_available_routes_path(output_dir), extract_available_routes(r.content))
+                except OSError as e:
+                    if dns_debug_log:
+                        dns_debug_log(f"writing available-routes.json failed: {e}")
+
                 config_path = _config_path(output_dir)
                 with open(config_path, "wb") as f:
-                    f.write(r.content)
+                    f.write(filter_accepted_routes(r.content, accepted_subnet_routes, accepted_exit_node))
                 if not status_callback:
                     print(f"Wrote {config_path}")
                 if status_callback:
@@ -927,6 +1102,135 @@ def cmd_run(
     # run_poll_loop already stopped nebula and returned
 
 
+def _notify_service_poll_now() -> None:
+    """Best-effort nudge to the Windows service to re-poll immediately instead of
+    waiting up to `interval` seconds - a no-op on Linux (no such pipe exists there;
+    a running `ncclient run` daemon picks up settings.json changes on its own next
+    iteration regardless, per run_poll_loop's route-selection fingerprint check)."""
+    if sys.platform != "win32":
+        return
+    try:
+        from client.windows.pipe_protocol import CMD_POLL_NOW, send_command
+        send_command(CMD_POLL_NOW)
+    except Exception:
+        pass
+
+
+def _load_available_routes(output_dir: str) -> list[dict]:
+    import json
+
+    path = _available_routes_path(output_dir)
+    if not os.path.isfile(path):
+        print(
+            "No available-routes.json yet - run 'ncclient run' at least once "
+            "(or wait for its next poll) before managing routes.",
+            file=sys.stderr,
+        )
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Failed to read {path}: {e}", file=sys.stderr)
+        return []
+
+
+def cmd_routes_list(output_dir: str) -> None:
+    from client.config import load_settings
+
+    available = _load_available_routes(output_dir)
+    settings = load_settings()
+    accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
+    accepted_exit_node = settings.get("accepted_exit_node")
+    accepted_subnet_keys = {(r.get("route"), r.get("via")) for r in accepted_subnet_routes}
+    accepted_exit_via = (accepted_exit_node or {}).get("via")
+
+    if not available:
+        print("No routes are currently offered to this node.")
+        return
+    print(f"{'ACCEPTED':<10} {'KIND':<8} {'ROUTE':<20} VIA")
+    for r in available:
+        route, via, kind = r.get("route"), r.get("via"), r.get("kind")
+        accepted = (
+            via == accepted_exit_via if kind == "exit" else (route, via) in accepted_subnet_keys
+        )
+        print(f"{'yes' if accepted else 'no':<10} {kind:<8} {route:<20} {via}")
+
+
+def cmd_routes_accept(output_dir: str, cidr: str, via: str | None) -> None:
+    from client.config import load_settings, save_settings
+
+    available = _load_available_routes(output_dir)
+    matches = [r for r in available if r.get("route") == cidr and (via is None or r.get("via") == via)]
+    if not matches:
+        print(f"{cidr!r} is not currently offered to this node (see 'ncclient routes list').", file=sys.stderr)
+        sys.exit(1)
+    if len(matches) > 1:
+        vias = ", ".join(sorted({m.get("via") or "" for m in matches}))
+        print(f"{cidr!r} is offered by multiple gateways ({vias}) - specify --via.", file=sys.stderr)
+        sys.exit(1)
+    match = matches[0]
+    if match.get("kind") == "exit":
+        print(f"{cidr!r} is an exit-node route - use 'ncclient routes accept-exit-node --via {match.get('via')}' instead.", file=sys.stderr)
+        sys.exit(1)
+
+    settings = load_settings()
+    accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
+    error = validate_new_subnet_route(cidr, accepted_subnet_routes)
+    if error:
+        print(error, file=sys.stderr)
+        sys.exit(1)
+    accepted_subnet_routes = [r for r in accepted_subnet_routes if r.get("route") != cidr] + [
+        {"route": cidr, "via": match.get("via")}
+    ]
+    settings["accepted_subnet_routes"] = accepted_subnet_routes
+    save_settings(settings)
+    _notify_service_poll_now()
+    print(f"Accepted {cidr} via {match.get('via')}.")
+
+
+def cmd_routes_reject(output_dir: str, cidr: str) -> None:
+    from client.config import load_settings, save_settings
+
+    settings = load_settings()
+    accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
+    remaining = [r for r in accepted_subnet_routes if r.get("route") != cidr]
+    if len(remaining) == len(accepted_subnet_routes):
+        print(f"{cidr!r} was not accepted.", file=sys.stderr)
+        sys.exit(1)
+    settings["accepted_subnet_routes"] = remaining
+    save_settings(settings)
+    _notify_service_poll_now()
+    print(f"Rejected {cidr}.")
+
+
+def cmd_routes_accept_exit_node(output_dir: str, via: str) -> None:
+    from client.config import load_settings, save_settings
+
+    available = _load_available_routes(output_dir)
+    if not any(r.get("kind") == "exit" and r.get("via") == via for r in available):
+        print(f"No exit node with via={via!r} is currently offered to this node.", file=sys.stderr)
+        sys.exit(1)
+    settings = load_settings()
+    settings["accepted_exit_node"] = {"via": via}
+    save_settings(settings)
+    _notify_service_poll_now()
+    print(f"Accepted exit node via {via}.")
+
+
+def cmd_routes_reject_exit_node(output_dir: str) -> None:
+    from client.config import load_settings, save_settings
+
+    settings = load_settings()
+    if not settings.get("accepted_exit_node"):
+        print("No exit node is currently accepted.", file=sys.stderr)
+        sys.exit(1)
+    settings["accepted_exit_node"] = None
+    save_settings(settings)
+    _notify_service_poll_now()
+    print("Rejected the accepted exit node.")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Nebula Commander device client (dnclient/dnclientd-style). Enroll once, then run to poll config and certs and optionally start/restart Nebula."
@@ -947,6 +1251,27 @@ def main() -> None:
     p_run.add_argument("--nebula", "-n", metavar="PATH", help="Path to nebula binary if not in PATH (default: run 'nebula' from PATH)")
     p_run.add_argument("--restart-service", "-r", metavar="NAME", help="Restart this systemd service after config change instead of running nebula (e.g. nebula)")
     p_run.add_argument("--accept-dns", action="store_true", help="Apply split-horizon DNS (systemd-resolved / NRPT) when dns-client.json is updated; remove on exit")
+
+    p_routes = sub.add_parser(
+        "routes",
+        help="Manage locally-accepted subnet routers / exit nodes (client-side consent on top of server authorization)",
+    )
+    p_routes.add_argument("--output-dir", "-o", default=None, help="Same directory 'run' was given (default: /etc/nebula on Linux, ~/.nebula on Windows)")
+    routes_sub = p_routes.add_subparsers(dest="routes_cmd", required=True)
+
+    routes_sub.add_parser("list", help="Show routes offered to this node and which are accepted")
+
+    p_routes_accept = routes_sub.add_parser("accept", help="Accept a subnet route")
+    p_routes_accept.add_argument("cidr")
+    p_routes_accept.add_argument("--via", help="Gateway IP (required if the CIDR is offered by multiple gateways)")
+
+    p_routes_reject = routes_sub.add_parser("reject", help="Stop using a previously accepted subnet route")
+    p_routes_reject.add_argument("cidr")
+
+    p_routes_accept_exit = routes_sub.add_parser("accept-exit-node", help="Accept an exit node (routes all traffic)")
+    p_routes_accept_exit.add_argument("--via", required=True, help="The exit node gateway's Nebula IP")
+
+    routes_sub.add_parser("reject-exit-node", help="Stop using the accepted exit node")
 
     args = ap.parse_args()
     from client.config import load_settings
@@ -982,5 +1307,17 @@ def main() -> None:
             restart_service,
             accept_dns=getattr(args, "accept_dns", False),
         )
+    elif args.cmd == "routes":
+        output_dir = os.path.expanduser(args.output_dir or _default_output_dir())
+        if args.routes_cmd == "list":
+            cmd_routes_list(output_dir)
+        elif args.routes_cmd == "accept":
+            cmd_routes_accept(output_dir, args.cidr, getattr(args, "via", None))
+        elif args.routes_cmd == "reject":
+            cmd_routes_reject(output_dir, args.cidr)
+        elif args.routes_cmd == "accept-exit-node":
+            cmd_routes_accept_exit_node(output_dir, args.via)
+        elif args.routes_cmd == "reject-exit-node":
+            cmd_routes_reject_exit_node(output_dir)
 if __name__ == "__main__":
     main()

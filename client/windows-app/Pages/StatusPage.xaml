@@ -102,8 +102,22 @@
                     <TextBlock Text="Exit Node / Subnet Router" Style="{StaticResource CardHeaderStyle}" />
                     <TextBlock Text="This device advertises:" Style="{StaticResource MutedTextStyle}" />
                     <TextBlock x:Name="AdvertisingText" TextWrapping="Wrap" />
-                    <TextBlock Text="This device is using:" Style="{StaticResource MutedTextStyle}" Margin="0,8,0,0" />
-                    <TextBlock x:Name="ConsumingText" TextWrapping="Wrap" />
+
+                    <!--
+                      Being offered a route (server-side "Used by") only makes it
+                      available - it isn't used until locally accepted here, the same
+                      way accept_dns is a separate local opt-in on top of DNS being
+                      enabled for the network. See docs/unsafe-routes.md.
+                    -->
+                    <TextBlock Text="Available subnet routes (accept any that don't overlap):" Style="{StaticResource MutedTextStyle}" Margin="0,8,0,0" />
+                    <StackPanel x:Name="SubnetRoutesPanel" Spacing="4" />
+                    <TextBlock x:Name="NoSubnetRoutesText" Text="None offered" Style="{StaticResource MutedTextStyle}" Visibility="Collapsed" />
+
+                    <TextBlock Text="Exit node (pick one):" Style="{StaticResource MutedTextStyle}" Margin="0,8,0,0" />
+                    <StackPanel x:Name="ExitNodePanel" Spacing="4" />
+                    <TextBlock x:Name="NoExitNodesText" Text="None offered" Style="{StaticResource MutedTextStyle}" Visibility="Collapsed" />
+
+                    <InfoBar x:Name="RoutesResultBar" IsOpen="False" IsClosable="False" Margin="0,8,0,0" />
                 </StackPanel>
             </Border>
 

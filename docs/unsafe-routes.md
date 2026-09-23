@@ -63,6 +63,39 @@ This works for every platform, not just desktop/`ncclient` nodes - a mobile node
 pick a subnet router or exit node too, since consuming a route needs no host
 automation, just the generated Nebula config.
 
+## Accepting a route locally (desktop `ncclient` nodes)
+
+The picker above is server-side authorization - it controls what a node is *allowed*
+to consume, the same way DNS being enabled for a network doesn't by itself mean a
+device applies it (`accept_dns`/`--accept-dns` is the separate, local opt-in for
+that). Subnet routers and exit nodes work the same way on desktop `ncclient` nodes
+(Linux and Windows): being picked as a consumer makes the route *available*, not
+automatically *active*. `ncclient` writes everything it's authorized to consume to
+`available-routes.json` in its output directory, but only writes the locally
+*accepted* subset into `config.yaml` for Nebula to actually use.
+
+- **CLI** (`ncclient` on Linux, `ncclient.exe` on Windows - same commands either
+  way): `ncclient routes list` shows what's available and what's currently
+  accepted; `ncclient routes accept <CIDR>` / `routes reject <CIDR>` manage subnet
+  routes, `routes accept-exit-node --via <IP>` / `routes reject-exit-node` manage
+  the exit node. Multiple subnet routes can be accepted at once as long as their
+  CIDRs don't overlap - `accept` rejects an overlapping one with an explanation of
+  which already-accepted route it conflicts with. At most one exit node is ever
+  accepted at a time.
+- **The Windows app** (`client/windows-app/`): the Status page's "Exit Node /
+  Subnet Router" card lists the same available/accepted state interactively -
+  checkboxes for subnet routes (disabled with a reason if accepting one would
+  overlap an already-accepted route) and a single-select list for the exit node.
+
+A locally accepted/rejected change is picked up within one poll cycle without
+needing to re-enroll or restart anything by hand (or immediately, if something
+nudges the service to poll now - the Windows app already does this after a
+Settings change). This is entirely client-side: the "Used by" list above already
+determines *authorization*; this is a separate device-level *consent* step on top
+of it, and doesn't exist for mobile (Mobile Nebula) nodes, which have no local
+ncclient process to gate anything through - a mobile node's only control is the
+server-side picker.
+
 ## What happens automatically (Linux nodes running `ncclient`)
 
 For a gateway node whose `ncclient` has confirmed it's Linux (shown by the absence
