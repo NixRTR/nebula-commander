@@ -252,32 +252,42 @@ def _inbound_rules_from_group_firewall(inbound_rules: list[Any]) -> list[dict[st
     return nebula_rules
 
 
-def _add_local_cidr_rules_for_advertised_routes(section: dict[str, Any], node: Node) -> None:
+def _local_cidr_rules_for_consumers(node: Node, peer_nodes: list[Node]) -> list[dict[str, Any]]:
     """
     Since Nebula 1.10, a firewall rule only matches traffic to this node's own overlay
     IP unless it sets `local_cidr` - it does NOT also cover traffic being forwarded to a
-    subnet this node advertises via unsafe_routes. Without this, a gateway node's own
-    inbound rules (whether the default allow-any or a group ACL) would silently drop all
-    forwarded traffic even though the route/cert/nftables side is otherwise correct.
-    Mirrors each existing inbound rule with local_cidr set per advertised CIDR, so
-    forwarded traffic gets the same group ACL as direct access to the node.
+    subnet this node advertises via unsafe_routes. Without an accept rule for it, a
+    gateway node would silently drop all forwarded traffic even though the
+    route/cert/nftables side is otherwise correct.
+
+    This is also the actual enforcement point for a route's "consumers" (the "Used by"
+    picker) - the only other reference to consumers is _collect_advertised_routes,
+    which merely decides whose *own* config gets a `via` entry, and has no effect on
+    what the gateway itself will forward. One rule per (route, consumer), scoped with
+    `cidr` to that consumer's certificate-verified Nebula overlay IP (Nebula ties `cidr`
+    to the peer's cert, so this isn't a spoofable source-IP check) - a route with no
+    consumers yet gets no accept rule at all, so "a route reaches nobody until an admin
+    explicitly says who it's for" (docs/unsafe-routes.md) is now true at the firewall
+    level, not just for config distribution.
     """
-    advertised = [
-        str(r.get("route") or "").strip() for r in (node.unsafe_routes or []) if r.get("route")
-    ]
-    advertised = [a for a in advertised if a]
-    if not advertised or not section.get("inbound"):
-        return
-    extra_rules = [
-        {**rule, "local_cidr": cidr} for cidr in advertised for rule in section["inbound"]
-    ]
-    section["inbound"] = section["inbound"] + extra_rules
+    ip_by_id = {n.id: n.ip_address for n in peer_nodes if n.ip_address}
+    rules: list[dict[str, Any]] = []
+    for r in node.unsafe_routes or []:
+        route = str(r.get("route") or "").strip()
+        if not route:
+            continue
+        for consumer_id in r.get("consumers") or []:
+            consumer_ip = ip_by_id.get(consumer_id)
+            if consumer_ip:
+                rules.append({"port": "any", "proto": "any", "cidr": f"{consumer_ip}/32", "local_cidr": route})
+    return rules
 
 
 def _firewall_section(
     network: Network,
     node: Node,
     group_firewalls: list[Any],
+    peer_nodes: list[Node],
 ) -> dict[str, Any]:
     """
     Defined.net style: no network firewall. Outbound allow all.
@@ -300,14 +310,13 @@ def _firewall_section(
 
     if not inbound_rules_raw:
         section["inbound"] = [{"port": "any", "proto": "any", "host": "any"}]
-        _add_local_cidr_rules_for_advertised_routes(section, node)
-        return section
+    else:
+        section["inbound_action"] = "drop"
+        section["inbound"] = _inbound_rules_from_group_firewall(inbound_rules_raw)
+        if not section["inbound"]:
+            section["inbound"] = [{"port": "any", "proto": "any", "host": "any"}]
 
-    section["inbound_action"] = "drop"
-    section["inbound"] = _inbound_rules_from_group_firewall(inbound_rules_raw)
-    if not section["inbound"]:
-        section["inbound"] = [{"port": "any", "proto": "any", "host": "any"}]
-    _add_local_cidr_rules_for_advertised_routes(section, node)
+    section["inbound"] = section["inbound"] + _local_cidr_rules_for_consumers(node, peer_nodes)
     return section
 
 
@@ -376,7 +385,7 @@ def build_config(
         "punchy": _punchy_section(node),
         "tun": _default_tun(_collect_advertised_routes(node, peer_nodes)),
         "logging": _logging_section(node),
-        "firewall": _firewall_section(network, node, group_firewalls),
+        "firewall": _firewall_section(network, node, group_firewalls, peer_nodes),
     }
 
     # Remove empty static_host_map so Nebula doesn't complain

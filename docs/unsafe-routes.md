@@ -146,13 +146,20 @@ the gateway node's Nebula IP.
 **A consumer node has the route in its config, but traffic to the subnet doesn't
 arrive** - most likely the gateway's own firewall. Since Nebula 1.10, a firewall rule
 only matches traffic to the node's *own* Nebula IP unless it also sets `local_cidr` -
-Nebula Commander adds `local_cidr`-scoped copies of the gateway's inbound rules
-automatically for every subnet it advertises, but a manually-written config for a
-non-`ncclient` host needs the same treatment by hand. See [Nebula's firewall
-docs](https://nebula.defined.net/docs/config/firewall/) for the exact rule shape.
+Nebula Commander generates a `local_cidr`-scoped accept rule for each advertised
+subnet, one per node in that route's "Used by" list, matched by that consumer's own
+certificate-verified Nebula IP (`cidr: <ip>/32`). If the consumer isn't actually
+selected in "Used by" - even if it somehow has the route in its own config, e.g. a
+hand-edited config or a non-`ncclient` host - the gateway has no matching rule and
+will drop the forwarded traffic; check the "Used by" list first. A manually-written
+config for a non-`ncclient` gateway needs the equivalent `cidr`/`local_cidr` rules
+added by hand. See [Nebula's firewall docs](https://nebula.defined.net/docs/config/firewall/)
+for the exact rule shape.
 
 **The route works for one node but not another** - check that node's selection:
 either its own **Use Subnet Router**/**Use Exit Node** dropdown, or the "Used by"
 list on the gateway it should be using. A route only reaches nodes explicitly
-selected on one side or the other; an unselected node's config simply won't contain
-the route at all.
+selected on one side or the other, and - since the gateway's firewall now enforces
+this per node, not just config distribution - an unselected node can't use the
+route even if it has (or is given) a matching `tun.unsafe_routes` entry by some
+other means.
