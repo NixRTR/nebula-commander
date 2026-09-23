@@ -1053,6 +1053,23 @@ def run_poll_loop(
                     status_callback("error", err)
                 else:
                     print(f"Request error: {e}", file=sys.stderr)
+            except Exception as e:
+                # Anything else (a bug anywhere in this loop body, e.g. in route
+                # filtering) must never silently kill this thread. Python's default
+                # unhandled-exception behavior for a background thread just prints
+                # to stderr - which goes nowhere for a Windows Service (no console
+                # attached, Session 0) or once daemonized - leaving the service
+                # "Running" but permanently stuck on its last state instead of
+                # visibly erroring. Report it the same way a request failure is
+                # reported, and keep polling rather than let the thread die.
+                err = f"{type(e).__name__}: {e}"
+                if status_callback:
+                    status_callback("error", err)
+                else:
+                    print(f"Unexpected error: {err}", file=sys.stderr)
+                if dns_debug_log:
+                    import traceback
+                    dns_debug_log(traceback.format_exc())
             _sleep()
     finally:
         _stop_nebula(nebula_proc)
