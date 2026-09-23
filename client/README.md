@@ -81,14 +81,36 @@ With `--accept-dns`, ncclient applies split-horizon DNS so the Nebula domain (e.
 
 If no backend succeeds, ncclient reports the failure. The **resolv.conf** fallback does not guarantee that only the Nebula domain is sent to the Nebula DNS server; for proper split-horizon, use a system with systemd-resolved or dnsmasq. Manual apply/remove scripts (for when ncclient itself isn't run with enough privilege to self-apply): `client/contrib/dns-apply-linux.sh` and `client/contrib/dns-apply-windows.ps1`. **Note:** the Linux fallback script only covers the systemd-resolved, dnsmasq, and resolv.conf backends (not NetworkManager or systemd-networkd) - on those setups, run `ncclient --accept-dns` directly instead.
 
-## Subnet router / exit node (Linux)
+## Subnet router / exit node
 
-When a node is set up in the admin UI as a subnet router or exit node (Routing section
-on the node's details panel), ncclient on Linux automatically enables IP forwarding and
-installs the nftables rules that make it actually work - no manual host setup needed.
-See [../docs/unsafe-routes.md](../docs/unsafe-routes.md) for how routing is selected per
-consumer node, and what to do instead on Windows/macOS/Docker or a bare `nebula` install,
-where this automation doesn't run.
+Being picked as a consumer of a subnet route or exit node (the gateway's "Used by"
+list, or this node's own "Use Subnet Router"/"Use Exit Node" dropdown in the admin
+UI) makes the route *available* to this device - it isn't used automatically. The
+same way `--accept-dns` is a separate local opt-in on top of DNS being enabled for
+the network, this device has to locally **accept** a route before Nebula actually
+uses it. This is cross-platform (Linux and Windows, since both run through the same
+`ncclient` core):
+
+```bash
+ncclient routes list                              # what's offered vs. accepted
+ncclient routes accept 192.168.1.0/24              # add --via IP if offered by multiple gateways
+ncclient routes reject 192.168.1.0/24
+ncclient routes accept-exit-node --via 10.100.0.30
+ncclient routes reject-exit-node
+```
+
+Multiple subnet routes can be accepted at once as long as their CIDRs don't
+overlap - `accept` rejects a conflicting one with an explanation of which
+already-accepted route it clashes with. At most one exit node is accepted at a
+time. A change takes effect within one poll cycle, no restart needed.
+
+**On Linux**, when a node is set up as a *gateway* (advertising a subnet or acting
+as an exit node itself, not consuming one), `ncclient` also automatically enables
+IP forwarding and installs the nftables rules that make forwarding actually work -
+no manual host setup needed there either. See
+[../docs/unsafe-routes.md](../docs/unsafe-routes.md) for the full picture on both
+sides (gateway and consumer), and what to do on Windows/macOS/Docker or a bare
+`nebula` install where the gateway-side automation doesn't run.
 
 ## Troubleshooting
 
@@ -134,6 +156,21 @@ ncclient works on Windows 11. Use Python 3.10+ and install with `pip install neb
 - **Nebula**: ncclient runs `nebula` from your PATH by default. If `nebula.exe` is not on PATH, use `--nebula "C:\Path\To\nebula.exe"`. Do not use `--restart-service`; there is no systemd on Windows.
 - Run ncclient in a terminal or install it as a Windows service (e.g. with NSSM or Task Scheduler) so it keeps running.
 
-### Windows tray app
+### Windows GUI apps
 
-A **system-tray app** for Windows provides the same enroll-and-poll flow with a GUI: tray icon, Enroll and Settings dialogs, Start/Stop polling, optional bundled Nebula binary, and **Start at login** (Registry Run). See **[client/windows/README.md](windows/README.md)** for how to run from source and how to build `ncclient-tray.exe` (with optional bundled `nebula.exe`) using PyInstaller.
+Two GUI options ship alongside the CLI, both talking to the same
+`NebulaCommanderService` Windows Service over the same shared
+`%ProgramData%\nebula-commander\` state:
+
+- **Nebula Commander** (`client/windows-app/`, WinUI 3) - the default: a proper
+  windowed app with side tabs (Status, Enrollment, Settings), minimizes to the
+  tray on close instead of exiting. The Status page shows live
+  server/service/interface/DNS state, lets you start/stop/restart the service,
+  view `config.yaml`, and accept/reject subnet routes and exit nodes
+  interactively. See **[client/windows-app/README.md](windows-app/README.md)**.
+- **Nebula Commander Tray (Classic)** (`client/windows/`, Python/Tkinter) - the
+  original system-tray-only app: tray icon, Enroll and Settings dialogs,
+  Start/Stop polling, optional bundled Nebula binary, and **Start at login**
+  (Registry Run). See **[client/windows/README.md](windows/README.md)** for how
+  to run from source and how to build `ncclient-tray.exe` (with optional bundled
+  `nebula.exe`) using PyInstaller.

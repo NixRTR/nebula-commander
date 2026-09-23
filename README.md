@@ -7,6 +7,7 @@
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Linux%20x86_64)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Linux%20arm64)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows%20App)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows%20Tray)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows%20Installer)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=MacOS%20Intel)
@@ -23,7 +24,7 @@
 
 - **Networks & nodes** — Create networks, manage nodes, IP allocation, and certificates
 - **Web UI** — React dashboard with OIDC (e.g. Keycloak) or dev token authentication
-- **Device client (ncclient)** — `pip install nebula-commander` for enroll and run; see [client/README.md](client/README.md) and [ncclient documentation](https://nebulacommander.com/docs/usage/ncclient/)
+- **Device client (ncclient)** — `pip install nebula-commander` for enroll and run; see [client/README.md](client/README.md) and [ncclient documentation](https://nebulacommander.com/docs/usage/ncclient/). Windows gets a native windowed app ([client/windows-app/](client/windows-app/README.md)) alongside the CLI and the classic tray.
 
 ### Our Generous Supporters
 
@@ -34,7 +35,7 @@
 - [PayPal and Venmo](https://www.paypal.com/donate/?hosted_button_id=CHLZH2ZJXKQFU)
 - More to come
 
-### Status (as of v0.4.0)
+### Status (as of v0.5.0)
 
 **Implemented**
 
@@ -47,17 +48,22 @@
 - Client UI via web interface — a full React dashboard for networks, nodes, groups,
   DNS, users, invitations, and the audit log, with a consistent square-card layout
   across the list pages (Networks, Nodes, Groups, Users, Home)
-- Device client (`ncclient`): CLI, a Windows service + tray app, a Docker image, and
-  a NixOS module (`services.ncclient`), plus mobile support (iOS/Android via the
-  official Mobile Nebula app)
+- Device client (`ncclient`): CLI, a Windows service plus two GUI options (a native
+  windowed app, and a classic system-tray app), a Docker image, and a NixOS module
+  (`services.ncclient`), plus mobile support (iOS/Android via the official Mobile
+  Nebula app)
 - Lighthouse-based peer reachability monitoring and node offline detection
 - OIDC (e.g. Keycloak) or dev-token authentication, with step-up reauth required for
   sensitive actions (deletions, revocations)
 - Audit logging, an invitation system, and multi-user management
 - Encryption at rest for certificates and keys
 - Subnet routers and exit nodes (Nebula's `unsafe_routes`), opt-in per consumer
-  node, configurable from either side — a gateway's "Used by" picker, or a simple
-  "Use Subnet Router"/"Use Exit Node" dropdown on any other node. On Linux nodes
+  node and enforced at the Nebula firewall level (not just config distribution) —
+  configurable from either side: a gateway's "Used by" picker, or a simple "Use
+  Subnet Router"/"Use Exit Node" dropdown on any other node. A device still has to
+  locally accept a route before it's used (`ncclient routes accept`, or
+  interactively in the Windows app), the same way DNS has its own local
+  `--accept-dns` opt-in on top of being enabled for the network. On Linux nodes
   running `ncclient` it also discovers advertisable local subnets
   (ethernet/Wi-Fi/Tailscale/other Nebula interfaces) and automatically configures
   host-level IP forwarding and NAT. See

@@ -1,4 +1,10 @@
-# Nebula Commander for Windows: Service + Tray
+# Nebula Commander for Windows: Service + Tray (Classic)
+
+> **Looking for the default Windows app?** See
+> [client/windows-app/README.md](../windows-app/README.md) - a native WinUI 3
+> windowed app that replaced this tray as the installer's default GUI. This
+> tray still ships (as "Nebula Commander Tray (Classic)" in the Start Menu)
+> and this doc still applies to it and to the service, which both apps share.
 
 Two pieces work together:
 
