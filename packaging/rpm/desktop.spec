@@ -14,10 +14,20 @@ URL: https://github.com/NixRTR/nebula-commander
 BuildArch: noarch
 Requires: python3
 Requires: python3-gobject
+# One .rpm serves Fedora/RHEL and openSUSE, so dependencies whose package names
+# differ use rich (boolean) dependencies. Fedora's gtk4 and libadwaita include
+# the GObject typelibs the app imports; openSUSE provides gtk4/libadwaita via
+# libgtk-4-1/libadwaita-1-0 and ships the typelibs separately, so require those
+# only when openSUSE's library package is the one installed. A plain
+# "(typelib-... or gtk4)" is not enough: zypper satisfies it with the library
+# alone and the app then fails with "Namespace Gtk not available".
+# openSUSE names the D-Bus package dbus-1.
 Requires: gtk4
+Requires: (typelib-1_0-Gtk-4_0 if libgtk-4-1)
 Requires: libadwaita
+Requires: (typelib-1_0-Adw-1 if libadwaita-1-0)
 Requires: python3-jeepney
-Requires: dbus
+Requires: (dbus or dbus-1)
 Recommends: nebula-commander-service
 
 %description

@@ -24,6 +24,19 @@ const LINUX_RPM_DOWNLOADS = [
 
 const LINUX_FLATPAK_FILE = "org.beardedtek.NebulaCommander.flatpak";
 
+// Signed apt/rpm repository (GitHub Pages, rebuilt on every release by
+// .github/workflows/publish-package-repo.yml via packaging/repo/build_repo.py).
+const PACKAGE_REPO_URL = "https://pkgs.nebulacommander.com";
+
+const APT_REPO_SNIPPET = `sudo install -d -m 0755 /etc/apt/keyrings
+curl -fsSL ${PACKAGE_REPO_URL}/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/nebula-commander.gpg
+sudo curl -fsSL -o /etc/apt/sources.list.d/nebula-commander.sources ${PACKAGE_REPO_URL}/deb/nebula-commander.sources
+sudo apt update
+sudo apt install nebula-commander-desktop nebula-commander-service`;
+
+const DNF_REPO_SNIPPET = `sudo curl -fsSL -o /etc/yum.repos.d/nebula-commander.repo ${PACKAGE_REPO_URL}/rpm/nebula-commander.repo
+sudo dnf install nebula-commander-desktop nebula-commander-service`;
+
 type PlatformTab = "docker" | "linux" | "windows" | "macos" | "mobile";
 
 const TAB_ORDER: PlatformTab[] = ["docker", "linux", "windows", "macos", "mobile"];
@@ -137,6 +150,20 @@ export function ClientDownload() {
               or relogin step needed.
             </p>
             <div className="space-y-4 mb-6">
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Package repository (recommended)</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Add the signed repository once and updates arrive with your normal system updates (amd64 and arm64).
+                  Debian/Ubuntu:
+                </p>
+                <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mt-2">{APT_REPO_SNIPPET}</pre>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Fedora/RHEL:</p>
+                <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mt-2">{DNF_REPO_SNIPPET}</pre>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  openSUSE: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">sudo zypper addrepo {PACKAGE_REPO_URL}/rpm/nebula-commander.repo</code>, then install the same packages.
+                  Or download the packages directly:
+                </p>
+              </div>
               <div>
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">.deb (Debian/Ubuntu and derivatives)</p>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

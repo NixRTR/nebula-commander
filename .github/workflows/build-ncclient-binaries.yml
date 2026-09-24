@@ -256,11 +256,19 @@ jobs:
           name: ncclient-linux-amd64
           path: artifacts-in
 
+      - name: Download linux-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ncclient-linux-arm64
+          path: artifacts-in
+
       - name: Build .deb packages
         run: |
-          chmod +x artifacts-in/ncclient-linux-amd64
+          chmod +x artifacts-in/ncclient-linux-amd64 artifacts-in/ncclient-linux-arm64
           VERSION="${GITHUB_REF_NAME#v}"
           python3 packaging/deb/build.py --version "$VERSION" --ncclient-binary artifacts-in/ncclient-linux-amd64
+          # arm64 client package (service/desktop are architecture-independent, built once above)
+          python3 packaging/deb/build.py --version "$VERSION" --arch arm64 --only client --ncclient-binary artifacts-in/ncclient-linux-arm64
 
       - name: Display file info
         run: ls -lh packaging/deb/dist/
@@ -270,6 +278,15 @@ jobs:
         with:
           name: nebula-commander-client.deb
           path: packaging/deb/dist/nebula-commander-client_*_amd64.deb
+          if-no-files-found: error
+
+      # Separate artifact/release-asset name so the amd64 names that
+      # docker/frontend/Dockerfile and the Client Download page use stay unchanged.
+      - name: Upload arm64 client .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-commander-client-arm64.deb
+          path: packaging/deb/dist/nebula-commander-client_*_arm64.deb
           if-no-files-found: error
 
       - name: Upload service .deb
@@ -315,11 +332,19 @@ jobs:
           name: ncclient-linux-amd64
           path: artifacts-in
 
+      - name: Download linux-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ncclient-linux-arm64
+          path: artifacts-in
+
       - name: Build .rpm packages
         run: |
-          chmod +x artifacts-in/ncclient-linux-amd64
+          chmod +x artifacts-in/ncclient-linux-amd64 artifacts-in/ncclient-linux-arm64
           VERSION="${GITHUB_REF_NAME#v}"
           python3 packaging/rpm/build.py --version "$VERSION" --ncclient-binary artifacts-in/ncclient-linux-amd64
+          # arm64 client package (service/desktop are architecture-independent, built once above)
+          python3 packaging/rpm/build.py --version "$VERSION" --arch arm64 --only client --ncclient-binary artifacts-in/ncclient-linux-arm64
 
       - name: Display file info
         run: ls -lh packaging/rpm/dist/
@@ -329,6 +354,15 @@ jobs:
         with:
           name: nebula-commander-client.rpm
           path: packaging/rpm/dist/nebula-commander-client-*.x86_64.rpm
+          if-no-files-found: error
+
+      # Separate artifact/release-asset name so the amd64 names that
+      # docker/frontend/Dockerfile and the Client Download page use stay unchanged.
+      - name: Upload arm64 client .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-commander-client-aarch64.rpm
+          path: packaging/rpm/dist/nebula-commander-client-*.aarch64.rpm
           if-no-files-found: error
 
       - name: Upload service .rpm

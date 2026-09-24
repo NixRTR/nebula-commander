@@ -8,7 +8,8 @@ BuildArch: noarch
 Requires: nebula-commander-client = %{version}-%{release}
 Requires: nebula
 Requires: polkit
-Requires: dbus
+# openSUSE names the D-Bus package dbus-1 (see desktop.spec).
+Requires: (dbus or dbus-1)
 
 %description
 Runs ncclient as a systemd service (ncclient.service) as root, polling the
