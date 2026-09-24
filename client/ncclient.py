@@ -753,7 +753,7 @@ def run_poll_loop(
     """
     from client.token_store import get_token
     from client.config import load_settings
-    from client.dns_apply import apply_split_horizon_dns, remove_split_horizon_dns
+    from client.dns_apply import apply_split_horizon_dns, ensure_split_horizon_dns, remove_split_horizon_dns
 
     base = _server_url(server)
 
@@ -811,11 +811,21 @@ def run_poll_loop(
     last_advertised_routes: list[str] | None = None  # this node's own advertised routes, for change detection (Linux routing only)
     last_route_selection_fingerprint = None  # locally accepted subnet routes/exit node - see _route_selection_fingerprint
 
-    # Clean slate on start: remove any split-horizon from a previous crash
-    if accept_dns:
-        if dns_debug_log:
-            dns_debug_log("accept_dns=True, removing any existing split-horizon on start")
-        remove_split_horizon_dns()
+    # Clean slate on start: remove any split-horizon from a previous crash - and also when
+    # accept_dns is off, since turning it off (e.g. the desktop app's toggle, which restarts
+    # the service without --accept-dns) must undo what an earlier run applied. Only touches
+    # ncclient's own rules/files, and is a no-op without the privilege to change DNS.
+    if dns_debug_log:
+        dns_debug_log(f"accept_dns={accept_dns}, removing any existing split-horizon on start")
+    remove_split_horizon_dns()
+    # The dns-client-config last applied, so unchanged polls can re-check it's still in effect.
+    applied_dns_config: dict = {}
+
+    def _ensure_dns() -> None:
+        if accept_dns and applied_dns_config:
+            ok = ensure_split_horizon_dns(applied_dns_config)
+            if dns_debug_log:
+                dns_debug_log(f"ensure_split_horizon_dns result={ok}")
 
     if not status_callback:
         if nebula_bin:
@@ -889,6 +899,7 @@ def run_poll_loop(
                 if r.status_code == 304:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
                         nebula_proc = _start_nebula(nebula_bin, output_dir)
+                    _ensure_dns()
                     _sleep()
                     continue
                 if not r.ok:
@@ -904,6 +915,7 @@ def run_poll_loop(
                 if last_etag is not None and config_id == last_etag:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
                         nebula_proc = _start_nebula(nebula_bin, output_dir)
+                    _ensure_dns()
                     _sleep()
                     continue
                 last_etag = config_id
@@ -961,8 +973,10 @@ def run_poll_loop(
                             dns_debug_log(f"wrote dns-client.json to {dns_path}")
                         if accept_dns:
                             if dns_debug_log:
-                                dns_debug_log("applying split-horizon (NRPT)...")
-                            ok = apply_split_horizon_dns(config_dict=r_dns.json())
+                                dns_debug_log("applying split-horizon DNS...")
+                            applied_dns_config.clear()
+                            applied_dns_config.update(r_dns.json())
+                            ok = apply_split_horizon_dns(config_dict=applied_dns_config)
                             if dns_debug_log:
                                 dns_debug_log(f"apply_split_horizon_dns result={ok}")
                     elif r_dns.status_code == 404:
@@ -974,6 +988,7 @@ def run_poll_loop(
                             except OSError:
                                 pass
                         if accept_dns:
+                            applied_dns_config.clear()
                             remove_split_horizon_dns()
                     else:
                         if dns_debug_log:

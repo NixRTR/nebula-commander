@@ -71,15 +71,16 @@ When the certificate was **created** via the server (Create certificate in the N
 
 ## Split-horizon DNS (Linux)
 
-With `--accept-dns`, ncclient applies split-horizon DNS so the Nebula domain (e.g. `*.nebula.example.com`) is resolved by the network’s DNS server. Backends are tried in order until one succeeds:
+With `--accept-dns`, ncclient applies split-horizon DNS so the Nebula domain (e.g. `*.nebula.example.com`) is resolved by the network’s DNS server while everything else keeps using the host's normal DNS. It detects how the host manages DNS and uses the matching mechanism:
 
-1. **systemd-resolved** – drop-in under `/etc/systemd/resolved.conf.d/`
-2. **dnsmasq** – snippet under `/etc/dnsmasq.d/` (requires dnsmasq installed and used as resolver)
-3. **NetworkManager** – per-connection DNS for the Nebula interface via `nmcli`
-4. **systemd-networkd** – `.network` file for the Nebula interface (only when systemd-resolved is active)
-5. **/etc/resolv.conf** – append nameserver and search domain (best-effort; not true split-horizon; first nameserver often gets all queries)
+1. **NetworkManager delegating to systemd-resolved**, or **systemd-resolved** on its own (e.g. systemd-networkd servers) – per-link DNS on the Nebula interface via `resolvectl` (`~domain` routing, not a default route).
+2. **NetworkManager with its dnsmasq plugin** – a `server=/domain/ip` snippet in `/etc/NetworkManager/dnsmasq.d/`. If NetworkManager writes `/etc/resolv.conf` directly (`dns=default`, e.g. Debian) and `dnsmasq` (Debian: `dnsmasq-base`) is installed, ncclient switches NetworkManager to its dnsmasq plugin with a drop-in in `/etc/NetworkManager/conf.d/`. Without dnsmasq or systemd-resolved, split-horizon can't work there and ncclient says so.
+3. **A standalone dnsmasq service** – snippet under `/etc/dnsmasq.d/`.
+4. **/etc/resolv.conf** – append nameserver and search domain (last resort; not true split-horizon; the first nameserver often gets all queries).
 
-If no backend succeeds, ncclient reports the failure. The **resolv.conf** fallback does not guarantee that only the Nebula domain is sent to the Nebula DNS server; for proper split-horizon, use a system with systemd-resolved or dnsmasq. Manual apply/remove scripts (for when ncclient itself isn't run with enough privilege to self-apply): `client/contrib/dns-apply-linux.sh` and `client/contrib/dns-apply-windows.ps1`. **Note:** the Linux fallback script only covers the systemd-resolved, dnsmasq, and resolv.conf backends (not NetworkManager or systemd-networkd) - on those setups, run `ncclient --accept-dns` directly instead.
+When NetworkManager is running, ncclient also marks the Nebula interface unmanaged (`/etc/NetworkManager/conf.d/91-nebula-commander-unmanaged.conf`) so NetworkManager never takes over the tun device, and it deletes stale `nebula*` tun profiles older versions left in `/etc/NetworkManager/system-connections/`. Every poll it checks the DNS is still in effect and re-applies it if a resolver restart or a recreated interface undid it. Everything is removed again when ncclient stops or DNS is turned off.
+
+If nothing works, ncclient reports why and what to install. For proper split-horizon, use a system with systemd-resolved or dnsmasq. Manual apply/remove scripts (for when ncclient itself isn't run with enough privilege to self-apply): `client/contrib/dns-apply-linux.sh` and `client/contrib/dns-apply-windows.ps1`. **Note:** the Linux fallback script only covers the systemd-resolved, dnsmasq, and resolv.conf backends (not NetworkManager) - on those setups, run `ncclient --accept-dns` directly instead.
 
 ## Subnet router / exit node
 
