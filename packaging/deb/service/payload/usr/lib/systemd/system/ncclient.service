@@ -1,0 +1,30 @@
+[Unit]
+Description=Nebula Commander device client (ncclient)
+Documentation=https://github.com/NixRTR/nebula-commander
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/default/ncclient
+Environment=NEBULA_COMMANDER_CONFIG_DIR=/var/lib/ncclient
+Environment=NEBULA_DEVICE_TOKEN_FILE=/var/lib/ncclient/token
+# /var/lib/ncclient is 0700 root:root (see packaging/deb/service's
+# tmpfiles.d rule) - the desktop app no longer needs direct file access at
+# all, since client/linux/dbus_server.py (hosted in this same process)
+# mediates everything over D-Bus/polkit instead. Standard hardening, not a
+# group-sharing requirement like the old design's UMask=0007 was.
+UMask=0077
+# No ExecStartPre server-configured check: unlike `ncclient install`'s CLI-only
+# flow (which always collects NEBULA_COMMANDER_SERVER interactively before
+# writing this unit), this package supports enrolling via the desktop app
+# instead, which saves "server" into /var/lib/ncclient/settings.json rather
+# than /etc/default/ncclient. `ncclient run` itself already checks both
+# sources and exits(1) with a clear message if neither is set; Restart=on-failure
+# then just retries every 30s until the device is enrolled.
+ExecStart=/usr/lib/nebula-commander/ncclient-run.sh
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target

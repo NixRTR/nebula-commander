@@ -28,6 +28,8 @@ eggs/
 .eggs/
 lib/
 lib64/
+# ...but not the service package's staged /usr/lib payload (systemd unit, run wrapper, tmpfiles.d)
+!packaging/deb/service/payload/usr/lib/
 parts/
 sdist/
 var/
