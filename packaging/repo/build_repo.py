@@ -46,7 +46,8 @@ SUITE = "stable"
 COMPONENT = "main"
 DEB_ARCHES = ("amd64", "arm64")
 REPO_ID = "nebula-commander"
-KEYRING_PATH = "/etc/apt/keyrings/nebula-commander.gpg"
+# apt (1.4+) reads an armored key directly when the file ends in .asc - no gpg --dearmor step.
+KEYRING_PATH = "/etc/apt/keyrings/nebula-commander.asc"
 
 
 def require(tool: str) -> None:
@@ -209,8 +210,9 @@ def build_rpm_repo(rpms: list[Path], out: Path, signer: Signer, base_url: str) -
 def write_index(out: Path, base_url: str) -> None:
     b = html.escape(base_url)
     deb_cmds = html.escape(
+        "sudo apt install -y curl\n"
         "sudo install -d -m 0755 /etc/apt/keyrings\n"
-        f"curl -fsSL {base_url}/gpg.key | sudo gpg --dearmor -o {KEYRING_PATH}\n"
+        f"sudo curl -fsSL -o {KEYRING_PATH} {base_url}/gpg.key\n"
         f"sudo curl -fsSL -o /etc/apt/sources.list.d/{REPO_ID}.sources {base_url}/deb/{REPO_ID}.sources\n"
         "sudo apt update\n"
         "sudo apt install nebula-commander-desktop nebula-commander-service"
