@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>org.beardedtek.NebulaCommander</id>
+  <name>Nebula Commander</name>
+  <summary>Manage your Nebula Commander VPN connection</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="org.beardedtek">
+    <name>BeardedTek</name>
+  </developer>
+  <description>
+    <p>
+      Desktop client for Nebula Commander: enroll this device, view
+      connection status, and choose which offered subnet routes or exit
+      node to accept. Talks to the ncclient systemd service over a system
+      D-Bus API rather than doing any networking itself, so the
+      nebula-commander-service package (or equivalent) must be installed
+      and running separately.
+    </p>
+  </description>
+  <launchable type="desktop-id">org.beardedtek.NebulaCommander.desktop</launchable>
+  <screenshots>
+    <screenshot type="default">
+      <caption>Device status, service control, and subnet route/exit node selection</caption>
+      <image>https://js.beardedtek.org/nebula-commander/status.png</image>
+    </screenshot>
+  </screenshots>
+  <url type="homepage">https://github.com/NixRTR/nebula-commander</url>
+  <url type="bugtracker">https://github.com/NixRTR/nebula-commander/issues</url>
+  <content_rating type="oars-1.1" />
+  <releases>
+    <release version="0.5.2" date="2026-09-22" />
+  </releases>
+</component>

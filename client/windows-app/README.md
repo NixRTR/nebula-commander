@@ -1,19 +1,19 @@
 # Nebula Commander for Windows: native app (WinUI 3)
 
 A windowed, side-tab (Status / Enrollment / Settings) desktop app that
-minimizes to the tray on close instead of exiting. It's a second, native
-front end for the same `NebulaCommanderService` Windows Service the
-Python tray (`client/windows/`) already controls - it doesn't run the VPN
-itself, doesn't change the service or its IPC contract, and shares the same
-`%ProgramData%\nebula-commander\` state (settings, the DPAPI-encrypted
-device token, `status.json`, `available-routes.json`, and Nebula's own
+minimizes to the tray on close instead of exiting. It's a native front end
+for the `NebulaCommanderService` Windows Service (`client/windows/service.py`)
+- it doesn't run the VPN itself, doesn't change the service or its IPC
+contract, and shares the same `%ProgramData%\nebula-commander\` state
+(settings, the DPAPI-encrypted device token, `status.json`,
+`available-routes.json`, and Nebula's own
 `config.yaml`/`dns-client.json`/`nebula.log`) and named pipe
-(`client/windows/pipe_protocol.py`) the tray uses to nudge the service to
-act immediately instead of waiting for its next poll cycle.
+(`client/windows/pipe_protocol.py`) used to nudge the service to act
+immediately instead of waiting for its next poll cycle.
 
-This is the **default** GUI now (the installer's finish-dialog checkbox
-launches it), with the Python tray kept installed alongside as "Nebula
-Commander Tray (Classic)".
+This is the **only** GUI now (the installer's finish-dialog checkbox launches
+it) - an older Python/Tkinter system-tray-only app that used to ship
+alongside it has been removed.
 
 ## Prerequisites
 
@@ -43,7 +43,7 @@ Exit menu item is what actually ends the process). For faster iteration,
 `bin\Debug\net10.0-windows10.0.26100.0\win-x64\NebulaCommanderApp.exe`
 directly.
 
-No elevation needed - like the tray, it only talks to the already-installed,
+No elevation needed - it only talks to the already-installed,
 already-elevated `NebulaCommanderService` (service start/stop/restart works
 unelevated because the MSI grants Authenticated Users those specific rights
 on the service - see `installer/windows/Product.wxs`'s `GrantServiceControlAcl`).
@@ -64,7 +64,7 @@ Output: `bin\Release\net10.0-windows10.0.26100.0\win-x64\publish\NebulaCommander
   flags are needed.
 
 Packaging into the installable MSI (alongside `ncclient.exe`/
-`ncclient-tray.exe`/`ncclient-service.exe`) is handled by
+`ncclient-service.exe`) is handled by
 `installer/windows/Product.wxs` - see `installer/windows/README.md`. CI
 publishes this exe automatically on a version tag (`build-windows-app` job
 in `.github/workflows/build-ncclient-binaries.yml`).
@@ -126,8 +126,7 @@ Tray/
   None, CRYPTPROTECT_LOCAL_MACHINE | CRYPTPROTECT_UI_FORBIDDEN)` - no extra
   entropy either side (the Python side's description string is DPAPI
   metadata, not entropy, so it doesn't need to match). This is what lets the
-  LocalSystem service, the Python tray, and this app all read/write the same
-  `token.bin`.
+  LocalSystem service and this app both read/write the same `token.bin`.
 - **Nebula's firewall `cidr` field is combinable with `local_cidr`** (since
   Nebula 1.9.0) and matches the peer's certificate-verified overlay IP, not
   a spoofable source address - this is what makes `CidrUtil`'s

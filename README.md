@@ -8,7 +8,6 @@
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Linux%20arm64)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows%20App)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows%20Tray)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows%20Installer)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=MacOS%20Intel)
 ![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=MacOS%20arm64)
@@ -24,7 +23,7 @@
 
 - **Networks & nodes** — Create networks, manage nodes, IP allocation, and certificates
 - **Web UI** — React dashboard with OIDC (e.g. Keycloak) or dev token authentication
-- **Device client (ncclient)** — `pip install nebula-commander` for enroll and run; see [client/README.md](client/README.md) and [ncclient documentation](https://nebulacommander.com/docs/usage/ncclient/). Windows gets a native windowed app ([client/windows-app/](client/windows-app/README.md)) alongside the CLI and the classic tray.
+- **Device client (ncclient)** — `pip install nebula-commander` for enroll and run; see [client/README.md](client/README.md) and [ncclient documentation](https://nebulacommander.com/docs/usage/ncclient/). Windows gets a native windowed app ([client/windows-app/](client/windows-app/README.md)) alongside the CLI.
 
 ### Our Generous Supporters
 
@@ -48,10 +47,10 @@
 - Client UI via web interface — a full React dashboard for networks, nodes, groups,
   DNS, users, invitations, and the audit log, with a consistent square-card layout
   across the list pages (Networks, Nodes, Groups, Users, Home)
-- Device client (`ncclient`): CLI, a Windows service plus two GUI options (a native
-  windowed app, and a classic system-tray app), a Docker image, and a NixOS module
-  (`services.ncclient`), plus mobile support (iOS/Android via the official Mobile
-  Nebula app)
+- Device client (`ncclient`): CLI, a Windows service plus a native windowed app,
+  a Linux desktop app (GTK4, with `.deb`/`.rpm`/Flatpak packaging), a Docker
+  image, and a NixOS module (`services.ncclient`), plus mobile support
+  (iOS/Android via the official Mobile Nebula app)
 - Lighthouse-based peer reachability monitoring and node offline detection
 - OIDC (e.g. Keycloak) or dev-token authentication, with step-up reauth required for
   sensitive actions (deletions, revocations)

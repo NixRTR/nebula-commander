@@ -1,0 +1,15 @@
+Package: nebula-commander-client
+Version: @VERSION@
+Section: net
+Priority: optional
+Architecture: @ARCH@
+Maintainer: NixRTR <noreply@nixrtr.dev>
+Homepage: https://github.com/NixRTR/nebula-commander
+Description: Nebula Commander device client (ncclient) CLI
+ Standalone, self-contained ncclient CLI binary (PyInstaller-frozen, no
+ Python runtime dependency): enroll a device with a one-time code, then
+ poll the Nebula Commander server for config/certs and manage subnet
+ route/exit node acceptance from the command line.
+ .
+ Install nebula-commander-service as well to run this as a systemd
+ service instead of by hand.

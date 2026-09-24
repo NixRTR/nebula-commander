@@ -1,0 +1,19 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "purge" ]; then
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+        # Debian 12's polkit.service has no ExecReload= at all (confirmed
+        # directly) - see postinst for the fuller explanation.
+        systemctl reload polkit 2>/dev/null || systemctl try-restart polkit 2>/dev/null || true
+        systemctl reload dbus 2>/dev/null || true
+    fi
+    # Deliberately does not remove /var/lib/ncclient: it holds the device's
+    # enrollment token/certs, which the admin should remove explicitly
+    # rather than have a purge do silently. (No group to worry about
+    # cleaning up either way - unlike an earlier version of this package,
+    # nothing here creates a nebula-commander system group anymore.)
+fi
+
+exit 0

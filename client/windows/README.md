@@ -1,45 +1,39 @@
-# Nebula Commander for Windows: Service + Tray (Classic)
+# Nebula Commander for Windows: Service
 
-> **Looking for the default Windows app?** See
-> [client/windows-app/README.md](../windows-app/README.md) - a native WinUI 3
-> windowed app that replaced this tray as the installer's default GUI. This
-> tray still ships (as "Nebula Commander Tray (Classic)" in the Start Menu)
-> and this doc still applies to it and to the service, which both apps share.
+> **Looking for the GUI?** See
+> [client/windows-app/README.md](../windows-app/README.md) - the native
+> WinUI 3 windowed app that talks to the service documented here. (The
+> older Python/Tkinter system-tray app that used to live in this directory
+> has been removed; the WinUI 3 app is the only GUI client now.)
 
-Two pieces work together:
+**`ncclient-service.exe`** is a real Windows Service (`NebulaCommanderService`,
+runs as LocalSystem). Does the actual work: polls Nebula Commander for
+config/certs, runs the Nebula binary, and applies split-horizon DNS. Runs
+continuously, whether or not anyone is logged in, with no UAC prompt
+(LocalSystem is already fully privileged).
 
-- **`ncclient-service.exe`** — a real Windows Service (`NebulaCommanderService`, runs
-  as LocalSystem). Does the actual work: polls Nebula Commander for config/certs,
-  runs the Nebula binary, and applies split-horizon DNS. Runs continuously, whether
-  or not anyone is logged in, with no UAC prompt (LocalSystem is already fully
-  privileged).
-- **`ncclient-tray.exe`** — a lightweight, **unelevated** system-tray app for
-  enrolling, editing settings, managing the Nebula binary, and starting/stopping/
-  restarting the service. It does not run the VPN itself; it talks to the service.
-
-They share state under `%ProgramData%\nebula-commander\` (settings, the
-DPAPI-encrypted device token, a status file, the downloaded `nebula.exe`, and
-Nebula's own `config.yaml`/`dns-client.json`/`nebula.log`) and a small named pipe
-the tray uses to tell the service "act on this change now" instead of waiting for
-its next poll cycle. See `client/windows/shared_paths.py`,
-`client/windows/pipe_protocol.py`, and `client/windows/service.py` for the details.
+GUI clients (currently just `client/windows-app/`) talk to it via shared state
+under `%ProgramData%\nebula-commander\` (settings, the DPAPI-encrypted device
+token, a status file, the downloaded `nebula.exe`, and Nebula's own
+`config.yaml`/`dns-client.json`/`nebula.log`) and a small named pipe used to
+tell the service "act on this change now" instead of waiting for its next
+poll cycle. See `client/windows/shared_paths.py`,
+`client/windows/pipe_protocol.py`, and `client/windows/service.py` for the
+details.
 
 ## Do I need a system service or network adapter?
 
-- **Yes, a Windows Service is installed** (`NebulaCommanderService`) — that's what
-  actually runs the VPN. The MSI installer registers it (start type: Automatic) and
-  grants local users start/stop/query rights so the tray's service-control menu
-  items work without repeated UAC prompts. The tray itself is **not** installed as
-  a service — its own "Run On Startup" option just adds a per-user Registry entry
-  (`HKCU\...\Run`) so the tray icon/UI is available after you log in; the VPN keeps
-  running via the service regardless of whether the tray is open.
-- **Nebula's virtual network adapter.** When the service is running with a valid
-  enrollment, Nebula creates a virtual network interface (Nebula on Windows uses
-  [Wintun](https://www.wintun.net/)). No separate driver install is required for
-  typical use. If you see errors like "create wintun interface failed" in
-  `%ProgramData%\nebula-commander\nebula.log`, see
-  [Nebula's Windows documentation](https://github.com/slackhq/nebula#windows) and
-  [Wintun](https://www.wintun.net/) for troubleshooting.
+- **Yes, a Windows Service is installed** (`NebulaCommanderService`) - that's
+  what actually runs the VPN. The MSI installer registers it (start type:
+  Automatic) and grants local users start/stop/query rights so GUI clients'
+  service-control actions work without repeated UAC prompts.
+- **Nebula's virtual network adapter.** When the service is running with a
+  valid enrollment, Nebula creates a virtual network interface (Nebula on
+  Windows uses [Wintun](https://www.wintun.net/)). No separate driver install
+  is required for typical use. If you see errors like "create wintun
+  interface failed" in `%ProgramData%\nebula-commander\nebula.log`, see
+  [Nebula's Windows documentation](https://github.com/slackhq/nebula#windows)
+  and [Wintun](https://www.wintun.net/) for troubleshooting.
 
 ## Run from source (development)
 
@@ -48,13 +42,6 @@ From the **nebula-commander** repo root (parent of `client/`):
 ```bash
 pip install -r client/windows/requirements.txt
 pip install -e client/
-```
-
-Tray (unelevated is fine - it only talks to the service, or shows "service not
-installed" if you haven't registered one):
-
-```bash
-python -m client.windows.tray
 ```
 
 Service (needs an elevated shell to install/start; pywin32 gives this for free):
@@ -69,31 +56,13 @@ python -m client.windows.service debug
 ## Settings
 
 - Stored in `%ProgramData%\nebula-commander\settings.json` (server URL, poll
-  interval, optional Nebula path, accept-DNS flag) - shared between the service and
-  the tray, not per-user.
+  interval, optional Nebula path, accept-DNS flag) - shared between the
+  service and any GUI client, not per-user.
 - The device token is stored DPAPI-encrypted (machine scope) at
   `%ProgramData%\nebula-commander\token.bin` - readable by any process on this
   machine (not tied to one user's login session, which is what lets the
-  LocalSystem service and the unelevated tray both use it), but not a defense
-  against other local users on a shared multi-user machine.
-
-## Bundled Nebula
-
-The tray's **Manage Nebula** menu item downloads the official Nebula Windows
-release into the shared `%ProgramData%\nebula-commander\nebula\` directory (or a
-custom directory you pick) and offers to upgrade when a newer version is
-available. The service reads whichever path is saved in `settings.json`, falling
-back to `nebula` on PATH.
-
-`build.py --with-nebula` can additionally bundle a pinned Nebula binary directly
-into the **tray** exe at build time, for offline/first-run convenience.
-
-## Auto-start at login (tray only)
-
-Use the tray menu **Run On Startup** (checkable) to add/remove a per-user Registry
-entry (`HKCU\...\Run`) so the tray icon appears after you log in. This only
-affects the tray UI - the VPN itself runs via the service (start type: Automatic),
-independent of any user session.
+  LocalSystem service and an unelevated GUI client both use it), but not a
+  defense against other local users on a shared multi-user machine.
 
 ## Build (PyInstaller)
 
@@ -102,13 +71,10 @@ From **nebula-commander** repo root:
 ```bash
 cd client/windows
 pip install -r requirements.txt pyinstaller
-python build.py                       # builds both ncclient-tray.exe and ncclient-service.exe
-python build.py --target tray         # tray only
-python build.py --target service      # service only
-python build.py --with-nebula         # also bundle nebula.exe into the tray build
+python build.py
 ```
 
-See `build.py`, `ncclient-tray.spec`, and `ncclient-service.spec` for details.
-Packaging both into an installable MSI (which registers the service and sets up
-the shared `%ProgramData%` folder's permissions) is handled by
+See `build.py` and `ncclient-service.spec` for details. Packaging into an
+installable MSI (which registers the service and sets up the shared
+`%ProgramData%` folder's permissions) is handled by
 `installer/windows/Product.wxs` - see `installer/windows/README.md`.

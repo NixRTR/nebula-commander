@@ -29,7 +29,11 @@ classifiers = [
 dependencies = [
   "requests>=2.28",
   "keyring",
-  "PyYAML>=6.0; sys_platform == 'linux'",
+  "PyYAML>=6.0",
+  # Pure-Python D-Bus client for client/linux/notify.py's desktop
+  # notifications - freezes cleanly with PyInstaller, unlike PyGObject/
+  # dbus-python. Falls back to `notify-send` if unavailable.
+  "jeepney>=0.8; sys_platform == 'linux'",
 ]
 
 [project.optional-dependencies]
@@ -50,7 +54,7 @@ ncclient = "client.ncclient:main"
 [tool.setuptools.package-dir]
 "client" = "."
 [tool.setuptools]
-packages = ["client", "client.windows"]
+packages = ["client", "client.windows", "client.linux"]
 
 [tool.setuptools_scm]
 # pyproject.toml lives in client/, but the git repo (and its tags) is one level up -

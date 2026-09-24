@@ -5,7 +5,7 @@ namespace NebulaCommanderApp.Services;
 
 /// <summary>
 /// Device token, DPAPI-encrypted at machine scope (token.bin), shared with the
-/// Windows service and the Python tray - see client/token_store.py's
+/// Windows service - see client/token_store.py's
 /// _dpapi_get_token/_dpapi_set_token. .NET's ProtectedData with
 /// DataProtectionScope.LocalMachine and no extra entropy is the byte-compatible
 /// equivalent of win32crypt.CryptProtectData(..., None, ..., CRYPTPROTECT_LOCAL_MACHINE

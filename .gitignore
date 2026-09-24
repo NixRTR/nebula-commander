@@ -4,6 +4,14 @@
 notes
 notes/*
 bandit-report.json
+# flatpak-builder's own scratch dirs (packaging/flatpak/) - not "build/"/
+# "dist/" named, so not caught by the generic Python rules below.
+packaging/flatpak/.flatpak-builder/
+packaging/flatpak/build-dir/
+packaging/flatpak/repo/
+*.flatpak
+# Throwaway D-Bus/jeepney API verification scripts (repo root, not packaging/) - not meant to be committed.
+/.spike/
 # =============================================================================
 # Python
 # =============================================================================

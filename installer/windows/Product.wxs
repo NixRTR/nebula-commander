@@ -21,9 +21,8 @@
     <Property Id="ARPPRODUCTICON" Value="NcclientExe" />
     <Icon Id="NcclientExe" SourceFile="redist\ncclient.exe" />
 
-    <!-- Launch the windowed app (not the old ncclient-tray.exe) from the finish
-         dialog's optional checkbox - it's the default GUI client now. Both still
-         get installed with their own Start Menu shortcuts either way. -->
+    <!-- Launch the windowed app from the finish dialog's optional checkbox -
+         it's the only GUI client now. -->
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Nebula Commander now" />
     <Property Id="WixShellExecTarget" Value="[#NebulaCommanderAppExe]" />
     <CustomAction Id="LaunchApplication" DllEntry="WixShellExec" Impersonate="yes" BinaryRef="Wix4UtilCA_X86" />
@@ -48,7 +47,7 @@
     <!-- %ProgramData%\nebula-commander - shared state (settings.json, the DPAPI-encrypted
          device token, status.json, the downloaded nebula.exe, and Nebula's own
          config.yaml/dns-client.json/nebula.log) that both the LocalSystem service and the
-         unelevated tray need to read/write. See client/windows/shared_paths.py. -->
+         unelevated GUI app need to read/write. See client/windows/shared_paths.py. -->
     <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="SHAREDDATADIR" Name="nebula-commander" />
     </StandardDirectory>
@@ -77,22 +76,12 @@
                     WorkingDirectory="INSTALLDIR" />
         </File>
       </Component>
-      <Component Id="NcclientTrayExe" Guid="C2D3E4F5-A6B7-4C8D-9E0F-1A2B3C4D5E6F">
-        <File Id="NcclientTrayExe"
-              Source="redist\ncclient-tray.exe"
-              KeyPath="yes">
-          <Shortcut Id="TrayStartMenuShortcut"
-                    Name="Nebula Commander Tray (Classic)"
-                    Description="Nebula Commander system tray application"
-                    Directory="ProgramMenuDir"
-                    WorkingDirectory="INSTALLDIR" />
-        </File>
-      </Component>
       <!-- The windowed WinUI 3 app (client/windows-app/) - side-tab Status/
            Enrollment/Settings UI, minimizes to tray on close. Self-contained
            single-file publish, so just one file to ship, same as the exes
-           above. Talks to NcclientServiceExe exactly like the tray does: same
-           %ProgramData%\nebula-commander\ shared state and named pipe. -->
+           above. Talks to NcclientServiceExe over the same
+           %ProgramData%\nebula-commander\ shared state and named pipe that
+           NcclientServiceExe itself exposes. -->
       <Component Id="NebulaCommanderAppExe" Guid="02804C73-586C-4ACC-BF1B-7235A2CF233C">
         <File Id="NebulaCommanderAppExe"
               Source="redist\NebulaCommanderApp.exe"
@@ -129,7 +118,7 @@
     </ComponentGroup>
 
     <!-- Create %ProgramData%\nebula-commander with an ACL granting local Users
-         modify rights, so the unelevated tray can write settings.json/token.bin/
+         modify rights, so the unelevated GUI app can write settings.json/token.bin/
          nebula\nebula.exe there while the LocalSystem service reads/writes freely.
          Nothing else lives in this folder beyond app state for this one product, so
          a broad grant within it is an acceptable, deliberate tradeoff (see notes in
@@ -152,12 +141,12 @@
 
     <!-- By default only Administrators can start/stop/query a Windows service via
          the Service Control Manager - grant Authenticated Users the same rights
-         (plus the harmless read-only ones) so the tray's Start/Stop/Restart Service
-         menu items work without a UAC prompt. Deferred, elevated (Impersonate="no")
+         (plus the harmless read-only ones) so the app's Start/Stop/Restart Service
+         actions work without a UAC prompt. Deferred, elevated (Impersonate="no")
          custom action run once, after the service is registered and started.
          NEEDS VERIFICATION ON A REAL WINDOWS MACHINE: run `sc sdshow
          NebulaCommanderService` after install to confirm the ACL applied as
-         intended, and confirm Start/Stop/Restart from the tray actually avoids a
+         intended, and confirm Start/Stop/Restart from the app actually avoids a
          UAC prompt. -->
     <CustomAction Id="GrantServiceControlAcl"
                   Directory="INSTALLDIR"

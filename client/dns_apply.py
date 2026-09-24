@@ -15,6 +15,7 @@ import re
 import shutil
 import subprocess  # nosec B404 - used with shell=False and validated/fixed args
 import sys
+import time
 
 # When calling systemctl, avoid passing PyInstaller lib path (same as ncclient)
 _SYSTEM_LIBRARY_ENV_STRIP = ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LIBPATH")
@@ -271,37 +272,52 @@ def _linux_nebula_interface() -> str | None:
         return None
 
 
+def _linux_nm_active_connection_for(iface: str) -> "str | None":
+    r = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+        [_which("nmcli"), "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"],
+        capture_output=True,
+        timeout=5,
+        text=True,
+        env=_env_for_system_binaries(),
+    )
+    if r.returncode != 0:
+        return None
+    for line in (r.stdout or "").strip().splitlines():
+        if ":" in line:
+            name, device = line.split(":", 1)
+            if device.strip() == iface:
+                return name.strip()
+    return None
+
+
 def _linux_networkmanager_apply(domain: str, dns_servers: list[str]) -> bool:
     iface = _linux_nebula_interface()
     if not iface:
         return False
     try:
-        r = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
-            [_which("nmcli"), "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"],
-            capture_output=True,
-            timeout=5,
-            text=True,
-            env=_env_for_system_binaries(),
-        )
-        if r.returncode != 0:
-            return False
+        # nebula creates/owns nebula1 itself (not NetworkManager), so NetworkManager
+        # only ever sees it as a foreign device and represents it with its own
+        # lightweight auto-generated "external" connection (nmcli shows it
+        # "connected (externally)") - that registration isn't always instant, so
+        # poll briefly for it rather than racing it.
+        #
+        # This deliberately does NOT fall back to `nmcli connection add type
+        # ethernet ... ipv4.method auto` when none is found yet: that used to create
+        # a real, activatable ethernet+DHCP connection profile targeting nebula1.
+        # If it won the race against NetworkManager's own external-connection
+        # registration, NetworkManager would try to actively manage/DHCP-configure
+        # nebula1 as if it were a normal ethernet link, fighting nebula for control
+        # of the interface - observed in practice as the interface flapping down
+        # and nebula logging "Failed to write to tun: input/output error" once
+        # nebula next tried to deliver a packet through it.
         conn_name = None
-        for line in (r.stdout or "").strip().splitlines():
-            if ":" in line:
-                name, device = line.split(":", 1)
-                if device.strip() == iface:
-                    conn_name = name.strip()
-                    break
+        for _ in range(10):
+            conn_name = _linux_nm_active_connection_for(iface)
+            if conn_name:
+                break
+            time.sleep(0.3)
         if not conn_name:
-            r2 = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
-                [_which("nmcli"), "connection", "add", "type", "ethernet", "con-name", "nebula-commander", "ifname", iface, "ipv4.method", "auto"],
-                capture_output=True,
-                timeout=10,
-                env=_env_for_system_binaries(),
-            )
-            if r2.returncode != 0:
-                return False
-            conn_name = "nebula-commander"
+            return False
         dns_str = " ".join(dns_servers)
         subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
             [_which("nmcli"), "connection", "modify", conn_name, "ipv4.dns", dns_str, "ipv4.dns-search", domain],
@@ -326,26 +342,14 @@ def _linux_networkmanager_remove() -> None:
     if not iface:
         return
     try:
-        r = subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
-            [_which("nmcli"), "-t", "-f", "NAME,DEVICE", "connection", "show", "--active"],
-            capture_output=True,
-            timeout=5,
-            text=True,
-            env=_env_for_system_binaries(),
-        )
-        if r.returncode != 0:
-            return
-        for line in (r.stdout or "").strip().splitlines():
-            if ":" in line:
-                name, device = line.split(":", 1)
-                if device.strip() == iface:
-                    subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
-                        [_which("nmcli"), "connection", "modify", name.strip(), "ipv4.dns", "", "ipv4.dns-search", ""],
-                        capture_output=True,
-                        timeout=5,
-                        env=_env_for_system_binaries(),
-                    )
-                    break
+        conn_name = _linux_nm_active_connection_for(iface)
+        if conn_name:
+            subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
+                [_which("nmcli"), "connection", "modify", conn_name, "ipv4.dns", "", "ipv4.dns-search", ""],
+                capture_output=True,
+                timeout=5,
+                env=_env_for_system_binaries(),
+            )
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError):
         pass
 
@@ -489,7 +493,7 @@ Add-DnsClientNrptRule -Namespace '{namespace}' -DisplayName '{NRPT_RULE_NAME}' -
 
 def _remove_windows() -> bool:
     # Same loop as manual cleanup: Get-DnsClientNrptRule + Remove-DnsClientNrptRule -Name.
-    # Run without -NonInteractive so Remove-DnsClientNrptRule doesn't hit "Read and Prompt" (fails when tray exits).
+    # Run without -NonInteractive so Remove-DnsClientNrptRule doesn't hit "Read and Prompt" (fails when the calling process exits).
     ps = f"""
 $ErrorActionPreference = 'Stop'
 $ConfirmPreference = 'None'

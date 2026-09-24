@@ -33,7 +33,17 @@ a = Analysis(
         'charset_normalizer',
         'certifi',
         'idna',
-    ],
+    ] + ([
+        # jeepney (client/linux/dbus_server.py's system D-Bus service) is a
+        # Linux-only dependency (see client/pyproject.toml's sys_platform
+        # marker) - not installed in a Windows/macOS build venv at all, so
+        # listing it unconditionally would fail PyInstaller's static
+        # resolution on those platforms.
+        'jeepney',
+        'jeepney.io.blocking',
+        'jeepney.bus_messages',
+        'jeepney.wrappers',
+    ] if sys.platform.startswith('linux') else []),
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

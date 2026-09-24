@@ -85,6 +85,38 @@ in
       "d ${cfg.outputDir} 0700 root root -"
     ];
 
+    # Registers cfg.package's shipped D-Bus bus policy (system.d/*.conf) and
+    # polkit action declaration (polkit-1/actions/*.policy) for
+    # client/linux/dbus_server.py's org.beardedtek.NebulaCommander1
+    # service, which `ncclient run` (below) hosts. NixOS's dbus/polkit
+    # modules pick these up from the package output directly - no manual
+    # `systemctl reload polkit`/`reload dbus` step needed the way the .deb
+    # path's postinst requires (see nix/client-package.nix's postInstall),
+    # since system activation restarts/reloads the affected services
+    # itself whenever this changes.
+    services.dbus.packages = [ cfg.package ];
+
+    # Authorizes org.freedesktop.systemd1's own manage-units action, scoped
+    # to exactly the ncclient unit - this is what lets
+    # client/linux/service_control.py's Start/Stop/Restart (called by the
+    # desktop app, see nix/client-desktop-module.nix) work for any active
+    # local session with no password prompt. Inline JS via extraConfig
+    # (rather than a shipped .rules file the way the .deb path does it) -
+    # simpler for a single rule than adding another packaged file/reload
+    # dependency. Mirrors packaging/deb/service/payload/usr/share/
+    # polkit-1/rules.d/org.nixrtr.nebulacommander.rules exactly - keep the
+    # two in sync if this condition ever changes.
+    security.polkit.extraConfig = ''
+      polkit.addRule(function(action, subject) {
+          if (action.id == "org.freedesktop.systemd1.manage-units" &&
+              action.lookup("unit") == "ncclient.service" &&
+              ["start", "stop", "restart"].indexOf(action.lookup("verb")) != -1 &&
+              subject.active && subject.local) {
+              return polkit.Result.YES;
+          }
+      });
+    '';
+
     systemd.services.ncclient-enroll = mkIf (cfg.enrollCodeFile != null) {
       description = "Enroll ncclient with Nebula Commander";
       after = [ "network-online.target" ];

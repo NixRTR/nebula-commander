@@ -35,10 +35,16 @@ RUN mkdir -p /usr/share/nginx/html/downloads && \
       curl -fsSL -o ncclient-linux-amd64 "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/ncclient-linux-amd64" && \
       curl -fsSL -o ncclient-linux-arm64 "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/ncclient-linux-arm64" && \
       curl -fsSL -o ncclient-windows-amd64.exe "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/ncclient-windows-amd64.exe" && \
-      curl -fsSL -o ncclient-tray-windows-amd64.exe "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/ncclient-tray-windows-amd64.exe" && \
       curl -fsSL -o NebulaCommander-windows-amd64.msi "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/NebulaCommander-windows-amd64.msi" && \
       curl -fsSL -o ncclient-macos-amd64 "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/ncclient-macos-amd64" && \
       curl -fsSL -o ncclient-macos-arm64 "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/ncclient-macos-arm64" && \
+      curl -fsSL -o nebula-commander-client.deb "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/nebula-commander-client.deb" && \
+      curl -fsSL -o nebula-commander-service.deb "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/nebula-commander-service.deb" && \
+      curl -fsSL -o nebula-commander-desktop.deb "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/nebula-commander-desktop.deb" && \
+      curl -fsSL -o nebula-commander-client.rpm "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/nebula-commander-client.rpm" && \
+      curl -fsSL -o nebula-commander-service.rpm "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/nebula-commander-service.rpm" && \
+      curl -fsSL -o nebula-commander-desktop.rpm "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/nebula-commander-desktop.rpm" && \
+      curl -fsSL -o org.beardedtek.NebulaCommander.flatpak "https://github.com/NixRTR/nebula-commander/releases/download/v${VERSION}/org.beardedtek.NebulaCommander.flatpak" && \
       chmod +x ncclient-linux-amd64 ncclient-linux-arm64 ncclient-macos-amd64 ncclient-macos-arm64; \
     fi
 

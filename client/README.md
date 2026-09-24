@@ -156,21 +156,17 @@ ncclient works on Windows 11. Use Python 3.10+ and install with `pip install neb
 - **Nebula**: ncclient runs `nebula` from your PATH by default. If `nebula.exe` is not on PATH, use `--nebula "C:\Path\To\nebula.exe"`. Do not use `--restart-service`; there is no systemd on Windows.
 - Run ncclient in a terminal or install it as a Windows service (e.g. with NSSM or Task Scheduler) so it keeps running.
 
-### Windows GUI apps
+### Windows GUI app
 
-Two GUI options ship alongside the CLI, both talking to the same
-`NebulaCommanderService` Windows Service over the same shared
-`%ProgramData%\nebula-commander\` state:
+**Nebula Commander** (`client/windows-app/`, WinUI 3) ships alongside the CLI,
+talking to the `NebulaCommanderService` Windows Service over the shared
+`%ProgramData%\nebula-commander\` state. A proper windowed app with side tabs
+(Status, Enrollment, Settings), minimizes to the tray on close instead of
+exiting. The Status page shows live server/service/interface/DNS state, lets
+you start/stop/restart the service, view `config.yaml`, and accept/reject
+subnet routes and exit nodes interactively. See
+**[client/windows-app/README.md](windows-app/README.md)**.
 
-- **Nebula Commander** (`client/windows-app/`, WinUI 3) - the default: a proper
-  windowed app with side tabs (Status, Enrollment, Settings), minimizes to the
-  tray on close instead of exiting. The Status page shows live
-  server/service/interface/DNS state, lets you start/stop/restart the service,
-  view `config.yaml`, and accept/reject subnet routes and exit nodes
-  interactively. See **[client/windows-app/README.md](windows-app/README.md)**.
-- **Nebula Commander Tray (Classic)** (`client/windows/`, Python/Tkinter) - the
-  original system-tray-only app: tray icon, Enroll and Settings dialogs,
-  Start/Stop polling, optional bundled Nebula binary, and **Start at login**
-  (Registry Run). See **[client/windows/README.md](windows/README.md)** for how
-  to run from source and how to build `ncclient-tray.exe` (with optional bundled
-  `nebula.exe`) using PyInstaller.
+(The older Python/Tkinter system-tray-only app that used to ship alongside it
+has been removed - see **[client/windows/README.md](windows/README.md)** for
+the `NebulaCommanderService` it still talks to.)

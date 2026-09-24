@@ -1,0 +1,12 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: nebula-commander
+Source: https://github.com/NixRTR/nebula-commander
+
+Files: *
+Copyright: NixRTR
+License: GPL-3.0-or-later
+
+License: GPL-3.0-or-later
+ See /usr/share/doc/nebula-commander-client/LICENSE (or
+ https://github.com/NixRTR/nebula-commander/blob/main/client/LICENSE) for
+ the full license text.

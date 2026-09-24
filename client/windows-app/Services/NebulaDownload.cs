@@ -5,10 +5,7 @@ using System.Text.RegularExpressions;
 namespace NebulaCommanderApp.Services;
 
 /// <summary>
-/// Downloads/version-checks the Nebula binary from GitHub releases. Matches the
-/// same URLs/conventions as client/nebula_download.py (used by the Python tray)
-/// so both clients agree on where "Nebula" comes from - own implementation, no
-/// shared code, since there's no cross-language reuse path here.
+/// Downloads/version-checks the Nebula binary from GitHub releases.
 /// </summary>
 public static class NebulaDownload
 {

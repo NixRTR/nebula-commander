@@ -5,8 +5,7 @@ namespace NebulaCommanderApp.Services;
 /// <summary>
 /// Per-user "run at login" via HKCU\...\Run - the tray icon/UI appears after
 /// login; the VPN itself always runs via NebulaCommanderService (start type:
-/// Automatic) regardless of this setting. Same mechanism as the Python tray's
-/// autostart option, own implementation.
+/// Automatic) regardless of this setting.
 /// </summary>
 public static class AutoStart
 {

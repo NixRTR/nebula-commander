@@ -1,6 +1,8 @@
 """
 Named-pipe control protocol between the Nebula Commander Windows service
-(server, see service.py) and the tray (client, see tray.py).
+(server, see service.py) and its clients - the CLI's own enroll/routes
+commands (send_command() below, see client/ncclient.py) and the WinUI 3
+app's PipeClient.cs.
 
 Single-shot request/response: connect, write one JSON message, read one JSON
 response, close. Status flows the other direction via the shared status.json

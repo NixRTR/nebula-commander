@@ -23,7 +23,7 @@ public sealed class ExitNodeRef
     public string? Via { get; set; }
 }
 
-/// <summary>settings.json - shared with the service/tray, field names must match
+/// <summary>settings.json - shared with the service, field names must match
 /// client/config.py exactly (server, interval, nebula_path, accept_dns, node_id,
 /// accepted_subnet_routes, accepted_exit_node).</summary>
 public sealed class NebulaSettings

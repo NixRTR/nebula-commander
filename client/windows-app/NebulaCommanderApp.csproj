@@ -15,9 +15,9 @@
 
     <!--
       Unpackaged desktop app (no MSIX): the installer/MSI drops the published
-      exe directly, the same way it already does for ncclient-tray.exe/
-      ncclient-service.exe - see installer/windows/Product.wxs. No app
-      identity/store deployment is used.
+      exe directly, the same way it already does for ncclient-service.exe -
+      see installer/windows/Product.wxs. No app identity/store deployment
+      is used.
     -->
     <WindowsPackageType>None</WindowsPackageType>
     <!-- Needed even though we're unpackaged: PublishSingleFile's resources.pri

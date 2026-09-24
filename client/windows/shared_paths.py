@@ -1,12 +1,13 @@
 """
 Windows service-mode paths and activation.
 
-Everything the Nebula Commander Windows service (service.py) and the tray
-(tray.py) need to share lives under %ProgramData%\\nebula-commander\\ instead of
-today's per-user %APPDATA%/%USERPROFILE% locations, so a LocalSystem service and
-an unelevated tray process can both read/write it. The installer creates this
-folder at install time with an ACL granting local Users/Authenticated Users
-modify rights (see installer/windows/Product.wxs).
+Everything the Nebula Commander Windows service (service.py) and its GUI
+client (client/windows-app/) need to share lives under
+%ProgramData%\\nebula-commander\\ instead of today's per-user
+%APPDATA%/%USERPROFILE% locations, so a LocalSystem service and an unelevated
+GUI process can both read/write it. The installer creates this folder at
+install time with an ACL granting local Users/Authenticated Users modify
+rights (see installer/windows/Product.wxs).
 
 Call enable_shared_mode() once, early, before touching anything from
 client.config/client.token_store/client.ncclient: it sets the
@@ -23,9 +24,10 @@ unaffected by any of this.
 """
 from __future__ import annotations
 
-import datetime
-import json
 import os
+
+from client.status_store import load_status as _load_status
+from client.status_store import save_status as _save_status
 
 __all__ = [
     "ENV_VAR",
@@ -69,30 +71,13 @@ def status_path() -> str:
 def load_status() -> dict:
     """Read the service's last-reported status. Returns a placeholder dict if the
     service has never run or the file can't be read (e.g. service not installed)."""
-    path = status_path()
-    if not os.path.isfile(path):
-        return {"state": "unknown", "message": "Service not reachable", "updated_at": None}
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return {"state": "unknown", "message": "Service not reachable", "updated_at": None}
+    return _load_status(status_path())
 
 
 def save_status(state: str, message: str, **extra) -> None:
-    """Written by the service on every status change; read by the tray on a timer.
-    Written atomically (write to a temp file, then replace) so the tray never reads
-    a half-written file."""
+    """Written by the service on every status change; read by the GUI client on a
+    timer. Written atomically (write to a temp file, then replace) so the reader
+    never reads a half-written file."""
     root = shared_root()
     os.makedirs(root, exist_ok=True)
-    data = {
-        "state": state,
-        "message": message,
-        "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
-    }
-    data.update(extra)
-    path = status_path()
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, path)
+    _save_status(status_path(), state, message, **extra)

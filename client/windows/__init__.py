@@ -1,1 +1,1 @@
-# Nebula Commander Windows tray app
+# Nebula Commander Windows service

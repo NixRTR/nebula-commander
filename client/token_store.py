@@ -7,11 +7,11 @@ to ~/.nebula/device-token.
 
 On Windows, when NEBULA_COMMANDER_CONFIG_DIR is set (see
 client/windows/shared_paths.py::enable_shared_mode, used by the Windows service
-and tray to share machine-wide state), the token is instead stored DPAPI-encrypted
+to share machine-wide state), the token is instead stored DPAPI-encrypted
 in machine scope at <that dir>/token.bin - readable by any process on the machine
 (not tied to one user's login session, unlike the keyring/Credential Manager
-default below), which is what lets a LocalSystem service and an unelevated tray
-both read/write the same enrolled token. This takes priority over both
+default below), which is what lets a LocalSystem service and an unelevated GUI
+client both read/write the same enrolled token. This takes priority over both
 NEBULA_DEVICE_TOKEN_FILE and keyring when active.
 """
 from __future__ import annotations
@@ -104,7 +104,7 @@ def _write_token_file(path: str, token: str) -> None:
 
 
 def get_token() -> str | None:
-    """Read device token: DPAPI shared store (Windows service/tray mode), else file
+    """Read device token: DPAPI shared store (Windows shared-state mode), else file
     (if NEBULA_DEVICE_TOKEN_FILE set), else keyring."""
     if _shared_dpapi_active():
         return _dpapi_get_token()
@@ -123,7 +123,7 @@ def get_token() -> str | None:
 
 
 def set_token(token: str) -> None:
-    """Write device token: DPAPI shared store (Windows service/tray mode), else file
+    """Write device token: DPAPI shared store (Windows shared-state mode), else file
     (if NEBULA_DEVICE_TOKEN_FILE set), else keyring."""
     if _shared_dpapi_active():
         _dpapi_set_token(token)

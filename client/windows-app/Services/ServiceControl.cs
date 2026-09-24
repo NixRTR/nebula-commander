@@ -14,8 +14,7 @@ public enum NebulaServiceState
 /// Wraps System.ServiceProcess.ServiceController for the NebulaCommanderService.
 /// The MSI installer already grants Authenticated Users START/STOP/QUERY_STATUS
 /// on this service (`sc sdset`, see installer/windows/Product.wxs -
-/// GrantServiceControlAcl), the same minimal rights the Python tray's
-/// win32service calls request - so this works unelevated, same as the tray.
+/// GrantServiceControlAcl), so this works unelevated with no UAC prompt.
 /// </summary>
 public static class ServiceControl
 {

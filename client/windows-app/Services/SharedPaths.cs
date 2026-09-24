@@ -2,8 +2,8 @@ namespace NebulaCommanderApp.Services;
 
 /// <summary>
 /// Paths under %ProgramData%\nebula-commander\ shared with the Windows service
-/// and the Python tray (see client/windows/shared_paths.py on the Python side).
-/// This app never changes that layout - it's a second reader/writer of it.
+/// (see client/windows/shared_paths.py on the Python side). This app never
+/// changes that layout - it's a second reader/writer of it.
 /// </summary>
 public static class SharedPaths
 {

@@ -1,5 +1,5 @@
 """
-Shared config and paths for ncclient (tray, CLI).
+Shared config and paths for ncclient (CLI, GUI clients).
 Settings are stored in settings.json. Config dir is standalone (no token path).
 """
 import json
@@ -12,7 +12,7 @@ __all__ = ["config_dir", "settings_path", "load_settings", "save_settings"]
 def config_dir() -> str:
     """Base directory for settings and other config (e.g. nebula downloads).
     NEBULA_COMMANDER_CONFIG_DIR overrides this when set - used by the Windows
-    service/tray (see client/windows/shared_paths.py) to share a machine-wide
+    service (see client/windows/shared_paths.py) to share a machine-wide
     %ProgramData% location instead of the per-user default below."""
     override = os.environ.get("NEBULA_COMMANDER_CONFIG_DIR", "").strip()
     if override:
@@ -41,8 +41,13 @@ def load_settings() -> dict:
 
 
 def save_settings(settings: dict) -> None:
-    """Write settings to disk."""
+    """Write settings to disk atomically (temp file + os.replace), matching
+    client/status_store.py's pattern - needed since client/service_api.py's
+    D-Bus handler thread and the poll loop thread can both read/write this
+    file within the same process, not just across separate CLI invocations."""
     path = settings_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(settings, f, indent=2)
+    os.replace(tmp, path)

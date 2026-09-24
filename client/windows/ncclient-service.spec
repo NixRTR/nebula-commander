@@ -24,7 +24,6 @@ a = Analysis(
         'client.config',
         'client.token_store',
         'client.dns_apply',
-        'client.nebula_download',
         'client.windows',
         'client.windows.shared_paths',
         'client.windows.pipe_protocol',
@@ -44,12 +43,12 @@ a = Analysis(
         'charset_normalizer',
         'certifi',
         'idna',
+        'yaml',
     ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    # This is a service, not a GUI app - no need to pull in tkinter/PIL/pystray,
-    # which the tray build needs but this one doesn't.
+    # This is a service, not a GUI app - no need to pull in GUI toolkit deps.
     excludes=['tkinter', 'PIL', 'pystray'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,

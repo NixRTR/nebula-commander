@@ -24,6 +24,13 @@ pkgs.python313.pkgs.buildPythonApplication {
     requests
     keyring
     pyyaml
+    # client/linux/dbus_server.py's system D-Bus service (see
+    # client/pyproject.toml's own sys_platform=='linux' marker for the
+    # same dependency on PyPI) - nixpkgs deps aren't auto-derived from
+    # pyproject.toml here, so this needs listing by hand too. This is what
+    # gives this package its D-Bus-server capability, since it wraps the
+    # same client/ncclient.py entry point the .deb binary does.
+    jeepney
   ];
 
   # No .git is present in the Nix store copy of the source, so setuptools_scm can't
@@ -34,6 +41,21 @@ pkgs.python313.pkgs.buildPythonApplication {
   # No test suite is wired up for `client/` (nothing under pytest discovery here); skip
   # rather than have buildPythonApplication's default checkPhase fail on collection.
   doCheck = false;
+
+  # D-Bus bus policy + polkit action declaration for client/linux/
+  # dbus_server.py's org.beardedtek.NebulaCommander1 service, which this
+  # package's ncclient binary hosts when run as the systemd service (see
+  # nix/client-module.nix). Picked up automatically by NixOS's dbus module
+  # via services.dbus.packages and by its polkit module (which unions
+  # share/polkit-1/actions across environment.systemPackages) - no manual
+  # reload step needed the way the .deb path's postinst requires, since
+  # NixOS system activation restarts/reloads the affected services itself.
+  postInstall = ''
+    install -Dm644 "${repoSrc}/packaging/deb/service/payload/usr/share/polkit-1/actions/org.beardedtek.NebulaCommander1.policy" \
+      "$out/share/polkit-1/actions/org.beardedtek.NebulaCommander1.policy"
+    install -Dm644 "${repoSrc}/packaging/deb/service/payload/usr/share/dbus-1/system.d/org.beardedtek.NebulaCommander1.conf" \
+      "$out/share/dbus-1/system.d/org.beardedtek.NebulaCommander1.conf"
+  '';
 
   meta = {
     description = "Nebula Commander device client (ncclient)";

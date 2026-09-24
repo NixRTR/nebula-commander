@@ -140,11 +140,12 @@ jobs:
           path: artifacts/${{ matrix.asset_name }}
           if-no-files-found: error
 
-  # Build Windows tray app (unelevated control UI) and service exe (the
-  # NebulaCommanderService that actually runs as LocalSystem), with bundled Nebula
-  # in the tray build.
-  build-windows-tray:
-    name: Build Windows Tray + Service
+  # Build the Windows service exe (the NebulaCommanderService that actually
+  # runs as LocalSystem). The old Python/Tkinter system-tray GUI that used to
+  # be built here too has been removed - client/windows-app/ (WinUI 3) is the
+  # only GUI client now, built separately below in build-windows-app.
+  build-windows-service:
+    name: Build Windows Service
     runs-on: windows-latest
     needs: build  # Wait for CLI build to complete
     permissions:
@@ -166,30 +167,21 @@ jobs:
           pip install -r client/windows/requirements.txt
           pip install pyinstaller
 
-      - name: Build tray app and service exe
+      - name: Build service exe
         working-directory: client/windows
-        run: python build.py --target both
+        run: python build.py
 
-      - name: Prepare artifacts
+      - name: Prepare artifact
         shell: bash
         run: |
           mkdir -p artifacts
-          cp client/windows/dist/ncclient-tray.exe artifacts/ncclient-tray-windows-amd64.exe
           cp client/windows/dist/ncclient-service.exe artifacts/ncclient-service-windows-amd64.exe
 
       - name: Display file info
         shell: bash
         run: |
           ls -lh artifacts/
-          file artifacts/ncclient-tray-windows-amd64.exe || true
           file artifacts/ncclient-service-windows-amd64.exe || true
-
-      - name: Upload tray artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: ncclient-tray-windows-amd64.exe
-          path: artifacts/ncclient-tray-windows-amd64.exe
-          if-no-files-found: error
 
       - name: Upload service artifact
         uses: actions/upload-artifact@v4
@@ -206,7 +198,7 @@ jobs:
   build-windows-app:
     name: Build Windows App (WinUI 3)
     runs-on: windows-latest
-    needs: build  # Wait for CLI build to complete, same as build-windows-tray
+    needs: build  # Wait for CLI build to complete, same as build-windows-service
     permissions:
       contents: write
     steps:
@@ -241,11 +233,174 @@ jobs:
           path: artifacts/NebulaCommanderApp-windows-amd64.exe
           if-no-files-found: error
 
-  # Build Windows MSI installer (ncclient + ncclient-tray + ncclient-service + NebulaCommanderApp)
+  # Build the three Linux .deb packages (client/service/desktop) via
+  # packaging/deb/build.py. Reuses the linux-amd64 binary the `build` matrix
+  # job already produced instead of freezing it again - build.py's
+  # --ncclient-binary flag exists specifically for this. dpkg-deb ships in
+  # every Debian/Ubuntu base image (part of dpkg itself), so no extra
+  # install step is needed; build.py itself is stdlib-only.
+  build-deb:
+    name: Build .deb Packages
+    runs-on: ubuntu-22.04
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download linux-amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ncclient-linux-amd64
+          path: artifacts-in
+
+      - name: Build .deb packages
+        run: |
+          chmod +x artifacts-in/ncclient-linux-amd64
+          VERSION="${GITHUB_REF_NAME#v}"
+          python3 packaging/deb/build.py --version "$VERSION" --ncclient-binary artifacts-in/ncclient-linux-amd64
+
+      - name: Display file info
+        run: ls -lh packaging/deb/dist/
+
+      - name: Upload client .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-commander-client.deb
+          path: packaging/deb/dist/nebula-commander-client_*_amd64.deb
+          if-no-files-found: error
+
+      - name: Upload service .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-commander-service.deb
+          path: packaging/deb/dist/nebula-commander-service_*_all.deb
+          if-no-files-found: error
+
+      - name: Upload desktop .deb
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-commander-desktop.deb
+          path: packaging/deb/dist/nebula-commander-desktop_*_all.deb
+          if-no-files-found: error
+
+  # Build the three .rpm packages via packaging/rpm/build.py - same split,
+  # same reused linux-amd64 binary, same shared packaging/deb/*/payload
+  # source of truth as build-deb above (see that script's own module
+  # docstring for why the payload files aren't duplicated per packaging
+  # system). Debian/Ubuntu's own `rpm` package provides `rpmbuild` for
+  # cross-building, so this runs on the same ubuntu-22.04 runner as
+  # build-deb rather than needing a separate Fedora/RHEL container.
+  build-rpm:
+    name: Build .rpm Packages
+    runs-on: ubuntu-22.04
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install rpmbuild
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+
+      - name: Download linux-amd64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ncclient-linux-amd64
+          path: artifacts-in
+
+      - name: Build .rpm packages
+        run: |
+          chmod +x artifacts-in/ncclient-linux-amd64
+          VERSION="${GITHUB_REF_NAME#v}"
+          python3 packaging/rpm/build.py --version "$VERSION" --ncclient-binary artifacts-in/ncclient-linux-amd64
+
+      - name: Display file info
+        run: ls -lh packaging/rpm/dist/
+
+      - name: Upload client .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-commander-client.rpm
+          path: packaging/rpm/dist/nebula-commander-client-*.x86_64.rpm
+          if-no-files-found: error
+
+      - name: Upload service .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-commander-service.rpm
+          path: packaging/rpm/dist/nebula-commander-service-*.noarch.rpm
+          if-no-files-found: error
+
+      - name: Upload desktop .rpm
+        uses: actions/upload-artifact@v4
+        with:
+          name: nebula-commander-desktop.rpm
+          path: packaging/rpm/dist/nebula-commander-desktop-*.noarch.rpm
+          if-no-files-found: error
+
+  # Build the Flatpak bundle. Independent of the `build` job (the desktop
+  # app ships as plain Python, not the frozen ncclient binary) - runs in
+  # parallel. See packaging/flatpak/org.beardedtek.NebulaCommander.yaml's
+  # own comments for why sources are vendored via sync-sources.py rather
+  # than referencing client/ directly (Flathub submission repos are
+  # isolated from this monorepo).
+  build-flatpak:
+    name: Build Flatpak Bundle
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install flatpak and flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+
+      - name: Add Flathub remote
+        run: flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+
+      - name: Install GNOME runtime/SDK
+        run: flatpak install --user -y flathub org.gnome.Platform//51 org.gnome.Sdk//51
+
+      - name: Vendor client sources
+        working-directory: packaging/flatpak
+        run: python3 sync-sources.py
+
+      - name: Build and export
+        working-directory: packaging/flatpak
+        run: |
+          flatpak-builder --force-clean --user --repo=repo --install-deps-from=flathub \
+            build-dir org.beardedtek.NebulaCommander.yaml
+
+      - name: Bundle
+        working-directory: packaging/flatpak
+        run: flatpak build-bundle repo org.beardedtek.NebulaCommander.flatpak org.beardedtek.NebulaCommander
+
+      - name: Display file info
+        run: ls -lh packaging/flatpak/org.beardedtek.NebulaCommander.flatpak
+
+      - name: Upload Flatpak artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: org.beardedtek.NebulaCommander.flatpak
+          path: packaging/flatpak/org.beardedtek.NebulaCommander.flatpak
+          if-no-files-found: error
+
+  # Build Windows MSI installer (ncclient + ncclient-service + NebulaCommanderApp)
   build-msi:
     name: Build Windows MSI
     runs-on: windows-latest
-    needs: [build, build-windows-tray, build-windows-app]
+    needs: [build, build-windows-service, build-windows-app]
     if: startsWith(github.ref, 'refs/tags/')
     steps:
       - name: Checkout code
@@ -260,7 +415,6 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path installer\windows\redist
           Copy-Item "artifacts-in\ncclient-windows-amd64.exe\ncclient-windows-amd64.exe" "installer\windows\redist\ncclient.exe"
-          Copy-Item "artifacts-in\ncclient-tray-windows-amd64.exe\ncclient-tray-windows-amd64.exe" "installer\windows\redist\ncclient-tray.exe"
           Copy-Item "artifacts-in\ncclient-service-windows-amd64.exe\ncclient-service-windows-amd64.exe" "installer\windows\redist\ncclient-service.exe"
           Copy-Item "artifacts-in\NebulaCommanderApp-windows-amd64.exe\NebulaCommanderApp-windows-amd64.exe" "installer\windows\redist\NebulaCommanderApp.exe"
 
@@ -295,7 +449,7 @@ jobs:
   # Upload all binaries and checksums to GitHub Release (single job to avoid concurrent finalization)
   upload-release:
     name: Upload to Release
-    needs: [build, build-windows-tray, build-msi]
+    needs: [build, build-windows-service, build-msi, build-deb, build-rpm, build-flatpak]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     permissions:
@@ -318,7 +472,7 @@ jobs:
             rmdir "$d" 2>/dev/null || true
             mv "./.tmp_$d" "./$d"
           done
-          sha256sum ncclient* NebulaCommander* > SHA256SUMS.txt
+          sha256sum ncclient* NebulaCommander* nebula-commander-*.deb nebula-commander-*.rpm org.beardedtek.NebulaCommander.flatpak > SHA256SUMS.txt
           echo "=== Release files ==="
           ls -la
           echo "=== Checksums ==="
@@ -340,7 +494,7 @@ jobs:
   # Generate checksums artifact (for Actions UI; release gets checksums from upload-release job)
   checksums:
     name: Generate Checksums
-    needs: [build, build-windows-tray, build-windows-app]
+    needs: [build, build-windows-service, build-windows-app, build-deb, build-rpm, build-flatpak]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
@@ -362,7 +516,7 @@ jobs:
             rmdir "$d" 2>/dev/null || true
             mv "./.tmp_$d" "./$d"
           done
-          sha256sum ncclient* NebulaCommander* > SHA256SUMS.txt
+          sha256sum ncclient* NebulaCommander* nebula-commander-*.deb nebula-commander-*.rpm org.beardedtek.NebulaCommander.flatpak > SHA256SUMS.txt
           echo "=== Checksums ==="
           cat SHA256SUMS.txt
 
@@ -375,7 +529,7 @@ jobs:
   # Summary job to report build status
   summary:
     name: Build Summary
-    needs: [build, build-windows-tray, build-windows-app]
+    needs: [build, build-windows-service, build-windows-app, build-deb, build-rpm, build-flatpak]
     runs-on: ubuntu-latest
     if: always()
     steps:

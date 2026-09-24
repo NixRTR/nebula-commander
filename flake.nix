@@ -17,6 +17,7 @@
           backend = pkgs.callPackage ./nix/package.nix { backendOnly = true; };
           frontend = pkgs.callPackage ./nix/package.nix { frontendOnly = true; };
           ncclient = pkgs.callPackage ./nix/client-package.nix { };
+          ncclient-desktop = pkgs.callPackage ./nix/client-desktop-package.nix { };
         };
 
         devShells.default = pkgs.mkShell {
@@ -41,6 +42,7 @@
             modules = [
               ./nix/module.nix
               ./nix/client-module.nix
+              ./nix/client-desktop-module.nix
               ({ ... }: {
                 boot.isContainer = true;
                 system.stateVersion = "25.11";
@@ -61,6 +63,12 @@
                   enrollCodeFile = "/run/secrets/enroll-code";
                   acceptDns = true;
                 };
+                # Also evaluates/builds client-desktop-module.nix as part of
+                # this check - specifically to catch a services.dbus.packages/
+                # polkit-action-file wiring mistake at eval/build time, the
+                # same reason module.nix + client-module.nix are evaluated
+                # together above rather than each in isolation.
+                services.ncclient-desktop.enable = true;
               })
             ];
           }).config.system.build.toplevel;
@@ -69,5 +77,6 @@
     // {
       nixosModules.default = import ./nix/module.nix;
       nixosModules.client = import ./nix/client-module.nix;
+      nixosModules.client-desktop = import ./nix/client-desktop-module.nix;
     };
 }

@@ -1,2 +1,11 @@
 requests>=2.28.0
-PyYAML>=6.0; sys_platform == "linux"
+PyYAML>=6.0
+# client/linux/dbus_server.py's system D-Bus service (client/ncclient.py's
+# cmd_run imports this on Linux) - matches client/pyproject.toml's own
+# sys_platform marker. Without this, client/binaries/ncclient.spec's
+# jeepney hiddenimports entries can't resolve at freeze time since jeepney
+# was never installed into the build venv in the first place - confirmed
+# hitting exactly this (a frozen binary that starts but logs "D-Bus service
+# could not be started: No module named 'jeepney'" the instant cmd_run
+# tries to import it) before this line was added.
+jeepney>=0.8; sys_platform == "linux"

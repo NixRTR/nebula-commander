@@ -1,0 +1,13 @@
+# Configuration for the ncclient systemd service (/lib/systemd/system/ncclient.service).
+#
+# Required: the Nebula Commander server this device enrolls against.
+#NEBULA_COMMANDER_SERVER=https://nebula-commander.example.com
+
+# After setting the server above, enroll this device once with a one-time
+# code from the Nebula Commander UI:
+#   sudo ncclient enroll --server "$NEBULA_COMMANDER_SERVER" --code YOUR-CODE
+# Or use the nebula-commander-desktop app's Enrollment tab, which writes the
+# token to the same shared /var/lib/ncclient location this service reads.
+#
+# Then start the service:
+#   sudo systemctl enable --now ncclient

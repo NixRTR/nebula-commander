@@ -1,0 +1,29 @@
+// Lets any user with an active local session start/stop/restart just the
+// ncclient.service unit without a password/authentication prompt - the
+// unprivileged nebula-commander-desktop app's Start/Stop/Restart buttons
+// (client/linux/service_control.py) call systemd's own D-Bus API directly,
+// which negotiates this same polkit action; without this rule that would
+// either prompt via a polkit agent or fail outright for a non-root user.
+// Mirrors the Windows app's `sc sdset` ACL grant
+// (installer/windows/Product.wxs's GrantServiceControlAcl) - same goal,
+// this platform's mechanism.
+//
+// This authorizes systemd's own org.freedesktop.systemd1.manage-units
+// action (scoped to exactly this one unit), which can only be done via a
+// .rules override like this one - it can't be redeclared via our own
+// .policy file the way org.beardedtek.NebulaCommander1's two actions
+// are (see ../actions/org.beardedtek.NebulaCommander1.policy).
+//
+// subject.active (not subject.isInGroup(...)): dropped the
+// nebula-commander group requirement entirely, matching
+// org.beardedtek.NebulaCommander1's own actions - any real logged-in
+// user is authorized, no usermod/relogin step needed for the desktop app
+// to work right after install.
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        action.lookup("unit") == "ncclient.service" &&
+        ["start", "stop", "restart"].indexOf(action.lookup("verb")) != -1 &&
+        subject.active && subject.local) {
+        return polkit.Result.YES;
+    }
+});

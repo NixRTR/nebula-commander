@@ -10,9 +10,19 @@ const DOWNLOADS = [
   { name: "macOS (Apple Silicon)", file: "ncclient-macos-arm64", platform: "macos" },
 ] as const;
 
-const TRAY_DOWNLOADS = [
-  { name: "Windows Tray App (x86_64)", file: "ncclient-tray-windows-amd64.exe", platform: "windows" },
+const LINUX_DEB_DOWNLOADS = [
+  { name: "nebula-commander-client.deb", file: "nebula-commander-client.deb" },
+  { name: "nebula-commander-service.deb", file: "nebula-commander-service.deb" },
+  { name: "nebula-commander-desktop.deb", file: "nebula-commander-desktop.deb" },
 ] as const;
+
+const LINUX_RPM_DOWNLOADS = [
+  { name: "nebula-commander-client.rpm", file: "nebula-commander-client.rpm" },
+  { name: "nebula-commander-service.rpm", file: "nebula-commander-service.rpm" },
+  { name: "nebula-commander-desktop.rpm", file: "nebula-commander-desktop.rpm" },
+] as const;
+
+const LINUX_FLATPAK_FILE = "org.beardedtek.NebulaCommander.flatpak";
 
 type PlatformTab = "docker" | "linux" | "windows" | "macos" | "mobile";
 
@@ -120,6 +130,82 @@ export function ClientDownload() {
               After download run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">chmod +x ncclient-*</code> then move to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/usr/local/bin</code> or your PATH.
             </p>
 
+            <h2 className="text-xl font-bold mb-4">Desktop App (GTK4)</h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
+              GUI app with enrollment, status, and subnet route/exit node selection. Talks to the
+              backend service over a system D-Bus API authorized via polkit - no group membership
+              or relogin step needed.
+            </p>
+            <div className="space-y-4 mb-6">
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">.deb (Debian/Ubuntu and derivatives)</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {LINUX_DEB_DOWNLOADS.map((d) => (
+                    <a
+                      key={d.file}
+                      href={`/downloads/${d.file}`}
+                      download={d.file}
+                      className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
+                    >
+                      <HiDownload className="w-5 h-5 shrink-0" />
+                      <span className="text-sm">{d.name}</span>
+                    </a>
+                  ))}
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Install all three together (apt resolves the dependency order):
+                </p>
+                <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mt-2">
+                  sudo apt install ./nebula-commander-client.deb ./nebula-commander-service.deb ./nebula-commander-desktop.deb
+                </pre>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">.rpm (Fedora/RHEL/openSUSE and derivatives)</p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  {LINUX_RPM_DOWNLOADS.map((d) => (
+                    <a
+                      key={d.file}
+                      href={`/downloads/${d.file}`}
+                      download={d.file}
+                      className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
+                    >
+                      <HiDownload className="w-5 h-5 shrink-0" />
+                      <span className="text-sm">{d.name}</span>
+                    </a>
+                  ))}
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Install all three together (dnf resolves the dependency order):
+                </p>
+                <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mt-2">
+                  sudo dnf install ./nebula-commander-client.rpm ./nebula-commander-service.rpm ./nebula-commander-desktop.rpm
+                </pre>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Or with <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">zypper</code> on openSUSE: <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">sudo zypper install ./nebula-commander-*.rpm</code>
+                </p>
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Flatpak</p>
+                <a
+                  href={`/downloads/${LINUX_FLATPAK_FILE}`}
+                  download={LINUX_FLATPAK_FILE}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-green-100 dark:bg-green-900 hover:bg-green-200 dark:hover:bg-green-800 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
+                >
+                  <HiDownload className="w-5 h-5 shrink-0" />
+                  <span>Download {LINUX_FLATPAK_FILE}</span>
+                </a>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Not yet on Flathub - install the bundle directly:
+                </p>
+                <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mt-2">
+                  flatpak install --user ./{LINUX_FLATPAK_FILE}
+                </pre>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  Requires the <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">nebula-commander-service</code> .deb (or equivalent) installed and running separately - the Flatpak is the GUI frontend only.
+                </p>
+              </div>
+            </div>
+
             <h2 className="text-xl font-bold mb-4">Install (Python)</h2>
             <p className="text-gray-700 dark:text-gray-300 mb-2">Requires Python 3.10+. From PyPI:</p>
             <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
@@ -152,7 +238,7 @@ export function ClientDownload() {
           <Card className="mt-4">
             <h2 className="text-xl font-bold mb-4">Downloads</h2>
             <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-              CLI binary, optional tray app, or single MSI installer.
+              CLI binary, or the MSI installer for the full GUI app.
             </p>
             <div className="space-y-4 mb-6">
               <div>
@@ -167,27 +253,10 @@ export function ClientDownload() {
                 </a>
               </div>
               <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Windows Tray App</p>
+                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">MSI installer (CLI + App)</p>
                 <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
-                  System-tray app with GUI for enrollment, settings, and auto-start at login. Includes bundled Nebula binary.
+                  Installs ncclient, the windowed desktop app (enrollment, status, settings - minimizes to tray on close), and the background Windows service, with Start Menu shortcuts and an optional PATH entry.
                 </p>
-                {TRAY_DOWNLOADS.map((d) => (
-                  <a
-                    key={d.file}
-                    href={`/downloads/${d.file}`}
-                    download={d.file}
-                    className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-blue-100 dark:bg-blue-900 hover:bg-blue-200 dark:hover:bg-blue-800 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
-                  >
-                    <HiDownload className="w-5 h-5 shrink-0" />
-                    <span>{d.name}</span>
-                  </a>
-                ))}
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
-                  Or use the <a href="/downloads/NebulaCommander-windows-amd64.msi" className="text-purple-600 dark:text-purple-400 hover:underline">MSI installer</a> to install both ncclient and the tray app and add them to PATH.
-                </p>
-              </div>
-              <div>
-                <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">MSI installer (CLI + Tray)</p>
                 <a
                   href="/downloads/NebulaCommander-windows-amd64.msi"
                   download="NebulaCommander-windows-amd64.msi"

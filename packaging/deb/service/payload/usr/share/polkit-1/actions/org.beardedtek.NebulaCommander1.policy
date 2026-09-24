@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC
+ "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
+<!--
+  Authorizes client/linux/dbus_server.py's two D-Bus actions. Both default
+  to allow_active=yes: any user with an active local session is authorized,
+  no group membership or password prompt required - this is what lets the
+  desktop app work immediately after install/login, unlike the old design
+  (nebula-commander system group + usermod -aG + a required relogin).
+  allow_inactive/allow_any stay "no": a background/non-interactive session
+  (or a remote one, if this host is ever administered that way) should not
+  get the same free pass a real logged-in user sitting at the machine does.
+-->
+<policyconfig>
+  <vendor>NixRTR</vendor>
+  <vendor_url>https://github.com/NixRTR/nebula-commander</vendor_url>
+
+  <action id="org.beardedtek.NebulaCommander1.read">
+    <description>Read Nebula Commander device status</description>
+    <message>Authentication is required to read Nebula Commander device status</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+
+  <action id="org.beardedtek.NebulaCommander1.manage">
+    <description>Manage Nebula Commander device settings, enrollment, and routes</description>
+    <message>Authentication is required to change Nebula Commander device settings</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+  </action>
+</policyconfig>

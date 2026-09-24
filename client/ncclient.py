@@ -108,24 +108,13 @@ def _detect_os_platform() -> str:
 
 
 def cmd_enroll(server: str, code: str) -> None:
-    base = _server_url(server)
-    url = f"{base}/api/device/enroll"
-    code = code.strip().upper()
-    r = requests.post(url, json={"code": code}, timeout=30)
-    if not r.ok:
-        try:
-            detail = r.json().get("detail", r.text)
-        except Exception:
-            detail = r.text
-        print(f"Enroll failed: {detail}", file=sys.stderr)
+    from client.service_api import EnrollError, enroll
+
+    try:
+        enroll(server, code)
+    except EnrollError as e:
+        print(e.message, file=sys.stderr)
         sys.exit(1)
-    data = r.json()
-    token = data["device_token"]
-    node_id = data.get("node_id")
-    from client.token_store import set_token
-    from client.config import load_settings, save_settings
-    set_token(token)
-    save_settings({**load_settings(), "server": base, "node_id": node_id})
     print("Enrolled. Token saved.")
     print("Run: ncclient run")
 
@@ -243,28 +232,11 @@ def filter_accepted_routes(
     return yaml.dump(parsed, default_flow_style=False, sort_keys=False, allow_unicode=True).encode("utf-8")
 
 
-def validate_new_subnet_route(new_route: str, currently_accepted: list[dict] | None) -> "str | None":
-    """Returns an error message if accepting new_route would overlap an
-    already-accepted subnet route's CIDR, else None. Exit-node CIDRs are
-    never part of this check - accepting an exit node doesn't conflict with
-    also accepting subnet routes (Nebula's longest-prefix-match naturally
-    prefers the specific subnet over the exit node's 0.0.0.0/0 catch-all
-    anyway)."""
-    import ipaddress
-
-    try:
-        new_net = ipaddress.ip_network(new_route, strict=False)
-    except ValueError as e:
-        return f"Invalid CIDR {new_route!r}: {e}"
-    for r in currently_accepted or []:
-        existing_route = r.get("route")
-        try:
-            existing_net = ipaddress.ip_network(existing_route, strict=False)
-        except (ValueError, TypeError):
-            continue
-        if new_net.overlaps(existing_net):
-            return f"{new_route} overlaps already-accepted {existing_route} (via {r.get('via')})"
-    return None
+# Moved to client/service_api.py (pure, no I/O) so it can be shared between
+# this CLI and the D-Bus server without a circular import; re-exported here
+# since this module's own callers (cmd_routes_accept below) and historical
+# external importers still expect `client.ncclient.validate_new_subnet_route`.
+from client.service_api import validate_new_subnet_route  # noqa: E402
 
 
 def _route_selection_fingerprint(accepted_subnet_routes: list[dict] | None, accepted_exit_node: dict | None):
@@ -352,78 +324,6 @@ def _windows_process_is_elevated() -> bool:
         return False
 
 
-def get_elevation_debug_info() -> list[str]:
-    """
-    Return a list of human-readable debug lines about the current process token and elevation.
-    Used when --console is passed to the tray to see why is_process_elevated() might be False.
-    """
-    lines: list[str] = []
-    if sys.platform != "win32":
-        return ["Elevation debug: not Windows, skipping."]
-    try:
-        kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
-        advapi32 = ctypes.windll.advapi32  # type: ignore[attr-defined]
-        TOKEN_READ = 0x20008
-        TokenElevation = 20
-        TokenElevationType = 18
-        TokenElevationTypeFull = 2
-
-        proc_handle = _current_process_handle()
-        lines.append("Elevation debug:")
-        lines.append("  GetCurrentProcess() = %s (as void_p: %s)" % (kernel32.GetCurrentProcess(), proc_handle.value))
-        handle = wintypes.HANDLE()
-        ok_open = advapi32.OpenProcessToken(
-            proc_handle,
-            TOKEN_READ,
-            ctypes.byref(handle),
-        )
-        err_after_open = kernel32.GetLastError()
-        lines.append("  OpenProcessToken(TOKEN_READ): ok=%s, handle=%s, GetLastError=%s" % (bool(ok_open), handle.value, err_after_open))
-        if not ok_open:
-            lines.append("  (Common errors: 5=access denied, 6=invalid handle)")
-            return lines
-
-        try:
-            elevation = wintypes.DWORD()
-            size = ctypes.sizeof(elevation)
-            size_arg = wintypes.DWORD(size)
-            ok_elev = advapi32.GetTokenInformation(
-                handle,
-                TokenElevation,
-                ctypes.byref(elevation),
-                size,
-                ctypes.byref(size_arg),
-            )
-            err_elev = kernel32.GetLastError()
-            lines.append("  GetTokenInformation(TokenElevation=20): ok=%s, TokenIsElevated=%s, GetLastError=%s" % (bool(ok_elev), elevation.value, err_elev))
-            lines.append("  (TokenElevation: 0=not elevated, 1=elevated)")
-
-            typ = wintypes.DWORD()
-            size_typ = ctypes.sizeof(typ)
-            size_typ_arg = wintypes.DWORD(size_typ)
-            ok_typ = advapi32.GetTokenInformation(
-                handle,
-                TokenElevationType,
-                ctypes.byref(typ),
-                size_typ,
-                ctypes.byref(size_typ_arg),
-            )
-            err_typ = kernel32.GetLastError()
-            type_names = {1: "Default", 2: "Full(elevated)", 3: "Limited"}
-            lines.append("  GetTokenInformation(TokenElevationType=18): ok=%s, value=%s (%s), GetLastError=%s" % (bool(ok_typ), typ.value, type_names.get(typ.value, "?"), err_typ))
-            lines.append("  (TokenElevationType: 1=Default, 2=Full, 3=Limited)")
-
-            result = _windows_process_is_elevated()
-            lines.append("  is_process_elevated() = %s" % result)
-        finally:
-            kernel32.CloseHandle(handle)
-    except Exception as e:
-        lines.append("  Exception: %s" % e)
-        import traceback
-        lines.append(traceback.format_exc())
-    return lines
-
-
 def is_process_elevated() -> bool:
     """True if the current process has elevated privileges. On non-Windows, returns True (no elevation concept)."""
     if sys.platform != "win32":
@@ -446,7 +346,9 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
         # inherits our token; do not use ShellExecute runas (separate session, no handle).
         if not _windows_process_is_elevated():
             print(
-                "Nebula requires Administrator. Run ncclient-tray as Administrator (right-click → Run as administrator).",
+                "Nebula requires Administrator. Run this in an elevated terminal, "
+                "or install the NebulaCommanderService (MSI installer) so it runs "
+                "as LocalSystem instead.",
                 file=sys.stderr,
             )
             return None
@@ -480,9 +382,10 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
                     "stderr": subprocess.STDOUT,
                     "start_new_session": True,
                     "cwd": output_dir,
-                    # On Windows, starting a console-mode child from a GUI parent
-                    # would normally pop up a new console window. Suppress that
-                    # for the tray by creating the process with no window unless
+                    # On Windows, starting a console-mode child from a parent with
+                    # no console of its own (e.g. the Windows Service, session 0)
+                    # would normally pop up a new console window. Suppress that by
+                    # creating the process with no window unless
                     # NCCLIENT_NEBULA_CONSOLE is set (verbose/console mode).
                     "creationflags": subprocess.CREATE_NO_WINDOW,
                 }
@@ -845,22 +748,56 @@ def run_poll_loop(
     status_callback(status, message) is called with "idle", "connected", or "error".
     When accept_dns is True, fetch dns-client-config, write dns-client.json, and apply
     split-horizon DNS (systemd-resolved / NRPT); remove on exit and on start.
-    When dns_debug_log is provided (e.g. from tray with --console), it is called with
-    DNS-related debug messages for troubleshooting.
+    When dns_debug_log is provided, it is called with DNS-related debug messages
+    for troubleshooting.
     """
     from client.token_store import get_token
     from client.config import load_settings
     from client.dns_apply import apply_split_horizon_dns, remove_split_horizon_dns
 
     base = _server_url(server)
+
+    def _sleep() -> None:
+        elapsed = 0
+        while elapsed < interval and not stop_event.is_set():
+            stop_event.wait(timeout=1)
+            elapsed += 1
+
+    def _wait_for_enrollment(message: str) -> "str | None":
+        """Block, re-checking token_store every couple seconds, until a
+        token exists or stop_event is set (returns None in that case).
+
+        Only reached when status_callback is set - i.e. running as a
+        long-lived service that also hosts client/linux/dbus_server.py's
+        D-Bus API. Without this, a missing/invalid token used to make this
+        whole function - and the process hosting it - exit, which for a
+        plain foreground `ncclient run` is fine (still preserved below,
+        unchanged), but for the service is exactly backwards: the D-Bus
+        service exists specifically so the desktop app's Enroll button can
+        fix this token problem, and it can't do that if the process (and
+        its D-Bus thread) is dead. Confirmed hitting exactly this
+        deadlock - the service exiting on 401 left only a ~1-2s window
+        every 30s (Restart=on-failure/RestartSec=30) where the D-Bus
+        service was actually reachable, so the desktop app's Enroll call
+        almost always landed while the bus name simply wasn't owned by
+        anyone ("was not provided by any .service files")."""
+        status_callback("idle", message)
+        while not stop_event.is_set():
+            t = get_token()
+            if t:
+                return t
+            stop_event.wait(timeout=2)
+        return None
+
     token = get_token()
     if not token:
         if status_callback:
-            status_callback("error", "Token not found. Enroll first.")
+            token = _wait_for_enrollment("Not enrolled. Waiting for enrollment...")
+            if token is None:
+                return
         else:
             print("Token not found. Run 'ncclient enroll' first.", file=sys.stderr)
             sys.exit(1)
-        return
     node_id = load_settings().get("node_id")
     if not node_id and dns_debug_log:
         dns_debug_log("no node_id in settings (enrolled before heartbeat support); skipping heartbeat until re-enroll")
@@ -879,12 +816,6 @@ def run_poll_loop(
         if dns_debug_log:
             dns_debug_log("accept_dns=True, removing any existing split-horizon on start")
         remove_split_horizon_dns()
-
-    def _sleep() -> None:
-        elapsed = 0
-        while elapsed < interval and not stop_event.is_set():
-            stop_event.wait(timeout=1)
-            elapsed += 1
 
     if not status_callback:
         if nebula_bin:
@@ -920,8 +851,14 @@ def run_poll_loop(
                 r = requests.get(url, headers=headers, timeout=30)
                 if r.status_code == 401:
                     if status_callback:
-                        status_callback("error", "Token invalid or expired. Re-enroll.")
-                        return
+                        status_callback("error", "Token invalid or expired.")
+                        new_token = _wait_for_enrollment("Token invalid or expired. Waiting for re-enrollment...")
+                        if new_token is None:
+                            break
+                        token = new_token
+                        node_id = load_settings().get("node_id")
+                        last_etag = None
+                        continue
                     print("Token invalid or expired. Re-enroll with a new code.", file=sys.stderr)
                     sys.exit(1)
                 if r.ok and node_id:
@@ -1094,14 +1031,40 @@ def cmd_run(
         wherever else stdout/stderr is captured) instead of vanishing into a no-op.
         Without this, run_poll_loop's status_callback-guarded branches (token
         missing, 401/re-enroll needed, heartbeat failures) all fire silently with
-        the process just exiting or continuing with zero trace anywhere."""
+        the process just exiting or continuing with zero trace anywhere.
+
+        Also writes status.json into output_dir on every status change - the
+        Linux desktop app (client/linux/desktop.py, via the D-Bus service
+        started below) and any other reader of client.service_api.get_status()
+        depend on this file existing. client/windows/service.py wires its own
+        status_callback straight to client.windows.shared_paths.save_status()
+        instead of going through cmd_run at all, which is why this was never
+        needed here until Linux got a GUI that reads it too - status.json's
+        format is platform-generic (client/status_store.py), so writing it
+        directly here with output_dir (already the correct shared location,
+        e.g. /var/lib/ncclient for the packaged systemd service) needs no
+        per-platform wrapper."""
         stream = sys.stderr if status == "error" else sys.stdout
         print(f"[{status}] {message}", file=stream, flush=True)
+        try:
+            from client.status_store import save_status
+            save_status(os.path.join(output_dir, "status.json"), status, message)
+        except OSError as e:
+            print(f"[warn] Could not write status.json: {e}", file=sys.stderr, flush=True)
 
     try:
         signal.signal(signal.SIGTERM, lambda s, f: stop_event.set())
     except (ValueError, OSError) as e:
         print(f"Could not register SIGTERM handler: {e}", file=sys.stderr)
+
+    dbus_thread = None
+    if sys.platform.startswith("linux"):
+        try:
+            from client.linux.dbus_server import start as start_dbus_server
+            dbus_thread = start_dbus_server(output_dir, stop_event, lambda m: _log_callback("info", m))
+        except Exception as e:
+            print(f"[warn] D-Bus service could not be started: {e}", file=sys.stderr, flush=True)
+
     try:
         run_poll_loop(
             server,
@@ -1117,6 +1080,8 @@ def cmd_run(
         print("\nStopped.")
         stop_event.set()
     # run_poll_loop already stopped nebula and returned
+    if dbus_thread is not None:
+        dbus_thread.join(timeout=5)
 
 
 def _notify_service_poll_now() -> None:
@@ -1133,29 +1098,11 @@ def _notify_service_poll_now() -> None:
         pass
 
 
-def _load_available_routes(output_dir: str) -> list[dict]:
-    import json
-
-    path = _available_routes_path(output_dir)
-    if not os.path.isfile(path):
-        print(
-            "No available-routes.json yet - run 'ncclient run' at least once "
-            "(or wait for its next poll) before managing routes.",
-            file=sys.stderr,
-        )
-        return []
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"Failed to read {path}: {e}", file=sys.stderr)
-        return []
-
-
 def cmd_routes_list(output_dir: str) -> None:
     from client.config import load_settings
+    from client.service_api import get_available_routes
 
-    available = _load_available_routes(output_dir)
+    available = get_available_routes(output_dir)
     settings = load_settings()
     accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
     accepted_exit_node = settings.get("accepted_exit_node")
@@ -1175,75 +1122,49 @@ def cmd_routes_list(output_dir: str) -> None:
 
 
 def cmd_routes_accept(output_dir: str, cidr: str, via: str | None) -> None:
-    from client.config import load_settings, save_settings
+    from client.service_api import RouteError, accept_route
 
-    available = _load_available_routes(output_dir)
-    matches = [r for r in available if r.get("route") == cidr and (via is None or r.get("via") == via)]
-    if not matches:
-        print(f"{cidr!r} is not currently offered to this node (see 'ncclient routes list').", file=sys.stderr)
+    try:
+        accepted_cidr, accepted_via = accept_route(output_dir, cidr, via)
+    except RouteError as e:
+        print(e.message, file=sys.stderr)
         sys.exit(1)
-    if len(matches) > 1:
-        vias = ", ".join(sorted({m.get("via") or "" for m in matches}))
-        print(f"{cidr!r} is offered by multiple gateways ({vias}) - specify --via.", file=sys.stderr)
-        sys.exit(1)
-    match = matches[0]
-    if match.get("kind") == "exit":
-        print(f"{cidr!r} is an exit-node route - use 'ncclient routes accept-exit-node --via {match.get('via')}' instead.", file=sys.stderr)
-        sys.exit(1)
-
-    settings = load_settings()
-    accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
-    error = validate_new_subnet_route(cidr, accepted_subnet_routes)
-    if error:
-        print(error, file=sys.stderr)
-        sys.exit(1)
-    accepted_subnet_routes = [r for r in accepted_subnet_routes if r.get("route") != cidr] + [
-        {"route": cidr, "via": match.get("via")}
-    ]
-    settings["accepted_subnet_routes"] = accepted_subnet_routes
-    save_settings(settings)
     _notify_service_poll_now()
-    print(f"Accepted {cidr} via {match.get('via')}.")
+    print(f"Accepted {accepted_cidr} via {accepted_via}.")
 
 
 def cmd_routes_reject(output_dir: str, cidr: str) -> None:
-    from client.config import load_settings, save_settings
+    from client.service_api import RouteError, reject_route
 
-    settings = load_settings()
-    accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
-    remaining = [r for r in accepted_subnet_routes if r.get("route") != cidr]
-    if len(remaining) == len(accepted_subnet_routes):
-        print(f"{cidr!r} was not accepted.", file=sys.stderr)
+    try:
+        reject_route(output_dir, cidr)
+    except RouteError as e:
+        print(e.message, file=sys.stderr)
         sys.exit(1)
-    settings["accepted_subnet_routes"] = remaining
-    save_settings(settings)
     _notify_service_poll_now()
     print(f"Rejected {cidr}.")
 
 
 def cmd_routes_accept_exit_node(output_dir: str, via: str) -> None:
-    from client.config import load_settings, save_settings
+    from client.service_api import RouteError, accept_exit_node
 
-    available = _load_available_routes(output_dir)
-    if not any(r.get("kind") == "exit" and r.get("via") == via for r in available):
-        print(f"No exit node with via={via!r} is currently offered to this node.", file=sys.stderr)
+    try:
+        accept_exit_node(output_dir, via)
+    except RouteError as e:
+        print(e.message, file=sys.stderr)
         sys.exit(1)
-    settings = load_settings()
-    settings["accepted_exit_node"] = {"via": via}
-    save_settings(settings)
     _notify_service_poll_now()
     print(f"Accepted exit node via {via}.")
 
 
 def cmd_routes_reject_exit_node(output_dir: str) -> None:
-    from client.config import load_settings, save_settings
+    from client.service_api import RouteError, reject_exit_node
 
-    settings = load_settings()
-    if not settings.get("accepted_exit_node"):
-        print("No exit node is currently accepted.", file=sys.stderr)
+    try:
+        reject_exit_node(output_dir)
+    except RouteError as e:
+        print(e.message, file=sys.stderr)
         sys.exit(1)
-    settings["accepted_exit_node"] = None
-    save_settings(settings)
     _notify_service_poll_now()
     print("Rejected the accepted exit node.")
 

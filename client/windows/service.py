@@ -1,11 +1,10 @@
 """
 Nebula Commander Windows Service.
 
-Runs client.ncclient.run_poll_loop() (unchanged - the same poll/config/cert/DNS
-logic the old elevated tray used to run in-process) as LocalSystem, so launching
-Nebula and applying split-horizon DNS have full privilege without any UAC prompt.
-Writes status to a shared status.json file and hosts a small named-pipe control
-channel so the tray (a separate, unelevated process - see tray.py) can trigger an
+Runs client.ncclient.run_poll_loop() as LocalSystem, so launching Nebula and
+applying split-horizon DNS have full privilege without any UAC prompt. Writes
+status to a shared status.json file and hosts a small named-pipe control
+channel so an unelevated GUI client (see client/windows-app/) can trigger an
 immediate re-poll after enroll/settings changes instead of waiting for the next
 interval tick.
 
@@ -51,8 +50,8 @@ from client.windows.pipe_protocol import CMD_POLL_NOW, CMD_RELOAD_SETTINGS, PIPE
 
 def _pipe_security_attributes():
     """Grant Authenticated Users + SYSTEM/Administrators access to the control pipe,
-    so the unelevated tray (running as the interactive user) can connect - a pipe
-    created by a LocalSystem process otherwise defaults to SYSTEM/Admin-only."""
+    so an unelevated GUI client (running as the interactive user) can connect - a
+    pipe created by a LocalSystem process otherwise defaults to SYSTEM/Admin-only."""
     import win32security
 
     sddl = "D:(A;;GRGW;;;AU)(A;;GA;;;SY)(A;;GA;;;BA)"
@@ -109,7 +108,7 @@ class NebulaCommanderService(win32serviceutil.ServiceFramework):
         output_dir = shared_root()
 
         if not server:
-            save_status("error", "Set server URL from the tray Settings dialog")
+            save_status("error", "Set server URL from the Nebula Commander app's Settings page")
             return
 
         self.stop_event.clear()

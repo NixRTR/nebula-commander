@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Nebula Commander
+Comment=Manage your Nebula Commander VPN connection
+Exec=nebula-commander-desktop
+Icon=org.beardedtek.NebulaCommander
+Terminal=false
+Categories=Network;
+StartupNotify=true

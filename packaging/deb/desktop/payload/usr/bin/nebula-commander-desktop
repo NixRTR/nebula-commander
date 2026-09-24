@@ -1,0 +1,6 @@
+#!/bin/sh
+# Launcher for the GTK4/libadwaita desktop app. Runs the .py file directly
+# (not `python3 -m client.linux.desktop`) so client/linux/desktop.py's own
+# _ensure_path() can find and insert its parent directory onto sys.path,
+# making `import client.xxx` resolve without needing PYTHONPATH set here.
+exec python3 /usr/share/nebula-commander-desktop/client/linux/desktop.py "$@"

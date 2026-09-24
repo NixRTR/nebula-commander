@@ -1,0 +1,106 @@
+app-id: org.beardedtek.NebulaCommander
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+command: nebula-commander-desktop
+
+finish-args:
+  # HTTP calls to the Nebula Commander server (enroll, poll).
+  - --share=network
+  # GTK4 window. --share=ipc pairs with --socket=fallback-x11 - X11's MIT-SHM
+  # extension needs the shared IPC namespace (flatpak-builder-lint flags a
+  # fallback-x11 socket with no --share=ipc as an error: finish-args-x11-
+  # without-ipc).
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  # "Run on startup" toggle (client/linux/autostart.py) - a real host path
+  # alias Flatpak supports for exactly this purpose (autostart .desktop
+  # entries), not the sandboxed per-app config dir.
+  - --filesystem=xdg-config/autostart:create
+  # Desktop notifications (client/linux/notify.py) - standard, unremarkable
+  # Flatpak permission.
+  - --talk-name=org.freedesktop.Notifications
+  # client/linux/service_control.py's Start/Stop/Restart (direct D-Bus
+  # calls to systemd's own Manager, not a systemctl/flatpak-spawn
+  # subprocess - see that module's docstring). Authorized by the existing
+  # polkit rule scoped to exactly the ncclient.service unit.
+  - --system-talk-name=org.freedesktop.systemd1
+  # client/linux/dbus_client.py's calls to client/linux/dbus_server.py's
+  # custom service (status/settings/enroll/route management), authorized
+  # per-call via polkit - this one scoped permission is what replaces the
+  # old design's --filesystem=/var/lib/ncclient:rw and
+  # --talk-name=org.freedesktop.Flatpak (flatpak-spawn --host systemctl)
+  # entirely; see client/linux/dbus_server.py's module docstring for the
+  # full rationale (this is the actual Flathub-prep fix, not a config
+  # tweak - the shared-file design had no portal equivalent and would have
+  # needed heavy justification to survive review, with no guarantee of
+  # approval even then).
+  - --system-talk-name=org.beardedtek.NebulaCommander1
+
+modules:
+  # Pure-Python dependency not already in org.gnome.Platform (which bundles
+  # Python3 + PyGObject/GTK4/Adw already, since that's the whole point of
+  # building GNOME/Python apps against this runtime - but not third-party
+  # PyPI packages). Generated via flatpak-pip-generator (`--yaml
+  # --checker-data --runtime org.gnome.Sdk//50 -o jeepney-sources jeepney`)
+  # rather than a live `pip install` at build time: Flathub's build
+  # infrastructure has no network access during the build at all (confirmed
+  # against their docs - `--share=network` in build-args "will not work"
+  # there), so the dependency has to be a pinned, hash-verified local/URL
+  # source instead. jeepney itself has zero further transitive
+  # dependencies (confirmed via the generator's own output - one wheel,
+  # nothing else pulled in).
+  - name: python3-jeepney
+    buildsystem: simple
+    build-commands:
+      - pip3 install --verbose --exists-action=i --no-index --find-links="file://${PWD}"
+        --prefix=${FLATPAK_DEST} "jeepney" --no-build-isolation
+    sources:
+      - type: file
+        url: https://files.pythonhosted.org/packages/b2/a3/e137168c9c44d18eff0376253da9f1e9234d0239e0ee230d2fee6cea8e55/jeepney-0.9.0-py3-none-any.whl
+        sha256: 97e5714520c16fc0a45695e5365a2e11b81ea79bba796e26f9f1d178cb182683
+        x-checker-data:
+          type: pypi
+          name: jeepney
+          packagetype: bdist_wheel
+
+  - name: nebula-commander-desktop
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 launcher.sh /app/bin/nebula-commander-desktop
+      - install -Dm644 org.beardedtek.NebulaCommander.desktop /app/share/applications/org.beardedtek.NebulaCommander.desktop
+      - install -Dm644 org.beardedtek.NebulaCommander.svg /app/share/icons/hicolor/scalable/apps/org.beardedtek.NebulaCommander.svg
+      - install -Dm644 org.beardedtek.NebulaCommander.metainfo.xml /app/share/metainfo/org.beardedtek.NebulaCommander.metainfo.xml
+      # Keep this file list in sync with packaging/deb/build.py's
+      # _CLIENT_SOURCE_FILES / _LINUX_SOURCE_FILES - both packages ship the
+      # same plain-Python payload, just at different install prefixes
+      # (/usr/share/... there, /app/share/... here). Only client/__init__.py
+      # itself is needed now (so `client` resolves as a regular package for
+      # the `from client.linux import ...` imports) - desktop.py no longer
+      # imports client.config/client.token_store/client.ncclient at all.
+      - |
+        set -e
+        install -Dm644 "client/__init__.py" "/app/share/nebula-commander-desktop/client/__init__.py"
+        for f in __init__.py desktop.py notify.py service_control.py autostart.py dbus_client.py; do
+          install -Dm644 "client/linux/$f" "/app/share/nebula-commander-desktop/client/linux/$f"
+        done
+    # Local, self-contained sources only (no `../../` reaching outside this
+    # directory) - required for Flathub, whose submission repos are
+    # isolated from the rest of this monorepo. `client/` here is a vendored
+    # copy kept in sync by running `python3 sync-sources.py` (see that
+    # script's own docstring) before every build/submission, not a
+    # reference into the live repo tree.
+    sources:
+      - type: dir
+        path: src/client
+        dest: client
+      - type: file
+        path: launcher.sh
+      - type: file
+        path: org.beardedtek.NebulaCommander.desktop
+      - type: file
+        path: org.beardedtek.NebulaCommander.svg
+      - type: file
+        path: org.beardedtek.NebulaCommander.metainfo.xml
