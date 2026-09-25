@@ -10,7 +10,9 @@ COPY . /app/client/
 
 # Install build deps: binutils (for objdump) + PyInstaller and deps
 RUN apt-get update && apt-get install -y binutils && rm -rf /var/lib/apt/lists/* \
-    && pip install --no-cache-dir pyinstaller requests
+    && pip install --no-cache-dir \
+        -r /app/client/binaries/requirements.txt \
+        -r /app/client/requirements.txt
 
 # Build: run from binaries/ so ncclient.spec's paths resolve; PYTHONPATH so "client" package is found
 ENV PYTHONPATH=/app
