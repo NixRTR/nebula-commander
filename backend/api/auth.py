@@ -21,7 +21,7 @@ from ..database import get_session
 from ..models.db import AuthExchangeCode, User
 from ..services.audit import get_client_ip, log_audit
 from jose import jwt
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = logging.getLogger(__name__)
@@ -74,6 +74,42 @@ def get_safe_redirect_url(request: Request) -> str:
         request_host
     )
     return f"{request.url.scheme}://{request_host}"
+
+
+async def _claim_imported_user(session: AsyncSession, user_info: dict, oidc_sub: str, client_ip):
+    """Link a first-time login to a user brought in by an instance import.
+
+    Imported users keep their permissions under oidc_sub "imported:<old sub>" because
+    the new identity provider issues different subs. They are claimed by email, but only
+    when the provider asserts the email is verified; otherwise anyone who registered with
+    someone else's (unverified) address could inherit that person's access."""
+    email = (user_info.get("email") or "").strip()
+    verified = user_info.get("email_verified")
+    if not email or not (verified is True or str(verified).lower() == "true"):
+        return None
+    candidates = (
+        await session.execute(
+            select(User).where(
+                User.oidc_sub.like("imported:%"),
+                func.lower(User.email) == email.lower(),
+            ).limit(2)
+        )
+    ).scalars().all()
+    if len(candidates) != 1:
+        return None
+    user = candidates[0]
+    user.oidc_sub = oidc_sub
+    await session.flush()
+    await log_audit(
+        session,
+        "user_import_claimed",
+        resource_type="user",
+        resource_id=user.id,
+        actor_user_id=user.id,
+        actor_identifier=email,
+        client_ip=client_ip,
+    )
+    return user
 
 
 async def _create_exchange_code(token: str, session: AsyncSession) -> str:
@@ -343,6 +379,8 @@ async def callback(request: Request, session: AsyncSession = Depends(get_session
         email = user_info.get("email") or user_info.get("preferred_username") or "unknown"
         user_result = await session.execute(select(User).where(User.oidc_sub == oidc_sub))
         db_user = user_result.scalar_one_or_none()
+        if not db_user:
+            db_user = await _claim_imported_user(session, user_info, oidc_sub, client_ip)
         if not db_user:
             db_user = User(oidc_sub=oidc_sub, email=email, system_role=system_role)
             session.add(db_user)

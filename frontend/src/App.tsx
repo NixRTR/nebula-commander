@@ -25,6 +25,7 @@ const NetworkDetail = lazy(() => import("./pages/NetworkDetail").then(m => ({ de
 const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation").then(m => ({ default: m.AcceptInvitation })));
 const ReauthComplete = lazy(() => import("./pages/ReauthComplete").then(m => ({ default: m.ReauthComplete })));
 const Appearance = lazy(() => import("./pages/Appearance").then(m => ({ default: m.Appearance })));
+const Backup = lazy(() => import("./pages/Backup").then(m => ({ default: m.Backup })));
 const Login = lazy(() => import("./pages/Login"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 // Loading fallback component
@@ -83,6 +84,7 @@ function AppContent() {
                   <Route path="/reauth/complete" element={<ReauthComplete />} />
                   <Route path="/auth/reauth/complete" element={<ReauthComplete />} />
                   <Route path="/settings/appearance" element={<Appearance />} />
+                  <Route path="/settings/backup" element={<Backup />} />
                   <Route path="/settings/oidc" element={<Home />} />
                   <Route path="/settings/system" element={<Home />} />
                 </Routes>

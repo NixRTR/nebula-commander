@@ -18,6 +18,7 @@ from .db import (
     NetworkDNSAlias,
     Invitation,
     AuditLog,
+    LegacyDeviceKey,
 )
 
 __all__ = [
@@ -38,4 +39,5 @@ __all__ = [
     "NetworkDNSAlias",
     "Invitation",
     "AuditLog",
+    "LegacyDeviceKey",
 ]

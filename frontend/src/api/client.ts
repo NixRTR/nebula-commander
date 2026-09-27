@@ -454,6 +454,79 @@ export async function getNodeCertsBlob(nodeId: number): Promise<Blob> {
   return apiFetchBlob(`/nodes/${nodeId}/certs`);
 }
 
+/** With responseType "blob" the error body is a Blob too, hiding the backend's {detail}. */
+async function blobErrorMessage(error: unknown): Promise<string> {
+  if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
+    try {
+      const body = JSON.parse(await error.response.data.text()) as { detail?: unknown };
+      if (body?.detail) return String(body.detail);
+    } catch {
+      // not JSON: fall through to the generic message
+    }
+  }
+  return axiosErrorMessage(error);
+}
+
+// --- Backup & export (system admins; both actions need a fresh reauth token) ---
+
+export interface BackupStatus {
+  can_import: boolean;
+  networks: number;
+  nodes: number;
+  min_passphrase_length: number;
+  public_url: string | null;
+}
+
+export async function getBackupStatus(): Promise<BackupStatus> {
+  return apiFetch<BackupStatus>("/admin/backup/status");
+}
+
+/** Download the whole instance, encrypted with `passphrase`. The passphrase goes only into this request. */
+export async function exportInstance(
+  reauthToken: string,
+  passphrase: string,
+  includeDeviceKey: boolean
+): Promise<{ blob: Blob; filename: string }> {
+  try {
+    const res = await apiClient.post<Blob>(
+      "/admin/export",
+      { reauth_token: reauthToken, passphrase, include_device_key: includeDeviceKey },
+      { responseType: "blob" }
+    );
+    const disposition = String(res.headers["content-disposition"] ?? "");
+    const match = /filename="([^"]+)"/.exec(disposition);
+    return { blob: res.data, filename: match?.[1] ?? "nebula-commander-export.ncexport.age" };
+  } catch (error) {
+    throw new Error(await blobErrorMessage(error));
+  }
+}
+
+export interface ImportSummary {
+  inserted: Record<string, number>;
+  users_created: number;
+  users_matched: number;
+  warnings: string[];
+  cert_files: number;
+  device_key_restored: boolean;
+  same_identity_provider: boolean;
+  source_public_url: string | null;
+  source_app_version: string | null;
+  exported_at: string | null;
+}
+
+export async function importInstance(reauthToken: string, file: File, passphrase: string): Promise<ImportSummary> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("passphrase", passphrase);
+  form.append("reauth_token", reauthToken);
+  try {
+    const res = await apiClient.post<ImportSummary>("/admin/import", form);
+    return res.data;
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
+  }
+}
+
 export interface CreateEnrollmentCodeResponse {
   code: string;
   expires_at: string;

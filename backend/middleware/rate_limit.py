@@ -43,6 +43,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             "/api/auth/reauth/callback": (40, 900),  # callbacks can be a bit higher
             # Public invitation preview: protect against brute-forcing invitation tokens
             "/api/invitations/public": (30, 3600),  # 30 requests per hour per IP
+            # Instance backup: each run is heavy (scrypt + full dump) and already reauth-gated
+            "/api/admin/export": (5, 3600),
+            "/api/admin/import": (5, 3600),
         }
     
     async def dispatch(self, request: Request, call_next):

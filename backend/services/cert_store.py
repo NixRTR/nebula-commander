@@ -16,6 +16,24 @@ def read_cert_store_file(path: Path) -> str:
     return decrypt(data).decode("utf-8")
 
 
+def read_cert_store_bytes(path: Path) -> bytes:
+    """Read and decrypt a cert store file as raw bytes."""
+    safe_path = _check_path_under_roots(path, [Path(settings.cert_store_path)])
+    return decrypt(safe_path.read_bytes())
+
+
+def write_cert_store_bytes(path: Path, content: bytes) -> None:
+    """Encrypt raw bytes and write them to path (creating parent directories)."""
+    safe_path = _check_path_under_roots(path, [Path(settings.cert_store_path)])
+    safe_path.parent.mkdir(parents=True, exist_ok=True)
+    safe_path.write_bytes(encrypt(content))
+    if safe_path.suffix == ".key":
+        try:
+            safe_path.chmod(0o600)
+        except OSError:
+            pass
+
+
 def write_cert_store_file(path: Path, content: str) -> None:
     """Encrypt content and write to path."""
     safe_path = _check_path_under_roots(path, [Path(settings.cert_store_path)])

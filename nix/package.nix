@@ -14,6 +14,7 @@ let
     fastapi
     uvicorn
     websockets
+    python-multipart
     sqlalchemy
     aiosqlite
     pydantic

@@ -397,6 +397,22 @@ class AuditLog(Base):
     actor_user: Mapped[Optional["User"]] = relationship("User", foreign_keys=[actor_user_id])
 
 
+class LegacyDeviceKey(Base):
+    """Device-token signing secret brought in by an instance import (see
+    backend/services/instance_export.py). Devices enrolled on the source instance
+    carry tokens signed with that instance's JWT secret; keeping it here lets them
+    continue after a move with only a server URL change. Only device tokens are ever
+    checked against these keys, and new tokens are always signed with the current secret."""
+
+    __tablename__ = "legacy_device_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Stored as encrypt_to_str() output and decrypted explicitly by the code that reads it.
+    key: Mapped[str] = mapped_column(Text, nullable=False)
+    source: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # source instance public URL
+    imported_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
 class AuthExchangeCode(Base):
     """One-time code exchanged for a JWT after an OAuth/reauth redirect, so the
     token itself never appears in a URL, browser history, or referrer header."""

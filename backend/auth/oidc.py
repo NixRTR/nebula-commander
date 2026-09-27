@@ -19,7 +19,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..database import get_session
-from ..models.db import Node
+from ..models.db import LegacyDeviceKey, Node
+from ..services.encryption import decrypt_to_str
 
 logger = logging.getLogger(__name__)
 
@@ -168,12 +169,15 @@ def create_device_token(node_id: int, version: int) -> str:
     )
 
 
-def decode_device_token(token: str) -> Optional[tuple[int, int]]:
-    """Decode device JWT; return (node_id, version) or None."""
+def decode_device_token(token: str, secret: Optional[str] = None) -> Optional[tuple[int, int]]:
+    """Decode device JWT; return (node_id, version) or None.
+
+    `secret` defaults to the current JWT secret; require_device_token also tries
+    signing keys brought in by an instance import (LegacyDeviceKey)."""
     try:
         payload = jwt.decode(
             token,
-            settings.jwt_secret_key,
+            secret or settings.jwt_secret_key,
             algorithms=[settings.jwt_algorithm],
         )
         if payload.get("sub") != "device":
@@ -206,6 +210,14 @@ async def require_device_token(
             headers={"WWW-Authenticate": "Bearer"},
         )
     decoded = decode_device_token(credentials.credentials)
+    if decoded is None:
+        # Devices enrolled on an instance this one was imported from still carry tokens
+        # signed with that instance's secret.
+        legacy_keys = (await session.execute(select(LegacyDeviceKey.key))).scalars().all()
+        for stored in legacy_keys:
+            decoded = decode_device_token(credentials.credentials, secret=decrypt_to_str(stored))
+            if decoded is not None:
+                break
     if decoded is None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,

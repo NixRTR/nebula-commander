@@ -16,6 +16,7 @@ import {
   HiClipboardList,
   HiInformationCircle,
   HiColorSwatch,
+  HiArchive,
 } from 'react-icons/hi';
 import { FaGithub, FaComments } from 'react-icons/fa';
 import { AboutModal } from '../AboutModal';
@@ -165,6 +166,15 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                     onClick={handleItemClick}
                   >
                     Audit
+                  </FlowbiteSidebar.Item>
+                  <FlowbiteSidebar.Item
+                    as={Link}
+                    to="/settings/backup"
+                    icon={HiArchive}
+                    active={location.pathname === '/settings/backup'}
+                    onClick={handleItemClick}
+                  >
+                    Backup &amp; export
                   </FlowbiteSidebar.Item>
                 </>
               )}

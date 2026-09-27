@@ -29,6 +29,7 @@ from .api import (
     public_config,
     dns,
     version_check,
+    backup,
 )
 from .middleware import RateLimitMiddleware
 
@@ -120,6 +121,7 @@ app.include_router(audit.router)
 app.include_router(public_config.router)
 app.include_router(dns.router)
 app.include_router(version_check.router)
+app.include_router(backup.router)
 
 
 @app.get("/api")

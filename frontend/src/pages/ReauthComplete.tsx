@@ -18,7 +18,17 @@ export type PendingReauthAction =
   | { kind: "network-delete"; networkId: number; networkName: string }
   | { kind: "node-delete"; nodeId: number; hostname: string }
   | { kind: "node-revoke-cert"; nodeId: number; hostname: string }
-  | { kind: "user-delete"; userId: number; email: string };
+  | { kind: "user-delete"; userId: number; email: string }
+  // Backup & export: the page itself runs the action after reauth (the passphrase and
+  // import file are entered afterwards and never stored), so these only carry options.
+  | { kind: "instance-export"; includeDeviceKey: boolean }
+  | { kind: "instance-import" };
+
+/** Router state handed to /settings/backup after a successful reauth. */
+export interface BackupReauthState {
+  reauthToken: string;
+  action: Extract<PendingReauthAction, { kind: "instance-export" | "instance-import" }>;
+}
 
 // eslint-disable-next-line react-refresh/only-export-components
 export function getPendingReauthAction(): PendingReauthAction | null {
@@ -58,6 +68,9 @@ const destinationFor = (kind: PendingReauthAction["kind"]): string => {
       return "/nodes";
     case "user-delete":
       return "/users";
+    case "instance-export":
+    case "instance-import":
+      return "/settings/backup";
   }
 };
 
@@ -75,6 +88,9 @@ async function runPendingAction(pending: PendingReauthAction, reauthToken: strin
     case "user-delete":
       await deleteUser(pending.userId, reauthToken, pending.email);
       return;
+    case "instance-export":
+    case "instance-import":
+      return; // handed to the Backup page, see ReauthComplete below
   }
 }
 
@@ -106,8 +122,15 @@ export function ReauthComplete() {
     }
 
     exchangeAuthCode(code)
-      .then((reauthToken) => runPendingAction(pending, reauthToken))
-      .then(() => {
+      .then(async (reauthToken) => {
+        if (pending.kind === "instance-export" || pending.kind === "instance-import") {
+          // Hand the single-use token to the Backup page in memory (router state, not storage).
+          clearPendingReauthAction();
+          const state: BackupReauthState = { reauthToken, action: pending };
+          navigate(destinationFor(pending.kind), { replace: true, state });
+          return;
+        }
+        await runPendingAction(pending, reauthToken);
         clearPendingReauthAction();
         setStatus("success");
         navigate(destinationFor(pending.kind), { replace: true });

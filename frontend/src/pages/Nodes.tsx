@@ -32,17 +32,9 @@ import {
 import type { CreateEnrollmentCodeResponse } from "../api/client";
 import { startReauthFlow } from "./ReauthComplete";
 import { getEnrollmentState, getCardStatus } from "../utils/nodeStatus";
+import { downloadBlob } from "../utils/download";
 import { useTheme } from "../contexts/ThemeContext";
 import { contrastTextColor } from "../theme/tokens";
-
-function downloadBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export function Nodes() {
   const { resolve } = useTheme();
