@@ -5,6 +5,8 @@ services:
       context: ..
       dockerfile: docker/Dockerfile
     network_mode: host
+    cap_add:
+      - NET_ADMIN
     restart: unless-stopped
     environment:
       # Base URL of your Nebula Commander backend (including scheme, no trailing slash).

@@ -56,6 +56,8 @@ const DOCKER_COMPOSE_SNIPPET = `services:
   ncclient:
     image: ghcr.io/nixrtr/nebula-commander-ncclient:latest
     network_mode: host
+    cap_add:
+      - NET_ADMIN
     restart: unless-stopped
     environment:
       NEBULA_COMMANDER_SERVER: "https://<YOUR_SERVER>"
