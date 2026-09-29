@@ -22,15 +22,18 @@ logger = logging.getLogger(__name__)
 
 def _unsafe_subnets_for_cert(node: Node, network: Network) -> list[str]:
     """CIDRs this node advertises as a subnet-router/exit-node gateway, for the cert's
-    -subnets claim. v1 certs only accept IPv4 (nebula-cert itself rejects IPv6 there),
-    so ::/0 and other IPv6 routes are dropped for v1-cert networks rather than failing
-    the whole sign - they simply won't route until the network upgrades to v2 certs."""
+    -subnets claim. nebula-cert refuses IPv6 unsafe networks on a host without an IPv6
+    address of its own ("IPv6 unsafe networks require an IPv6 address assignment"), and
+    v1 certs can't hold IPv6 at all - so ::/0 (every exit node advertises it) and other
+    IPv6 routes are dropped for IPv4-addressed nodes rather than failing the whole sign.
+    They simply won't route; the IPv4 routes still do."""
     routes = [
         str(r.get("route") or "").strip()
         for r in (node.unsafe_routes or [])
         if r.get("route")
     ]
-    if network.cert_version == 1:
+    node_has_ipv6 = ":" in (node.ip_address or "")
+    if network.cert_version == 1 or not node_has_ipv6:
         routes = [r for r in routes if ":" not in r]
     return routes
 

@@ -429,7 +429,9 @@ async def update_node(
         for r in body.unsafe_routes:
             route = str(r.get("route") or "").strip()
             try:
-                ipaddress.ip_network(route, strict=False)
+                # Store the network address (192.168.1.1/24 -> 192.168.1.0/24): nebula-cert
+                # keeps host bits verbatim in the cert, and the OS rejects a route with them.
+                route = str(ipaddress.ip_network(route, strict=False))
             except ValueError as e:
                 raise HTTPException(status_code=400, detail=f"Invalid route CIDR: {route!r}") from e
             consumers = sorted(

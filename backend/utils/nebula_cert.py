@@ -45,10 +45,12 @@ def nebula_cert_path() -> Optional[str]:
 
 
 # Allow only a conservative character set for arguments (hostnames, paths, identifiers).
+# Comma is included for nebula-cert's list-valued flags (-groups, -subnets), which take
+# a comma-separated list in a single argument - harmless with shell=False.
 # CodeQL: we pass the result of _to_safe_arg() to subprocess, not raw user input.
-_SAFE_ARG_PATTERN = re.compile(r"^[a-zA-Z0-9_\-.:/]*$")
+_SAFE_ARG_PATTERN = re.compile(r"^[a-zA-Z0-9_\-.:/,]*$")
 _ALLOWED_ARG_CHARS = set(
-    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.:/"
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-.:/,"
 )
 
 
