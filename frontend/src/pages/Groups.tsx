@@ -10,6 +10,7 @@ import {
   deleteGroupFirewall,
 } from "../api/client";
 import { useTheme } from "../contexts/ThemeContext";
+import { useErrorToast } from "../contexts/ToastContext";
 
 const PROTOCOLS: InboundFirewallRule["protocol"][] = ["any", "tcp", "udp", "icmp"];
 
@@ -30,7 +31,7 @@ export function Groups() {
   });
   const [groupList, setGroupList] = useState<GroupFirewallConfig[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const setError = useErrorToast();
   const [detailGroup, setDetailGroup] = useState<string | null>(null);
   const [draftRules, setDraftRules] = useState<Record<string, InboundFirewallRule[]>>({});
   const [newGroupName, setNewGroupName] = useState("");
@@ -76,7 +77,7 @@ export function Groups() {
     return () => {
       cancelled = true;
     };
-  }, [selectedNetworkId]);
+  }, [selectedNetworkId, setError]);
 
   const getRules = (groupName: string): InboundFirewallRule[] => {
     if (draftRules[groupName]) return draftRules[groupName];
@@ -166,15 +167,6 @@ export function Groups() {
         Inbound traffic is denied by default. Configure per-group inbound rules to allow traffic from specific groups.
         Each node has one group; rules here define who can reach nodes in that group.
       </p>
-
-      {error && (
-        <div className="mb-4 p-4 text-red-700 bg-red-100 rounded-lg dark:bg-red-200 dark:text-red-800 flex justify-between items-center">
-          <span>{error}</span>
-          <Button size="xs" color="failure" onClick={() => setError(null)}>
-            Dismiss
-          </Button>
-        </div>
-      )}
 
       <Card className="mb-6">
         <div className="flex flex-wrap items-center gap-4 mb-4">

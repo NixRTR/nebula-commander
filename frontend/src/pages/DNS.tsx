@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
+import { useErrorToast } from "../contexts/ToastContext";
 import { Card, Table, Button, TextInput, Label, Select, ToggleSwitch } from "flowbite-react";
 import type { Network } from "../types/networks";
 import { listNetworks } from "../api/client";
@@ -42,7 +43,7 @@ export function DNS() {
   const [newAlias, setNewAlias] = useState("");
   const [newAliasNodeId, setNewAliasNodeId] = useState<number | "">("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const setError = useErrorToast();
   const [savingConfig, setSavingConfig] = useState(false);
   const [savingAlias, setSavingAlias] = useState(false);
   const [deletingAliasId, setDeletingAliasId] = useState<number | null>(null);
@@ -51,7 +52,7 @@ export function DNS() {
     listNetworks()
       .then(setNetworks)
       .catch((e: any) => setError(e.message || "Failed to load networks"));
-  }, []);
+  }, [setError]);
 
   useEffect(() => {
     if (selectedNetworkId === "") {
@@ -103,7 +104,7 @@ export function DNS() {
     return () => {
       cancelled = true;
     };
-  }, [selectedNetworkId]);
+  }, [selectedNetworkId, setError]);
 
   const handleSaveConfig = async () => {
     if (selectedNetworkId === "" || !domainInput.trim()) return;
@@ -175,15 +176,6 @@ export function DNS() {
         Configure per-network DNS zones served by dnsmasq on lighthouses. Each node
         is exposed as <code>hostname.domain</code>, with optional aliases.
       </p>
-
-      {error && (
-        <div className="mb-4 p-4 text-red-700 bg-red-100 rounded-lg dark:bg-red-200 dark:text-red-800 flex justify-between items-center">
-          <span>{error}</span>
-          <Button size="xs" color="failure" onClick={() => setError(null)}>
-            Dismiss
-          </Button>
-        </div>
-      )}
 
       <Card className="mb-6">
         <div className="flex flex-wrap items-center gap-4 mb-4">

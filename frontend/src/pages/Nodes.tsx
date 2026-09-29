@@ -34,6 +34,7 @@ import { startReauthFlow } from "./ReauthComplete";
 import { getEnrollmentState, getCardStatus } from "../utils/nodeStatus";
 import { downloadBlob } from "../utils/download";
 import { useTheme } from "../contexts/ThemeContext";
+import { useErrorToast } from "../contexts/ToastContext";
 import { contrastTextColor } from "../theme/tokens";
 
 export function Nodes() {
@@ -46,7 +47,7 @@ export function Nodes() {
     return n ? Number(n) : "";
   });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const setError = useErrorToast();
   const [deviceDetailsModal, setDeviceDetailsModal] = useState<{
     node: Node | null;
     isEditing: boolean;
@@ -105,7 +106,7 @@ export function Nodes() {
     typedHostname: string;
     processing: boolean;
   }>({ open: false, node: null, step: 1, typedHostname: "", processing: false });
-  const [downloadError, setDownloadError] = useState<string | null>(null);
+  const setDownloadError = useErrorToast();
   const [enrollmentCodeModal, setEnrollmentCodeModal] = useState<{
     open: boolean;
     data: CreateEnrollmentCodeResponse | null;
@@ -168,7 +169,7 @@ export function Nodes() {
       .then(setNodes)
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, [filterNetworkId]);
+  }, [filterNetworkId, setError]);
 
   useEffect(() => {
     loadNetworks();
@@ -806,16 +807,6 @@ export function Nodes() {
     <div>
       <h1 className="text-3xl font-bold mb-6">Nodes</h1>
 
-      {error && (
-        <Alert color="failure" className="mb-4" onDismiss={() => setError(null)}>
-          {error}
-        </Alert>
-      )}
-      {downloadError && (
-        <Alert color="failure" className="mb-4" onDismiss={() => setDownloadError(null)}>
-          {downloadError}
-        </Alert>
-      )}
 
       {loading ? (
         <Card>

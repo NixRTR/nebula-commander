@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Card, Button, TextInput, Label, Select } from "flowbite-react";
 import { HiPlus } from "react-icons/hi";
 import { useNavigate } from "react-router-dom";
@@ -6,13 +6,14 @@ import type { Network, NetworkCreate } from "../types/networks";
 import type { Node } from "../types/nodes";
 import { listNetworks, listNodes, createNetwork } from "../api/client";
 import { isNodeActive } from "../utils/nodeStatus";
+import { useErrorToast } from "../contexts/ToastContext";
 
 export function Networks() {
   const navigate = useNavigate();
   const [networks, setNetworks] = useState<Network[]>([]);
   const [nodes, setNodes] = useState<Node[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const setError = useErrorToast();
   const [showForm, setShowForm] = useState(false);
   const [form, setForm] = useState<NetworkCreate>({
     name: "",
@@ -20,7 +21,7 @@ export function Networks() {
     cert_curve: "25519",
   });
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     Promise.all([listNetworks(), listNodes()])
       .then(([n, nd]) => {
@@ -29,12 +30,12 @@ export function Networks() {
       })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  };
+  }, [setError]);
 
   useEffect(() => {
     const id = setTimeout(load, 0);
     return () => clearTimeout(id);
-  }, []);
+  }, [load]);
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -65,12 +66,6 @@ export function Networks() {
           {showForm ? "Cancel" : "Add Network"}
         </Button>
       </div>
-
-      {error && (
-        <div className="mb-4 p-4 text-red-700 bg-red-100 rounded-lg dark:bg-red-200 dark:text-red-800">
-          {error}
-        </div>
-      )}
 
       {showForm && (
         <Card className="mb-6">
