@@ -21,7 +21,11 @@ from ..database import get_session
 from ..models import Certificate, EnrollmentCode, Network, Node, User
 from ..services.audit import get_client_ip, log_audit
 from ..services.cert_store import read_cert_store_file
-from ..services.config_generator import generate_config_for_node, get_dns_client_config
+from ..services.config_generator import (
+    generate_config_for_node,
+    get_dns_client_config,
+    normalize_public_endpoint,
+)
 from ..services.ip_allocator import IPAllocator
 from ..services.cert_manager import CertManager
 
@@ -389,7 +393,12 @@ async def update_node(
     if body.is_relay is not None:
         node.is_relay = body.is_relay
     if body.public_endpoint is not None:
-        node.public_endpoint = body.public_endpoint.strip() or None
+        try:
+            node.public_endpoint = (
+                normalize_public_endpoint(body.public_endpoint) if body.public_endpoint.strip() else None
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
     if body.lighthouse_options is not None:
         node.lighthouse_options = body.lighthouse_options
     if body.logging_options is not None:

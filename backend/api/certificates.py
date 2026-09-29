@@ -16,6 +16,7 @@ from ..models import Network, Node, Certificate, User
 from ..services.audit import get_client_ip, log_audit
 from ..services.cert_store import read_cert_store_file
 from ..services.cert_manager import CertManager
+from ..services.config_generator import normalize_public_endpoint
 from ..services.ip_allocator import IPAllocator
 
 logger = logging.getLogger(__name__)
@@ -273,6 +274,14 @@ async def create_certificate(
                 detail="This IP is already reserved in this network.",
             )
 
+    # Validate before issuing the cert, so a bad endpoint doesn't leave a half-created node
+    public_endpoint = None
+    if body.public_endpoint and body.public_endpoint.strip():
+        try:
+            public_endpoint = normalize_public_endpoint(body.public_endpoint)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+
     cert_manager = CertManager(session)
     duration = body.duration_days or settings.default_cert_expiry_days
     groups_list = [body.group] if (body.group and body.group.strip()) else []
@@ -294,7 +303,7 @@ async def create_certificate(
         groups=groups_list,
         is_lighthouse=is_lighthouse,
         is_relay=body.is_relay if body.is_relay is not None else False,
-        public_endpoint=body.public_endpoint.strip() if body.public_endpoint else None,
+        public_endpoint=public_endpoint,
         lighthouse_options=body.lighthouse_options,
         punchy_options=body.punchy_options,
         platform=platform,

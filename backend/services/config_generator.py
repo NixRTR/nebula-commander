@@ -1,7 +1,9 @@
 """
 Generate Nebula YAML config for a node from Node + Network + peer nodes.
 """
+import ipaddress
 import logging
+import re
 from pathlib import Path
 from typing import Any, Optional
 
@@ -73,9 +75,66 @@ def _normalize_endpoint(endpoint: str) -> str:
     return s
 
 
+_HOSTNAME_RE = re.compile(
+    r"^(?=.{1,253}\.?$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?"
+    r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*\.?$"
+)
+
+
+def normalize_public_endpoint(endpoint: str) -> str:
+    """
+    Validate a node's public endpoint and return it as Nebula's static_host_map wants
+    it: host:port, where host is a hostname, an IPv4 address, or a bracketed IPv6
+    address ([2001:db8::1]:4242). A leading http(s):// is dropped.
+
+    Raises ValueError with a user-facing message otherwise. Every node's endpoint goes
+    into every peer's static_host_map, and nebula refuses to start on an entry it can't
+    parse (e.g. "missing port in address") - so one bad value would take down the whole
+    network, not just this node.
+    """
+    s = _normalize_endpoint(endpoint).rstrip("/")
+    if s.startswith("["):
+        host, sep, port = s[1:].partition("]:")
+        if not sep:
+            raise ValueError("Public endpoint must be host:port, e.g. [2001:db8::1]:4242 for IPv6")
+        try:
+            ipaddress.IPv6Address(host)
+        except ValueError:
+            raise ValueError(f"Public endpoint has an invalid IPv6 address: {host!r}") from None
+        host = f"[{host}]"
+    else:
+        host, sep, port = s.rpartition(":")
+        if not sep or not host:
+            raise ValueError("Public endpoint must include a port, e.g. node.example.com:4242")
+        if ":" in host:
+            raise ValueError("Put an IPv6 public endpoint in brackets, e.g. [2001:db8::1]:4242")
+        try:
+            ipaddress.IPv4Address(host)
+        except ValueError:
+            if not _HOSTNAME_RE.match(host):
+                raise ValueError(f"Public endpoint has an invalid hostname: {host!r}") from None
+    if not port.isdigit() or not 1 <= int(port) <= 65535:
+        raise ValueError(f"Public endpoint port must be 1-65535, got {port!r}")
+    return f"{host}:{int(port)}"
+
+
+def _valid_endpoint(node: Node) -> Optional[str]:
+    """The node's endpoint ready for static_host_map, or None if it has none or it's
+    invalid. Invalid values can predate validation on save, including on nodes that
+    were once lighthouses (the field used to be hidden, not cleared) - skip them
+    rather than hand every peer a config nebula won't start with."""
+    if not node.public_endpoint or not node.ip_address:
+        return None
+    try:
+        return normalize_public_endpoint(node.public_endpoint)
+    except ValueError as e:
+        logger.warning("Skipping invalid public endpoint of node %s (%s): %s", node.id, node.hostname, e)
+        return None
+
+
 def _default_static_host_map(hosts_with_endpoint: list[tuple[str, str]]) -> dict[str, list[str]]:
-    """hosts_with_endpoint: list of (nebula_ip, public_endpoint) for lighthouses and relays."""
-    return {ip: [_normalize_endpoint(endpoint)] for ip, endpoint in hosts_with_endpoint}
+    """hosts_with_endpoint: list of (nebula_ip, normalized public_endpoint)."""
+    return {ip: [endpoint] for ip, endpoint in hosts_with_endpoint}
 
 
 def _relay_section(node: Node, other_relay_ips: list[str]) -> dict[str, Any]:
@@ -349,17 +408,12 @@ def build_config(
     mobile_dns: optional {"dns_resolvers": [...], "match_domains": [...]} - adds the Mobile Nebula
     app's split-horizon DNS extension block (mobile_nebula:) for iOS/Android nodes.
     """
-    # Lighthouses and relays with public_endpoint (for static_host_map)
-    hosts_with_endpoint = [
-        (n.ip_address, n.public_endpoint)
-        for n in peer_nodes
-        if (n.is_lighthouse or n.is_relay) and n.public_endpoint and n.ip_address
-    ]
-    lighthouses_with_endpoint = [
-        (n.ip_address, n.public_endpoint)
-        for n in peer_nodes
-        if n.is_lighthouse and n.public_endpoint and n.ip_address
-    ]
+    # Every peer with a (valid) public endpoint goes into static_host_map, not just
+    # lighthouses and relays: a known address lets nodes reach each other directly
+    # without first asking a lighthouse.
+    peers_with_endpoint = [(n, ep) for n in peer_nodes if (ep := _valid_endpoint(n))]
+    hosts_with_endpoint = [(n.ip_address, ep) for n, ep in peers_with_endpoint]
+    lighthouses_with_endpoint = [(n.ip_address, ep) for n, ep in peers_with_endpoint if n.is_lighthouse]
     other_lighthouse_ips = [ip for ip, _ in lighthouses_with_endpoint if ip != node.ip_address]
     other_relay_ips = [
         n.ip_address for n in peer_nodes

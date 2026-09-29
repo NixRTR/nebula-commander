@@ -37,6 +37,11 @@ import { useTheme } from "../contexts/ThemeContext";
 import { useErrorToast } from "../contexts/ToastContext";
 import { contrastTextColor } from "../theme/tokens";
 
+const PUBLIC_ENDPOINT_HELP =
+  "Optional. Where other nodes can reach this one directly (Nebula's UDP port, usually 4242). " +
+  "It's added to every node's static_host_map, so peers can connect without asking a lighthouse first. " +
+  "Lighthouses and relays need one.";
+
 export function Nodes() {
   const { resolve } = useTheme();
   const [searchParams] = useSearchParams();
@@ -270,7 +275,7 @@ export function Nodes() {
       duration_days: createNodeForm.duration_days ? parseInt(createNodeForm.duration_days, 10) : undefined,
       is_lighthouse: isMobile ? false : firstInNetwork ? true : createNodeForm.is_lighthouse,
       is_relay: isMobile ? false : createNodeForm.is_relay,
-      public_endpoint: isMobile ? undefined : createNodeForm.public_endpoint.trim() || undefined,
+      public_endpoint: createNodeForm.public_endpoint.trim() || undefined,
       lighthouse_options: !isMobile && createNodeForm.is_lighthouse
         ? { interval_seconds: parseInt(createNodeForm.interval_seconds, 10) || 60 }
         : undefined,
@@ -568,7 +573,8 @@ export function Nodes() {
       updateNode(node.id, {
         is_lighthouse: deviceDetailsForm.is_lighthouse,
         is_relay: deviceDetailsForm.is_relay,
-        public_endpoint: deviceDetailsForm.public_endpoint.trim() || null,
+        // "" (not null) when blank: the API treats null as "unchanged", so null could never clear it
+        public_endpoint: deviceDetailsForm.public_endpoint.trim(),
         group,
         lighthouse_options,
         logging_options,
@@ -1044,34 +1050,31 @@ export function Nodes() {
                       </Label>
                     </div>
                   )}
-                  {(createNodeForm.is_lighthouse || createNodeForm.is_relay) && (
-                    <>
-                      <div>
-                        <Label htmlFor="create_node_public_endpoint" value="Public endpoint (hostname or IP:port)" />
-                        <TextInput
-                          id="create_node_public_endpoint"
-                          value={createNodeForm.public_endpoint}
-                          onChange={(e) =>
-                            setCreateNodeForm((f) => ({ ...f, public_endpoint: e.target.value }))
-                          }
-                          placeholder="lighthouse.example.com:4242"
-                        />
-                      </div>
-                      {createNodeForm.is_lighthouse && (
-                        <div>
-                          <Label htmlFor="create_node_interval" value="Report interval (seconds)" />
-                          <TextInput
-                            id="create_node_interval"
-                            type="number"
-                            value={createNodeForm.interval_seconds}
-                            onChange={(e) =>
-                              setCreateNodeForm((f) => ({ ...f, interval_seconds: e.target.value }))
-                            }
-                            className="w-24"
-                          />
-                        </div>
-                      )}
-                    </>
+                  <div>
+                    <Label htmlFor="create_node_public_endpoint" value="Public endpoint (hostname:port or IP:port)" />
+                    <TextInput
+                      id="create_node_public_endpoint"
+                      value={createNodeForm.public_endpoint}
+                      onChange={(e) =>
+                        setCreateNodeForm((f) => ({ ...f, public_endpoint: e.target.value }))
+                      }
+                      placeholder="node.example.com:4242"
+                      helperText={PUBLIC_ENDPOINT_HELP}
+                    />
+                  </div>
+                  {createNodeForm.is_lighthouse && (
+                    <div>
+                      <Label htmlFor="create_node_interval" value="Report interval (seconds)" />
+                      <TextInput
+                        id="create_node_interval"
+                        type="number"
+                        value={createNodeForm.interval_seconds}
+                        onChange={(e) =>
+                          setCreateNodeForm((f) => ({ ...f, interval_seconds: e.target.value }))
+                        }
+                        className="w-24"
+                      />
+                    </div>
                   )}
                   <Button
                     type="submit"
@@ -1478,22 +1481,23 @@ export function Nodes() {
                                       )}
                                   </div>
 
-                                  {(deviceDetailsForm.is_lighthouse || deviceDetailsForm.is_relay) && (
+                                  <div className="border-t border-gray-200 dark:border-gray-700 pt-4 min-w-0">
+                                    <Label htmlFor="dd_public_endpoint" value="Public endpoint (hostname:port or IP:port)" className="text-gray-500 dark:text-gray-400" />
+                                    <TextInput
+                                      id="dd_public_endpoint"
+                                      value={deviceDetailsForm.public_endpoint}
+                                      onChange={(e) =>
+                                        setDeviceDetailsForm((f) => ({ ...f, public_endpoint: e.target.value }))
+                                      }
+                                      placeholder="node.example.com:4242"
+                                      helperText={deviceDetailsModal.isEditing ? PUBLIC_ENDPOINT_HELP : undefined}
+                                      disabled={!deviceDetailsModal.isEditing}
+                                      className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                    />
+                                  </div>
+
+                                  {deviceDetailsForm.is_lighthouse && (
                                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
-                                      <div className="min-w-0">
-                                        <Label htmlFor="dd_public_endpoint" value="Public endpoint (hostname or IP:port)" className="text-gray-500 dark:text-gray-400" />
-                                        <TextInput
-                                          id="dd_public_endpoint"
-                                          value={deviceDetailsForm.public_endpoint}
-                                          onChange={(e) =>
-                                            setDeviceDetailsForm((f) => ({ ...f, public_endpoint: e.target.value }))
-                                          }
-                                          placeholder="lighthouse.example.com:4242"
-                                          disabled={!deviceDetailsModal.isEditing}
-                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                        />
-                                      </div>
-                                      {deviceDetailsForm.is_lighthouse && (
                                       <div>
                                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
                                           Lighthouse options
@@ -1514,7 +1518,6 @@ export function Nodes() {
                                           </div>
                                         </div>
                                       </div>
-                                      )}
                                     </div>
                                   )}
 
