@@ -44,6 +44,9 @@ export interface UnsafeRoute {
    * Optional because routes saved before this field existed don't have it in stored
    * data - the backend backfills it on read, but treat it as possibly absent anyway. */
   consumers?: number[];
+  /** Group names whose members may also use this route - dynamic, so nodes added to the
+   * group later get it too. Same optional/backfilled treatment as `consumers`. */
+  consumer_groups?: string[];
 }
 
 export interface Node {

@@ -104,3 +104,58 @@ def test_consumer_missing_ip_address_is_skipped():
     config = yaml.safe_load(build_config(gateway, network, [unenrolled_consumer], group_firewalls=[]))
 
     assert _local_cidr_rules(config) == []
+
+
+def _group_gateway() -> Node:
+    return Node(
+        id=1,
+        network_id=1,
+        hostname="gateway",
+        ip_address="10.100.0.1",
+        groups=["servers"],
+        unsafe_routes=[
+            {"route": "192.168.1.0/24", "source": "manual", "consumers": [], "consumer_groups": ["laptops"]}
+        ],
+    )
+
+
+def test_consumer_group_gets_a_group_scoped_rule_on_the_gateway():
+    network = Network(id=1, name="test-net")
+    laptop = Node(id=2, network_id=1, hostname="laptop", ip_address="10.100.0.2", groups=["laptops"], unsafe_routes=[])
+
+    config = yaml.safe_load(build_config(_group_gateway(), network, [laptop], group_firewalls=[]))
+
+    assert _local_cidr_rules(config) == [
+        {"port": "any", "proto": "any", "group": "laptops", "local_cidr": "192.168.1.0/24"}
+    ]
+
+
+def test_only_members_of_a_consumer_group_get_the_route():
+    network = Network(id=1, name="test-net")
+    gateway = _group_gateway()
+    laptop = Node(id=2, network_id=1, hostname="laptop", ip_address="10.100.0.2", groups=["laptops"], unsafe_routes=[])
+    server = Node(id=3, network_id=1, hostname="server", ip_address="10.100.0.3", groups=["servers"], unsafe_routes=[])
+
+    laptop_cfg = yaml.safe_load(build_config(laptop, network, [gateway, server], group_firewalls=[]))
+    server_cfg = yaml.safe_load(build_config(server, network, [gateway, laptop], group_firewalls=[]))
+
+    assert laptop_cfg["tun"]["unsafe_routes"] == [{"route": "192.168.1.0/24", "via": "10.100.0.1"}]
+    assert "unsafe_routes" not in server_cfg["tun"]
+
+
+def test_route_saved_before_consumer_groups_existed_still_works():
+    """Rows written before consumer_groups was added don't have the key at all."""
+    network = Network(id=1, name="test-net")
+    gateway = Node(
+        id=1, network_id=1, hostname="gateway", ip_address="10.100.0.1", groups=[],
+        unsafe_routes=[{"route": "192.168.1.0/24", "source": "manual", "consumers": [2]}],
+    )
+    consumer = Node(id=2, network_id=1, hostname="consumer", ip_address="10.100.0.2", groups=["laptops"], unsafe_routes=[])
+
+    consumer_cfg = yaml.safe_load(build_config(consumer, network, [gateway], group_firewalls=[]))
+    gateway_cfg = yaml.safe_load(build_config(gateway, network, [consumer], group_firewalls=[]))
+
+    assert consumer_cfg["tun"]["unsafe_routes"] == [{"route": "192.168.1.0/24", "via": "10.100.0.1"}]
+    assert _local_cidr_rules(gateway_cfg) == [
+        {"port": "any", "proto": "any", "cidr": "10.100.0.2/32", "local_cidr": "192.168.1.0/24"}
+    ]

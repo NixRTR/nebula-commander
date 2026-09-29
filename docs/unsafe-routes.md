@@ -20,13 +20,13 @@ both sides in a node's details panel:
 
 - On the **gateway** node, under **Advanced → Subnet Router & Exit Node Config**
   (and **Advanced → Exit Node**), you choose what this node advertises and, per
-  route, a **"Used by"** checklist of which other nodes are allowed to consume it.
+  route, a **"Used by"** list of the groups and individual hosts allowed to consume it.
 - On a **consumer** node, the visible (non-Advanced) **Use Subnet Router** and
   **Use Exit Node** dropdowns let you pick a gateway directly, without opening the
   gateway's own settings.
 
 Both mechanisms write to the same data: picking a gateway from a consumer's
-dropdown adds that consumer to the gateway's "Used by" list for every matching
+dropdown adds that consumer as a host in the gateway's "Used by" list for every matching
 route, and clears it from any other gateway's routes of the same kind (a node uses
 at most one subnet router and one exit node at a time). **Either way, a route
 reaches nobody until an admin explicitly says who it's for** — advertising a route
@@ -46,8 +46,15 @@ In a node's details panel (**Nodes → *hostname* → Edit**), expand **Advanced
   a subnet reachable through the node by some other means `ncclient` can't detect on
   its own, or on a node not running `ncclient` at all.
 
-Under each route is a **"Used by"** disclosure — expand it and check off which other
-nodes on the network should actually receive a route to it.
+Under each route is a **"Used by"** disclosure. Expand it to see who can use the
+route, and while editing, add to it:
+
+- **Group** — pick a group and click **Add**. Every node in that group gets the
+  route, including nodes added to the group later, without editing the gateway again.
+- **Host** — pick a single node and click **Add**.
+
+Each entry has a delete button to remove it. A node that's both listed as a host and
+in a listed group simply gets the route once.
 
 ## Picking a route (consumer side)
 
@@ -180,9 +187,10 @@ the gateway node's Nebula IP.
 arrive** - most likely the gateway's own firewall. Since Nebula 1.10, a firewall rule
 only matches traffic to the node's *own* Nebula IP unless it also sets `local_cidr` -
 Nebula Commander generates a `local_cidr`-scoped accept rule for each advertised
-subnet, one per node in that route's "Used by" list, matched by that consumer's own
-certificate-verified Nebula IP (`cidr: <ip>/32`). If the consumer isn't actually
-selected in "Used by" - even if it somehow has the route in its own config, e.g. a
+subnet: one per host in that route's "Used by" list, matched by that consumer's own
+certificate-verified Nebula IP (`cidr: <ip>/32`), and one per group, matched by the
+group in the consumer's certificate (`group: <name>`). If the consumer isn't actually
+covered by "Used by" - even if it somehow has the route in its own config, e.g. a
 hand-edited config or a non-`ncclient` host - the gateway has no matching rule and
 will drop the forwarded traffic; check the "Used by" list first. A manually-written
 config for a non-`ncclient` gateway needs the equivalent `cidr`/`local_cidr` rules

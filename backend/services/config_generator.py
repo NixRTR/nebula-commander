@@ -172,15 +172,18 @@ def _collect_advertised_routes(node: Node, peer_nodes: list[Node]) -> list[dict[
     has direct (non-overlay) access to them, and `via` pointing at itself makes no sense.
 
     Each advertised route is opt-in per consumer: a route only propagates to nodes listed
-    in its own "consumers" (a list of node IDs, empty by default - see nodes.py's
-    update_node validation). This is deliberately NOT "every node in the network" so an
-    admin can hand a route to specific nodes without exposing it network-wide.
+    in its own "consumers" (node IDs) or belonging to one of its "consumer_groups" (group
+    names, matched against the node's current groups), both empty by default - see
+    nodes.py's update_node validation. This is deliberately NOT "every node in the
+    network" so an admin can hand a route to specific nodes without exposing it
+    network-wide.
 
     The advertising node also needs the CIDR baked into its own certificate's -subnets
     claim (see cert_manager._unsafe_subnets_for_cert / CertManager.resign_host_certificate)
     - Nebula silently refuses to route a subnet the via node's cert doesn't claim, so that
     half of this has to stay in sync with what's collected here.
     """
+    node_groups = set(node.groups or [])
     gateways_by_route: dict[str, list[str]] = {}
     for other in peer_nodes:
         if not other.ip_address:
@@ -189,7 +192,7 @@ def _collect_advertised_routes(node: Node, peer_nodes: list[Node]) -> list[dict[
             route = str(r.get("route") or "").strip()
             if not route:
                 continue
-            if node.id not in (r.get("consumers") or []):
+            if node.id not in (r.get("consumers") or []) and not node_groups & set(r.get("consumer_groups") or []):
                 continue
             gateways_by_route.setdefault(route, []).append(other.ip_address)
 
@@ -324,10 +327,13 @@ def _local_cidr_rules_for_consumers(node: Node, peer_nodes: list[Node]) -> list[
     which merely decides whose *own* config gets a `via` entry, and has no effect on
     what the gateway itself will forward. One rule per (route, consumer), scoped with
     `cidr` to that consumer's certificate-verified Nebula overlay IP (Nebula ties `cidr`
-    to the peer's cert, so this isn't a spoofable source-IP check) - a route with no
-    consumers yet gets no accept rule at all, so "a route reaches nobody until an admin
-    explicitly says who it's for" (docs/unsafe-routes.md) is now true at the firewall
-    level, not just for config distribution.
+    to the peer's cert, so this isn't a spoofable source-IP check), plus one per
+    (route, consumer group) scoped with `group` - also taken from the peer's cert, and
+    covering whoever is in the group at the time, so the gateway's config doesn't change
+    as membership does. A route with no consumers yet gets no accept rule at all, so "a
+    route reaches nobody until an admin explicitly says who it's for"
+    (docs/unsafe-routes.md) is true at the firewall level, not just for config
+    distribution.
     """
     ip_by_id = {n.id: n.ip_address for n in peer_nodes if n.ip_address}
     rules: list[dict[str, Any]] = []
@@ -339,6 +345,8 @@ def _local_cidr_rules_for_consumers(node: Node, peer_nodes: list[Node]) -> list[
             consumer_ip = ip_by_id.get(consumer_id)
             if consumer_ip:
                 rules.append({"port": "any", "proto": "any", "cidr": f"{consumer_ip}/32", "local_cidr": route})
+        for group in r.get("consumer_groups") or []:
+            rules.append({"port": "any", "proto": "any", "group": group, "local_cidr": route})
     return rules
 
 

@@ -48,6 +48,7 @@ def _normalize_unsafe_routes(routes: Optional[list[dict[str, Any]]]) -> list[dic
                 "source": r.get("source") or "manual",
                 "interface": r.get("interface"),
                 "consumers": r.get("consumers") or [],
+                "consumer_groups": r.get("consumer_groups") or [],
             }
         )
     return normalized
@@ -427,6 +428,10 @@ async def update_node(
         # silently reach every node until an admin explicitly picks who it's for. Silently
         # dropped rather than rejected if a ref is invalid/cross-network/self - the picker
         # UI can't produce those, so treat them as stale rather than erroring the whole save.
+        #
+        # consumer_groups: group names whose members may use the route - dynamic, so a node
+        # added to the group later gets it without editing this node. Not checked against
+        # the network's configured groups: a name nobody has simply matches nobody.
         valid_consumer_ids: set[int] = set()
         if any(r.get("consumers") for r in body.unsafe_routes):
             peers_result = await session.execute(
@@ -450,12 +455,16 @@ async def update_node(
                     if isinstance(c, int) and c in valid_consumer_ids
                 }
             )
+            consumer_groups = sorted(
+                {g.strip() for g in (r.get("consumer_groups") or []) if isinstance(g, str) and g.strip()}
+            )
             validated_routes.append(
                 {
                     "route": route,
                     "source": r.get("source") or "manual",
                     "interface": r.get("interface"),
                     "consumers": consumers,
+                    "consumer_groups": consumer_groups,
                 }
             )
         node.unsafe_routes = validated_routes

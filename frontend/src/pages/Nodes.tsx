@@ -98,6 +98,11 @@ export function Nodes() {
   const [otherRouteInput, setOtherRouteInput] = useState("");
   const [otherRouteError, setOtherRouteError] = useState<string | null>(null);
   const [expandedConsumerPickers, setExpandedConsumerPickers] = useState<Set<string>>(new Set());
+  /** Per "Used by" picker (keyed like expandedConsumerPickers): the group / host currently
+   * chosen in its dropdowns but not yet added. */
+  const [consumerPickerSelections, setConsumerPickerSelections] = useState<
+    Record<string, { group: string; host: string }>
+  >({});
   const [saving, setSaving] = useState(false);
   const [reEnrollModal, setReEnrollModal] = useState<{
     open: boolean;
@@ -403,6 +408,7 @@ export function Nodes() {
     setOtherRouteInput("");
     setOtherRouteError(null);
     setExpandedConsumerPickers(new Set());
+    setConsumerPickerSelections({});
     setDownloadError(null);
   };
 
@@ -435,23 +441,39 @@ export function Nodes() {
       .sort((a, b) => a.hostname.localeCompare(b.hostname));
   };
 
-  /** "Used by" disclosure for one route row: which other nodes on this network may
-   * actually route to it via this node. Shared by the exit-node toggle and every
+  /** "Used by" disclosure for one route row: which groups and individual hosts on this
+   * network may actually route to it via this node, added one at a time from a group
+   * dropdown and a host dropdown. Shared by the exit-node toggle and every
    * advertised-subnet / manual route row. */
   const renderConsumerPicker = (
     key: string,
-    consumersInput: number[] | null | undefined,
-    onChange: (consumers: number[]) => void
+    entry: Pick<UnsafeRoute, "consumers" | "consumer_groups"> | undefined,
+    onChange: (consumers: number[], consumerGroups: string[]) => void
   ) => {
-    // Defensive: nodes with an unsafe_routes entry saved before "consumers" existed
-    // have this missing from the stored JSON, not just empty - a real node hit this.
-    const consumers = consumersInput ?? [];
-    const network = deviceDetailsModal.node?.network_id;
-    const candidates = nodes
-      .filter((n) => n.network_id === network && n.id !== deviceDetailsModal.node?.id)
+    // Defensive: entries saved before "consumers"/"consumer_groups" existed have them
+    // missing from the stored JSON, not just empty - a real node hit this.
+    const consumers = entry?.consumers ?? [];
+    const consumerGroups = entry?.consumer_groups ?? [];
+    const current = deviceDetailsModal.node;
+    const networkNodes = nodes.filter((n) => n.network_id === current?.network_id);
+    const hostOptions = networkNodes
+      .filter((n) => n.id !== current?.id && !consumers.includes(n.id))
       .sort((a, b) => a.hostname.localeCompare(b.hostname));
+    const groupOptions = [...new Set([...editGroupOptions, ...networkNodes.flatMap((n) => n.groups ?? [])])]
+      .filter((g) => g && !consumerGroups.includes(g))
+      .sort((a, b) => a.localeCompare(b));
+    const hostName = (id: number) => nodes.find((n) => n.id === id)?.hostname ?? `Node #${id}`;
+    const selection = consumerPickerSelections[key] ?? { group: "", host: "" };
+    const setSelection = (next: Partial<{ group: string; host: string }>) =>
+      setConsumerPickerSelections((prev) => ({ ...prev, [key]: { ...selection, ...next } }));
     const expanded = expandedConsumerPickers.has(key);
-    const disabled = !deviceDetailsModal.isEditing;
+    const editing = deviceDetailsModal.isEditing;
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    const summaryParts = [
+      consumerGroups.length ? plural(consumerGroups.length, "group") : "",
+      consumers.length ? plural(consumers.length, "host") : "",
+    ].filter(Boolean);
+    const rowClass = "flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300";
     return (
       <div className="mt-1">
         <button
@@ -464,30 +486,114 @@ export function Nodes() {
           ) : (
             <HiChevronRight className="w-3.5 h-3.5" />
           )}
-          Used by {consumers.length === 0 ? "no nodes yet" : `${consumers.length} of ${candidates.length} node${candidates.length === 1 ? "" : "s"}`}
+          Used by {summaryParts.length ? summaryParts.join(", ") : "nobody yet"}
         </button>
         {expanded && (
-          <div className="flex flex-wrap gap-3 mt-1.5 ml-4">
-            {candidates.length === 0 ? (
-              <span className="text-xs text-gray-400 dark:text-gray-500">No other nodes on this network yet.</span>
-            ) : (
-              candidates.map((c) => (
-                <div key={c.id} className="flex items-center gap-1.5">
-                  <Checkbox
-                    id={`consumer_${key}_${c.id}`}
-                    checked={consumers.includes(c.id)}
-                    onChange={(e) =>
-                      onChange(
-                        e.target.checked ? [...consumers, c.id] : consumers.filter((id) => id !== c.id)
-                      )
-                    }
-                    disabled={disabled}
-                  />
-                  <Label htmlFor={`consumer_${key}_${c.id}`} className="text-xs">
-                    {c.hostname}
-                  </Label>
+          <div className="mt-1.5 ml-4 space-y-2">
+            {consumerGroups.length === 0 && consumers.length === 0 && (
+              <p className="text-xs text-gray-400 dark:text-gray-500">
+                No groups or hosts yet - this route isn't used by anyone.
+              </p>
+            )}
+            {consumerGroups.map((g) => (
+              <div key={`g_${g}`} className={rowClass}>
+                <span>
+                  <span className="text-gray-500 dark:text-gray-400">Group:</span> {g}
+                </span>
+                {editing && (
+                  <Button
+                    type="button"
+                    size="xs"
+                    color="gray"
+                    aria-label={`Remove group ${g}`}
+                    onClick={() => onChange(consumers, consumerGroups.filter((x) => x !== g))}
+                  >
+                    <HiTrash className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            {consumers.map((id) => (
+              <div key={`h_${id}`} className={rowClass}>
+                <span>
+                  <span className="text-gray-500 dark:text-gray-400">Host:</span> {hostName(id)}
+                </span>
+                {editing && (
+                  <Button
+                    type="button"
+                    size="xs"
+                    color="gray"
+                    aria-label={`Remove host ${hostName(id)}`}
+                    onClick={() => onChange(consumers.filter((x) => x !== id), consumerGroups)}
+                  >
+                    <HiTrash className="w-3 h-3" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            {editing && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Select
+                    sizing="sm"
+                    aria-label="Group"
+                    value={selection.group}
+                    onChange={(e) => setSelection({ group: e.target.value })}
+                    className="min-w-0 flex-1"
+                  >
+                    <option value="">
+                      {groupOptions.length ? "Select a group" : "No groups to add"}
+                    </option>
+                    {groupOptions.map((g) => (
+                      <option key={g} value={g}>
+                        {g}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    color="gray"
+                    disabled={!selection.group}
+                    onClick={() => {
+                      onChange(consumers, [...consumerGroups, selection.group].sort());
+                      setSelection({ group: "" });
+                    }}
+                  >
+                    Add
+                  </Button>
                 </div>
-              ))
+                <div className="flex items-center gap-2 min-w-0">
+                  <Select
+                    sizing="sm"
+                    aria-label="Host"
+                    value={selection.host}
+                    onChange={(e) => setSelection({ host: e.target.value })}
+                    className="min-w-0 flex-1"
+                  >
+                    <option value="">
+                      {hostOptions.length ? "Select a host" : "No hosts to add"}
+                    </option>
+                    {hostOptions.map((n) => (
+                      <option key={n.id} value={String(n.id)}>
+                        {n.hostname}
+                      </option>
+                    ))}
+                  </Select>
+                  <Button
+                    type="button"
+                    size="sm"
+                    color="gray"
+                    disabled={!selection.host}
+                    onClick={() => {
+                      onChange([...consumers, Number(selection.host)], consumerGroups);
+                      setSelection({ host: "" });
+                    }}
+                  >
+                    Add
+                  </Button>
+                </div>
+              </div>
             )}
           </div>
         )}
@@ -506,7 +612,10 @@ export function Nodes() {
     const routesEqual = (a: UnsafeRoute[], b: UnsafeRoute[]) => {
       const norm = (rs: UnsafeRoute[]) =>
         [...rs]
-          .map((r) => `${r.route}:${[...(r.consumers ?? [])].sort((x, y) => x - y).join(",")}`)
+          .map(
+            (r) =>
+              `${r.route}:${[...(r.consumers ?? [])].sort((x, y) => x - y).join(",")}:${[...(r.consumer_groups ?? [])].sort().join(",")}`
+          )
           .sort()
           .join("|");
       return norm(a) === norm(b);
@@ -1721,9 +1830,9 @@ export function Nodes() {
                                         </p>
                                         <p className="text-xs text-gray-500 dark:text-gray-400 -mt-2">
                                           Configure what this node advertises to the network - the subnets it
-                                          routes to and/or whether it acts as an exit node. Routes are opt-in
-                                          per node - use "Used by" below each one to pick who actually routes
-                                          through here. See{" "}
+                                          routes to and/or whether it acts as an exit node. Routes are opt-in -
+                                          use "Used by" below each one to add the groups or individual hosts
+                                          that route through here (a group includes nodes added to it later). See{" "}
                                           <a
                                             href="https://nebulacommander.com/docs/usage/unsafe-routes/"
                                             target="_blank"
@@ -1802,13 +1911,13 @@ export function Nodes() {
                                                             {entry &&
                                                               renderConsumerPicker(
                                                                 `subnet_${s.interface}`,
-                                                                entry.consumers,
-                                                                (consumers) =>
+                                                                entry,
+                                                                (consumers, consumer_groups) =>
                                                                   setDeviceDetailsForm((f) => ({
                                                                     ...f,
                                                                     unsafe_routes: f.unsafe_routes.map((r) =>
                                                                       r.source === "interface" && r.interface === s.interface
-                                                                        ? { ...r, consumers }
+                                                                        ? { ...r, consumers, consumer_groups }
                                                                         : r
                                                                     ),
                                                                   }))
@@ -1848,11 +1957,11 @@ export function Nodes() {
                                                     </Button>
                                                   )}
                                                 </div>
-                                                {renderConsumerPicker(`manual_${r.route}`, r.consumers, (consumers) =>
+                                                {renderConsumerPicker(`manual_${r.route}`, r, (consumers, consumer_groups) =>
                                                   setDeviceDetailsForm((f) => ({
                                                     ...f,
                                                     unsafe_routes: f.unsafe_routes.map((x) =>
-                                                      x.route === r.route ? { ...x, consumers } : x
+                                                      x.route === r.route ? { ...x, consumers, consumer_groups } : x
                                                     ),
                                                   }))
                                                 )}
@@ -1930,12 +2039,14 @@ export function Nodes() {
                                           {deviceDetailsForm.unsafe_routes.some((r) => r.route === "0.0.0.0/0") &&
                                             renderConsumerPicker(
                                               "exit",
-                                              deviceDetailsForm.unsafe_routes.find((r) => r.route === "0.0.0.0/0")?.consumers ?? [],
-                                              (consumers) =>
+                                              deviceDetailsForm.unsafe_routes.find((r) => r.route === "0.0.0.0/0"),
+                                              (consumers, consumer_groups) =>
                                                 setDeviceDetailsForm((f) => ({
                                                   ...f,
                                                   unsafe_routes: f.unsafe_routes.map((r) =>
-                                                    r.route === "0.0.0.0/0" || r.route === "::/0" ? { ...r, consumers } : r
+                                                    r.route === "0.0.0.0/0" || r.route === "::/0"
+                                                      ? { ...r, consumers, consumer_groups }
+                                                      : r
                                                   ),
                                                 }))
                                             )}
