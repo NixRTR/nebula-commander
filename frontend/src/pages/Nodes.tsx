@@ -44,7 +44,7 @@ const PUBLIC_ENDPOINT_HELP =
 
 const ADVERTISE_ADDRS_HELP =
   "Optional, comma-separated IP:port. Extra addresses this node reports to lighthouses, for ones Nebula " +
-  "can't discover itself (port forwards, a second uplink). IP addresses only; port 0 means Nebula's listen port.";
+  "can't discover itself (port forwards, a second uplink). IP addresses only; port 0 is Nebula's listen port.";
 
 /** "a, b" -> ["a", "b"]; the form keeps advertise_addrs as one comma-separated string. */
 const parseAdvertiseAddrs = (value: string): string[] =>

@@ -21,7 +21,7 @@ Use them for addresses Nebula can't discover on its own:
 - A second uplink or a LAN address that peers on the same site should try.
 
 Nebula already reports the node's local interface addresses and the address a
-lighthouse sees it connect from. Only list what those two miss.
+lighthouse sees it connect from. This list should have what that doesn't cover.
 
 ## Rules
 
