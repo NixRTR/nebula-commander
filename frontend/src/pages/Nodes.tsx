@@ -42,6 +42,14 @@ const PUBLIC_ENDPOINT_HELP =
   "It's added to every node's static_host_map, so peers can connect without asking a lighthouse first. " +
   "Lighthouses and relays need one.";
 
+const ADVERTISE_ADDRS_HELP =
+  "Optional, comma-separated IP:port. Extra addresses this node reports to lighthouses, for ones Nebula " +
+  "can't discover itself (port forwards, a second uplink). IP addresses only; port 0 means Nebula's listen port.";
+
+/** "a, b" -> ["a", "b"]; the form keeps advertise_addrs as one comma-separated string. */
+const parseAdvertiseAddrs = (value: string): string[] =>
+  value.split(",").map((a) => a.trim()).filter(Boolean);
+
 export function Nodes() {
   const { resolve } = useTheme();
   const [searchParams] = useSearchParams();
@@ -65,6 +73,7 @@ export function Nodes() {
     is_lighthouse: boolean;
     is_relay: boolean;
     public_endpoint: string;
+    advertise_addrs: string;
     interval_seconds: string;
     log_level: string;
     log_format: string;
@@ -82,6 +91,7 @@ export function Nodes() {
     is_lighthouse: false,
     is_relay: false,
     public_endpoint: "",
+    advertise_addrs: "",
     interval_seconds: "60",
     log_level: "info",
     log_format: "text",
@@ -391,6 +401,7 @@ export function Nodes() {
       is_lighthouse: node.is_lighthouse,
       is_relay: node.is_relay,
       public_endpoint: node.public_endpoint ?? "",
+      advertise_addrs: (node.advertise_addrs ?? []).join(", "),
       group: (node.groups && node.groups[0]) ?? "",
       interval_seconds: String(opts?.interval_seconds ?? 60),
       log_level: logOpts?.level ?? "info",
@@ -626,6 +637,7 @@ export function Nodes() {
       deviceDetailsForm.is_lighthouse !== node.is_lighthouse ||
       deviceDetailsForm.is_relay !== node.is_relay ||
       (deviceDetailsForm.public_endpoint ?? "") !== (node.public_endpoint ?? "") ||
+      parseAdvertiseAddrs(deviceDetailsForm.advertise_addrs).join(",") !== (node.advertise_addrs ?? []).join(",") ||
       String(deviceDetailsForm.interval_seconds ?? 60) !== String(opts?.interval_seconds ?? 60) ||
       (deviceDetailsForm.log_level ?? "info") !== (logOpts?.level ?? "info") ||
       (deviceDetailsForm.log_format ?? "text") !== (logOpts?.format ?? "text") ||
@@ -684,6 +696,7 @@ export function Nodes() {
         is_relay: deviceDetailsForm.is_relay,
         // "" (not null) when blank: the API treats null as "unchanged", so null could never clear it
         public_endpoint: deviceDetailsForm.public_endpoint.trim(),
+        advertise_addrs: parseAdvertiseAddrs(deviceDetailsForm.advertise_addrs),
         group,
         lighthouse_options,
         logging_options,
@@ -718,6 +731,7 @@ export function Nodes() {
               is_lighthouse: updated.is_lighthouse,
               is_relay: updated.is_relay,
               public_endpoint: updated.public_endpoint ?? "",
+              advertise_addrs: (updated.advertise_addrs ?? []).join(", "),
               interval_seconds: String(updated.lighthouse_options?.interval_seconds ?? 60),
               log_level: updated.logging_options?.level ?? "info",
               log_format: updated.logging_options?.format ?? "text",
@@ -1823,6 +1837,23 @@ export function Nodes() {
                                       </div>
                                     </div>
 
+                                    {deviceDetailsForm.platform === "desktop" && !deviceDetailsForm.is_lighthouse && (
+                                      <div className="border-t border-gray-200 dark:border-gray-700 pt-4 min-w-0">
+                                        <Label htmlFor="dd_advertise_addrs" value="Additional reachable addresses (IP:port)" className="text-gray-500 dark:text-gray-400" />
+                                        <TextInput
+                                          id="dd_advertise_addrs"
+                                          value={deviceDetailsForm.advertise_addrs}
+                                          onChange={(e) =>
+                                            setDeviceDetailsForm((f) => ({ ...f, advertise_addrs: e.target.value }))
+                                          }
+                                          placeholder="203.0.113.7:4242, 192.168.1.10:4242"
+                                          helperText={deviceDetailsModal.isEditing ? ADVERTISE_ADDRS_HELP : undefined}
+                                          disabled={!deviceDetailsModal.isEditing}
+                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                        />
+                                      </div>
+                                    )}
+
                                     {deviceDetailsForm.platform === "desktop" && (
                                       <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
                                         <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">
@@ -2093,6 +2124,7 @@ export function Nodes() {
                                                 is_lighthouse: node.is_lighthouse,
                                                 is_relay: node.is_relay,
                                                 public_endpoint: node.public_endpoint ?? "",
+                                                advertise_addrs: (node.advertise_addrs ?? []).join(", "),
                                                 interval_seconds: String(node.lighthouse_options?.interval_seconds ?? 60),
                                                 log_level: node.logging_options?.level ?? "info",
                                                 log_format: node.logging_options?.format ?? "text",

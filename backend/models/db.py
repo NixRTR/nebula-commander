@@ -92,6 +92,7 @@ class Node(Base):
     is_lighthouse: Mapped[bool] = mapped_column(Boolean, default=False)
     is_relay: Mapped[bool] = mapped_column(Boolean, default=False)
     public_endpoint: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # e.g. hostname:4242 for static_host_map
+    advertise_addrs: Mapped[Optional[list]] = mapped_column(JSON, default=list)  # ["ip:port"] - lighthouse.advertise_addrs, extra addresses reported to lighthouses
     lighthouse_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # interval_seconds; DNS is via ncclient dnsmasq only
     logging_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # level, format, disable_timestamp, timestamp_format
     punchy_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # respond, delay, respond_delay

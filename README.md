@@ -68,6 +68,8 @@
   host-level IP forwarding and NAT. See
   [docs/unsafe-routes.md](docs/unsafe-routes.md) for how it works, including hosts
   that don't run `ncclient`
+- Per-node public endpoint and additional reachable addresses (port forwards,
+  second uplinks) — see [docs/reachable-addresses.md](docs/reachable-addresses.md)
 - Per-account color theming — every user can customize button, status, badge, and
   background colors independently for light and dark mode, and save named presets
 

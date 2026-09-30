@@ -132,6 +132,45 @@ def _valid_endpoint(node: Node) -> Optional[str]:
         return None
 
 
+MAX_ADVERTISE_ADDRS = 8
+
+
+def normalize_advertise_addrs(addrs: list[str], network_cidr: Optional[str] = None) -> list[str]:
+    """
+    Validate a node's lighthouse.advertise_addrs and return them deduplicated as ip:port
+    ([ip]:port for IPv6). Port 0 means "this node's listen port".
+
+    IP literals only: nebula resolves a hostname here once at startup and refuses to
+    start if the lookup fails. Raises ValueError with a user-facing message otherwise.
+    """
+    normalized: list[str] = []
+    for raw in addrs:
+        s = str(raw).strip()
+        host, sep, port = s.rpartition(":")
+        if not sep or not host:
+            raise ValueError(f"Reachable address must be ip:port, got {s!r}")
+        bracketed = host.startswith("[") and host.endswith("]")
+        try:
+            ip = ipaddress.ip_address(host[1:-1] if bracketed else host)
+        except ValueError:
+            raise ValueError(f"Reachable address must be an IP address, not a hostname: {host!r}") from None
+        if ip.version == 6 and not bracketed:
+            raise ValueError("Put an IPv6 reachable address in brackets, e.g. [2001:db8::1]:4242")
+        if ip.is_unspecified or ip.is_loopback or ip.is_multicast or ip.is_link_local:
+            raise ValueError(f"Reachable address {ip} is not routable")
+        # nebula silently drops addresses inside the overlay
+        if network_cidr and ip in ipaddress.ip_network(network_cidr, strict=False):
+            raise ValueError(f"Reachable address {ip} is inside the Nebula network {network_cidr}")
+        if not port.isdigit() or not 0 <= int(port) <= 65535:
+            raise ValueError(f"Reachable address port must be 0-65535, got {port!r}")
+        entry = f"[{ip}]:{int(port)}" if ip.version == 6 else f"{ip}:{int(port)}"
+        if entry not in normalized:
+            normalized.append(entry)
+    if len(normalized) > MAX_ADVERTISE_ADDRS:
+        raise ValueError(f"At most {MAX_ADVERTISE_ADDRS} reachable addresses per node")
+    return normalized
+
+
 def _default_static_host_map(hosts_with_endpoint: list[tuple[str, str]]) -> dict[str, list[str]]:
     """hosts_with_endpoint: list of (nebula_ip, normalized public_endpoint)."""
     return {ip: [endpoint] for ip, endpoint in hosts_with_endpoint}
@@ -148,7 +187,7 @@ def _lighthouse_section(
     node: Node,
     other_lighthouse_ips: list[str],
 ) -> dict[str, Any]:
-    """Build lighthouse section: am_lighthouse, hosts, optional interval. DNS is served by ncclient dnsmasq only."""
+    """Build lighthouse section: am_lighthouse, hosts, optional interval and advertise_addrs. DNS is served by ncclient dnsmasq only."""
     section: dict[str, Any] = {
         "am_lighthouse": node.is_lighthouse,
         "hosts": other_lighthouse_ips,
@@ -156,6 +195,9 @@ def _lighthouse_section(
     opts = node.lighthouse_options or {}
     if node.is_lighthouse and opts.get("interval_seconds") is not None:
         section["interval"] = opts["interval_seconds"]
+    # Lighthouses never send host updates, so nebula ignores this on them
+    if not node.is_lighthouse and node.advertise_addrs:
+        section["advertise_addrs"] = list(node.advertise_addrs)
     return section
 
 

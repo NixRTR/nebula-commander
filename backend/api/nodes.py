@@ -24,6 +24,7 @@ from ..services.cert_store import read_cert_store_file
 from ..services.config_generator import (
     generate_config_for_node,
     get_dns_client_config,
+    normalize_advertise_addrs,
     normalize_public_endpoint,
 )
 from ..services.ip_allocator import IPAllocator
@@ -61,6 +62,7 @@ class NodeUpdate(BaseModel):
     is_lighthouse: Optional[bool] = None
     is_relay: Optional[bool] = None
     public_endpoint: Optional[str] = None
+    advertise_addrs: Optional[list[str]] = None
     lighthouse_options: Optional[dict[str, Any]] = None
     logging_options: Optional[dict[str, Any]] = None
     punchy_options: Optional[dict[str, Any]] = None
@@ -77,6 +79,7 @@ class NodeResponse(BaseModel):
     is_lighthouse: bool = False
     is_relay: bool = False
     public_endpoint: Optional[str] = None
+    advertise_addrs: list[str] = []
     lighthouse_options: Optional[dict[str, Any]] = None
     logging_options: Optional[dict[str, Any]] = None
     punchy_options: Optional[dict[str, Any]] = None
@@ -135,6 +138,7 @@ async def list_nodes(
             is_lighthouse=n.is_lighthouse,
             is_relay=n.is_relay,
             public_endpoint=n.public_endpoint,
+            advertise_addrs=n.advertise_addrs or [],
             lighthouse_options=n.lighthouse_options,
             logging_options=n.logging_options,
             punchy_options=n.punchy_options,
@@ -320,6 +324,7 @@ async def get_node(
         is_lighthouse=node.is_lighthouse,
         is_relay=node.is_relay,
         public_endpoint=node.public_endpoint,
+        advertise_addrs=node.advertise_addrs or [],
         lighthouse_options=node.lighthouse_options,
         logging_options=node.logging_options,
         punchy_options=node.punchy_options,
@@ -356,6 +361,7 @@ async def update_node(
     original_is_lighthouse = node.is_lighthouse
     original_is_relay = node.is_relay
     original_public_endpoint = node.public_endpoint
+    original_advertise_addrs = list(node.advertise_addrs or [])
     original_lighthouse_options = (
         node.lighthouse_options.copy()
         if isinstance(node.lighthouse_options, dict)
@@ -398,6 +404,12 @@ async def update_node(
             node.public_endpoint = (
                 normalize_public_endpoint(body.public_endpoint) if body.public_endpoint.strip() else None
             )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+    if body.advertise_addrs is not None:
+        net_result = await session.execute(select(Network.subnet_cidr).where(Network.id == node.network_id))
+        try:
+            node.advertise_addrs = normalize_advertise_addrs(body.advertise_addrs, net_result.scalar_one_or_none())
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
     if body.lighthouse_options is not None:
@@ -491,6 +503,10 @@ async def update_node(
             "old": original_public_endpoint,
             "new": node.public_endpoint,
         }
+
+    new_advertise_addrs = node.advertise_addrs or []
+    if original_advertise_addrs != new_advertise_addrs:
+        changed["advertise_addrs"] = {"old": original_advertise_addrs, "new": new_advertise_addrs}
 
     if original_lighthouse_options != node.lighthouse_options:
         changed["lighthouse_options"] = {
