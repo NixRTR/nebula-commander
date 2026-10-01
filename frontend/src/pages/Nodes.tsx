@@ -308,7 +308,20 @@ export function Nodes() {
     };
     createCertificate(body)
       .then((res) => {
-        setCreateNodeForm((f) => ({ ...f, name: "", group: "", suggested_ip: "" }));
+        // Reset every per-node field, not just the name: leaving is_lighthouse (auto-ticked
+        // for a network's first node) set made the NEXT node silently a lighthouse too.
+        // Network, platform and validity stay as a convenience for creating several nodes.
+        setCreateNodeForm((f) => ({
+          ...f,
+          name: "",
+          group: "",
+          suggested_ip: "",
+          is_lighthouse: false,
+          is_relay: false,
+          public_endpoint: "",
+          interval_seconds: "60",
+          android_dns_opt_in: false,
+        }));
         setNodeNameError(null);
         setSuggestedIpError(null);
         loadNodes();
