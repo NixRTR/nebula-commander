@@ -42,17 +42,31 @@ if [ "$1" = "configure" ]; then
         systemctl reload dbus || true
     fi
 
-    echo ""
-    echo "Nebula Commander service installed but not started."
-    echo "Next steps:"
-    echo "  1. Set NEBULA_COMMANDER_SERVER in /etc/default/ncclient, then enroll:"
-    echo "       sudo ncclient enroll --server https://your-server --code YOUR-CODE"
-    echo "     (or enroll via the nebula-commander-desktop app instead)"
-    echo "  2. sudo systemctl enable --now ncclient"
-    echo ""
-    echo "The nebula-commander-desktop app (if installed) works immediately for"
-    echo "any locally logged-in user - no group membership or relogin needed."
-    echo ""
+
+    # Upgrades: restart a running ncclient so the NEW binary (and its D-Bus
+    # API) takes over immediately. Without this the pre-upgrade process kept
+    # running until the next reboot - confirmed on Debian 13 while testing
+    # 0.6.3 -> 0.6.10, where the old process went on serving the node's
+    # unredacted private key and old authorization messages after the
+    # package (and its polkit rule) had already been upgraded.
+    if [ -d /run/systemd/system ]; then
+        systemctl try-restart ncclient.service || true
+    fi
+
+    # $2 (the previously configured version) is empty on a fresh install.
+    if [ -z "$2" ]; then
+        echo ""
+        echo "Nebula Commander service installed but not started."
+        echo "Next steps:"
+        echo "  1. Set NEBULA_COMMANDER_SERVER in /etc/default/ncclient, then enroll:"
+        echo "       sudo ncclient enroll --server https://your-server --code YOUR-CODE"
+        echo "     (or enroll via the nebula-commander-desktop app instead)"
+        echo "  2. sudo systemctl enable --now ncclient"
+        echo ""
+        echo "In the nebula-commander-desktop app (if installed), any local user can"
+        echo "view status; changes need membership in the sudo or wheel group."
+        echo ""
+    fi
 fi
 
 exit 0
