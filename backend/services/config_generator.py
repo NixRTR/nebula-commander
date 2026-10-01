@@ -147,6 +147,10 @@ def normalize_advertise_addrs(addrs: list[str], network_cidr: str|None = None) -
 
     for raw in addrs:
         s = str(raw).strip()
+        # Each list item is one address - catch "a:1, b:2" pasted into a single item
+        # before it falls through to a misleading IPv6-brackets error below.
+        if "," in s or any(c.isspace() for c in s):
+            raise ValueError(f"Enter one address per entry (got a comma-separated list: {s!r})")
         host, sep, port = s.rpartition(":")
 
         if not sep or not host:
@@ -166,6 +170,12 @@ def normalize_advertise_addrs(addrs: list[str], network_cidr: str|None = None) -
 
         if ip.is_unspecified or ip.is_loopback or ip.is_multicast or ip.is_link_local:
             raise ValueError(f"Reachable address {ip} is not routable")
+        # 240.0.0.0/4 incl. 255.255.255.255, and IPv6 reserved space - never a usable
+        # underlay address.
+        if ip.is_reserved:
+            raise ValueError(f"Reachable address {ip} is reserved/not routable")
+        if ip.version == 6 and ip.ipv4_mapped is not None:
+            raise ValueError(f"Use the plain IPv4 address {ip.ipv4_mapped}, not the IPv4-mapped form {ip}")
 
         # nebula drops addresses inside the overlay
         if network_cidr and ip in ipaddress.ip_network(network_cidr, strict=False):

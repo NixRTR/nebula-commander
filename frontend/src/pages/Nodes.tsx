@@ -43,12 +43,20 @@ const PUBLIC_ENDPOINT_HELP =
   "Lighthouses and relays need one.";
 
 const ADVERTISE_ADDRS_HELP =
-  "Optional, comma-separated IP:port. Extra addresses this node reports to lighthouses, for ones Nebula " +
-  "can't discover itself (port forwards, a second uplink). IP addresses only; port 0 is Nebula's listen port.";
+  "Optional. Extra IP:port addresses this node reports to lighthouses, for ones Nebula can't discover " +
+  "itself (port forwards, a second uplink). Add one at a time; IP addresses only, port 0 is Nebula's listen port.";
 
-/** "a, b" -> ["a", "b"]; the form keeps advertise_addrs as one comma-separated string. */
-const parseAdvertiseAddrs = (value: string): string[] =>
-  value.split(",").map((a) => a.trim()).filter(Boolean);
+/** Same limit as the backend's MAX_ADVERTISE_ADDRS (services/config_generator.py). */
+const MAX_ADVERTISE_ADDRS = 8;
+
+/** Quick shape check for one reachable address before it's added to the list - IPv4:port or
+ * [IPv6]:port. The backend's normalize_advertise_addrs is the real validator (reserved ranges,
+ * addresses inside the Nebula network, ...) and its error shows on Save. */
+const checkAdvertiseAddr = (value: string): string | null => {
+  const m = /^(?:(\d{1,3}(?:\.\d{1,3}){3})|\[([0-9a-fA-F:.]+)\]):(\d{1,5})$/.exec(value);
+  const ok = m !== null && Number(m[3]) <= 65535 && (!m[1] || m[1].split(".").every((o) => Number(o) <= 255));
+  return ok ? null : "Enter IP:port, e.g. 203.0.113.7:4242 or [2001:db8::1]:4242";
+};
 
 export function Nodes() {
   const { resolve } = useTheme();
@@ -73,7 +81,7 @@ export function Nodes() {
     is_lighthouse: boolean;
     is_relay: boolean;
     public_endpoint: string;
-    advertise_addrs: string;
+    advertise_addrs: string[];
     interval_seconds: string;
     log_level: string;
     log_format: string;
@@ -91,7 +99,7 @@ export function Nodes() {
     is_lighthouse: false,
     is_relay: false,
     public_endpoint: "",
-    advertise_addrs: "",
+    advertise_addrs: [],
     interval_seconds: "60",
     log_level: "info",
     log_format: "text",
@@ -107,6 +115,8 @@ export function Nodes() {
   });
   const [otherRouteInput, setOtherRouteInput] = useState("");
   const [otherRouteError, setOtherRouteError] = useState<string | null>(null);
+  const [advertiseAddrInput, setAdvertiseAddrInput] = useState("");
+  const [advertiseAddrError, setAdvertiseAddrError] = useState<string | null>(null);
   const [expandedConsumerPickers, setExpandedConsumerPickers] = useState<Set<string>>(new Set());
   /** Per "Used by" picker (keyed like expandedConsumerPickers): the group / host currently
    * chosen in its dropdowns but not yet added. */
@@ -401,7 +411,7 @@ export function Nodes() {
       is_lighthouse: node.is_lighthouse,
       is_relay: node.is_relay,
       public_endpoint: node.public_endpoint ?? "",
-      advertise_addrs: (node.advertise_addrs ?? []).join(", "),
+      advertise_addrs: node.advertise_addrs ?? [],
       group: (node.groups && node.groups[0]) ?? "",
       interval_seconds: String(opts?.interval_seconds ?? 60),
       log_level: logOpts?.level ?? "info",
@@ -418,6 +428,8 @@ export function Nodes() {
     });
     setOtherRouteInput("");
     setOtherRouteError(null);
+    setAdvertiseAddrInput("");
+    setAdvertiseAddrError(null);
     setExpandedConsumerPickers(new Set());
     setConsumerPickerSelections({});
     setDownloadError(null);
@@ -637,7 +649,7 @@ export function Nodes() {
       deviceDetailsForm.is_lighthouse !== node.is_lighthouse ||
       deviceDetailsForm.is_relay !== node.is_relay ||
       (deviceDetailsForm.public_endpoint ?? "") !== (node.public_endpoint ?? "") ||
-      parseAdvertiseAddrs(deviceDetailsForm.advertise_addrs).join(",") !== (node.advertise_addrs ?? []).join(",") ||
+      deviceDetailsForm.advertise_addrs.join(",") !== (node.advertise_addrs ?? []).join(",") ||
       String(deviceDetailsForm.interval_seconds ?? 60) !== String(opts?.interval_seconds ?? 60) ||
       (deviceDetailsForm.log_level ?? "info") !== (logOpts?.level ?? "info") ||
       (deviceDetailsForm.log_format ?? "text") !== (logOpts?.format ?? "text") ||
@@ -696,7 +708,7 @@ export function Nodes() {
         is_relay: deviceDetailsForm.is_relay,
         // "" (not null) when blank: the API treats null as "unchanged", so null could never clear it
         public_endpoint: deviceDetailsForm.public_endpoint.trim(),
-        advertise_addrs: parseAdvertiseAddrs(deviceDetailsForm.advertise_addrs),
+        advertise_addrs: deviceDetailsForm.advertise_addrs,
         group,
         lighthouse_options,
         logging_options,
@@ -731,7 +743,7 @@ export function Nodes() {
               is_lighthouse: updated.is_lighthouse,
               is_relay: updated.is_relay,
               public_endpoint: updated.public_endpoint ?? "",
-              advertise_addrs: (updated.advertise_addrs ?? []).join(", "),
+              advertise_addrs: updated.advertise_addrs ?? [],
               interval_seconds: String(updated.lighthouse_options?.interval_seconds ?? 60),
               log_level: updated.logging_options?.level ?? "info",
               log_format: updated.logging_options?.format ?? "text",
@@ -1839,18 +1851,76 @@ export function Nodes() {
 
                                     {deviceDetailsForm.platform === "desktop" && !deviceDetailsForm.is_lighthouse && (
                                       <div className="border-t border-gray-200 dark:border-gray-700 pt-4 min-w-0">
+                                        {/* Same add-one / delete-each pattern as the "Other" routes list below. */}
                                         <Label htmlFor="dd_advertise_addrs" value="Additional reachable addresses (IP:port)" className="text-gray-500 dark:text-gray-400" />
-                                        <TextInput
-                                          id="dd_advertise_addrs"
-                                          value={deviceDetailsForm.advertise_addrs}
-                                          onChange={(e) =>
-                                            setDeviceDetailsForm((f) => ({ ...f, advertise_addrs: e.target.value }))
-                                          }
-                                          placeholder="203.0.113.7:4242, 192.168.1.10:4242"
-                                          helperText={deviceDetailsModal.isEditing ? ADVERTISE_ADDRS_HELP : undefined}
-                                          disabled={!deviceDetailsModal.isEditing}
-                                          className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
-                                        />
+                                        {deviceDetailsModal.isEditing && (
+                                          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-2">{ADVERTISE_ADDRS_HELP}</p>
+                                        )}
+                                        {deviceDetailsForm.advertise_addrs.length === 0 && !deviceDetailsModal.isEditing && (
+                                          <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">None</p>
+                                        )}
+                                        {deviceDetailsForm.advertise_addrs.map((addr) => (
+                                          <div key={addr} className="flex items-center gap-2 mt-2">
+                                            <span className="text-sm text-gray-700 dark:text-gray-300">{addr}</span>
+                                            {deviceDetailsModal.isEditing && (
+                                              <Button
+                                                type="button"
+                                                size="xs"
+                                                color="gray"
+                                                aria-label={`Remove ${addr}`}
+                                                onClick={() =>
+                                                  setDeviceDetailsForm((f) => ({
+                                                    ...f,
+                                                    advertise_addrs: f.advertise_addrs.filter((x) => x !== addr),
+                                                  }))
+                                                }
+                                              >
+                                                <HiTrash className="w-3 h-3" />
+                                              </Button>
+                                            )}
+                                          </div>
+                                        ))}
+                                        {deviceDetailsModal.isEditing && (
+                                          <div className="flex items-center gap-2 mt-2">
+                                            <TextInput
+                                              id="dd_advertise_addrs"
+                                              value={advertiseAddrInput}
+                                              onChange={(e) => {
+                                                setAdvertiseAddrInput(e.target.value);
+                                                setAdvertiseAddrError(null);
+                                              }}
+                                              placeholder="e.g. 203.0.113.7:4242"
+                                              className="min-w-0 flex-1"
+                                            />
+                                            <Button
+                                              type="button"
+                                              color="gray"
+                                              onClick={() => {
+                                                const addr = advertiseAddrInput.trim();
+                                                const shapeError = checkAdvertiseAddr(addr);
+                                                if (shapeError) {
+                                                  setAdvertiseAddrError(shapeError);
+                                                  return;
+                                                }
+                                                if (deviceDetailsForm.advertise_addrs.includes(addr)) {
+                                                  setAdvertiseAddrError("That address is already added");
+                                                  return;
+                                                }
+                                                if (deviceDetailsForm.advertise_addrs.length >= MAX_ADVERTISE_ADDRS) {
+                                                  setAdvertiseAddrError(`At most ${MAX_ADVERTISE_ADDRS} addresses per node`);
+                                                  return;
+                                                }
+                                                setDeviceDetailsForm((f) => ({ ...f, advertise_addrs: [...f.advertise_addrs, addr] }));
+                                                setAdvertiseAddrInput("");
+                                              }}
+                                            >
+                                              Add
+                                            </Button>
+                                          </div>
+                                        )}
+                                        {advertiseAddrError && (
+                                          <p className="text-sm text-red-600 dark:text-red-400 mt-1">{advertiseAddrError}</p>
+                                        )}
                                       </div>
                                     )}
 
@@ -2124,7 +2194,7 @@ export function Nodes() {
                                                 is_lighthouse: node.is_lighthouse,
                                                 is_relay: node.is_relay,
                                                 public_endpoint: node.public_endpoint ?? "",
-                                                advertise_addrs: (node.advertise_addrs ?? []).join(", "),
+                                                advertise_addrs: node.advertise_addrs ?? [],
                                                 interval_seconds: String(node.lighthouse_options?.interval_seconds ?? 60),
                                                 log_level: node.logging_options?.level ?? "info",
                                                 log_format: node.logging_options?.format ?? "text",
@@ -2140,6 +2210,8 @@ export function Nodes() {
                                               });
                                               setOtherRouteInput("");
                                               setOtherRouteError(null);
+                                              setAdvertiseAddrInput("");
+                                              setAdvertiseAddrError(null);
                                               setDeviceDetailsModal((s) => ({ ...s, isEditing: false }));
                                             }
                                           }}

@@ -39,10 +39,20 @@ def test_valid_addrs_are_normalized(raw, expected):
         "169.254.1.1:4242",
         "224.0.0.1:4242",
         "10.100.0.5:4242",  # inside the Nebula network
+        "255.255.255.255:4242",  # broadcast
+        "240.0.0.1:4242",  # reserved 240.0.0.0/4
+        "[::ffff:203.0.113.7]:4242",  # IPv4-mapped IPv6
+        "203.0.113.7:4242,198.51.100.2:4242",  # comma-joined in one entry
     ],
 )
 def test_invalid_addrs_are_rejected(raw):
     with pytest.raises(ValueError):
+        normalize_advertise_addrs([raw], "10.100.0.0/24")
+
+
+@pytest.mark.parametrize("raw", ["203.0.113.7:4242,198.51.100.2:4242", "203.0.113.7:4242 198.51.100.2:4242"])
+def test_comma_joined_entry_gets_a_clear_message(raw):
+    with pytest.raises(ValueError, match="one address per entry"):
         normalize_advertise_addrs([raw], "10.100.0.0/24")
 
 
