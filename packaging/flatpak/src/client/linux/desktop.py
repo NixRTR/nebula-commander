@@ -173,6 +173,11 @@ class MainWindow(Adw.ApplicationWindow):
     def _service_action(self, fn) -> None:
         ok, message = fn()
         if not ok:
+            if service_control.is_access_denied(message):
+                message = (
+                    "Administrator required - only members of the sudo or wheel group "
+                    "can start, stop or restart the Nebula Commander service."
+                )
             self._show_error("Service", message or "Action failed.")
         self._refresh_status_labels()
 
@@ -377,13 +382,10 @@ class MainWindow(Adw.ApplicationWindow):
         self.settings_interval_spin = Gtk.SpinButton(adjustment=interval_adj, valign=Gtk.Align.CENTER)
         _action_row_with_suffix(group, "Poll interval (seconds)", self.settings_interval_spin, activatable=False)
 
+        # No Nebula path field: the service runs the system's packaged nebula
+        # (its PATH), and nebula_path isn't settable over D-Bus any more.
         nebula_group = Adw.PreferencesGroup(title="Nebula")
         page.add(nebula_group)
-        self.settings_nebula_row = Adw.EntryRow(title="Nebula executable path (optional - blank uses PATH)", text=settings.get("nebula_path") or "")
-        browse_btn = Gtk.Button(icon_name="document-open-symbolic", valign=Gtk.Align.CENTER)
-        browse_btn.connect("clicked", self._on_browse_nebula)
-        self.settings_nebula_row.add_suffix(browse_btn)
-        nebula_group.add(self.settings_nebula_row)
 
         self.settings_accept_dns_switch = Gtk.Switch(active=bool(settings.get("accept_dns", False)), valign=Gtk.Align.CENTER)
         _action_row_with_suffix(nebula_group, "Accept split-horizon DNS", self.settings_accept_dns_switch)
@@ -403,23 +405,6 @@ class MainWindow(Adw.ApplicationWindow):
         save_group.add(save_row)
 
         return page
-
-    def _on_browse_nebula(self, _button: Gtk.Button) -> None:
-        dialog = Gtk.FileChooserNative(
-            title="Select nebula executable",
-            transient_for=self,
-            action=Gtk.FileChooserAction.OPEN,
-        )
-
-        def on_response(dlg: Gtk.FileChooserNative, response: int) -> None:
-            if response == Gtk.ResponseType.ACCEPT:
-                gfile = dlg.get_file()
-                if gfile is not None:
-                    self.settings_nebula_row.set_text(gfile.get_path() or "")
-            dlg.destroy()
-
-        dialog.connect("response", on_response)
-        dialog.show()
 
     def _on_toggle_autostart(self, switch: Gtk.Switch, _pspec) -> None:
         if switch.get_active():
@@ -456,7 +441,6 @@ class MainWindow(Adw.ApplicationWindow):
                 {
                     "server": server,
                     "interval": interval,
-                    "nebula_path": self.settings_nebula_row.get_text().strip(),
                     "accept_dns": self.settings_accept_dns_switch.get_active(),
                 }
             )
@@ -465,7 +449,7 @@ class MainWindow(Adw.ApplicationWindow):
             return
         # Unlike route accept/reject (picked up on the service's next poll via
         # run_poll_loop's fingerprint check - no restart needed), server/
-        # interval/nebula_path/accept_dns are only read once at process start
+        # interval/accept_dns are only read once at process start
         # (see packaging/deb/service/payload's ncclient-run.sh wrapper for
         # accept_dns specifically). Best-effort restart so they take effect
         # now instead of leaving the change silently pending until the next

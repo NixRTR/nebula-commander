@@ -6,8 +6,10 @@
 # After setting the server above, enroll this device once with a one-time
 # code from the Nebula Commander UI:
 #   sudo ncclient enroll --server "$NEBULA_COMMANDER_SERVER" --code YOUR-CODE
-# Or use the nebula-commander-desktop app's Enrollment tab, which writes the
-# token to the same shared /var/lib/ncclient location this service reads.
+# (Run as root, `ncclient enroll` and `ncclient routes ...` use this service's
+# own state in /var/lib/ncclient.) Or use the nebula-commander-desktop app's
+# Enrollment tab as a member of the sudo/wheel group - the service enrolls
+# itself on the app's behalf over D-Bus.
 #
 # Then start the service:
 #   sudo systemctl enable --now ncclient

@@ -3,14 +3,20 @@
  "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/PolicyKit/1.0/policyconfig.dtd">
 <!--
-  Authorizes client/linux/dbus_server.py's two D-Bus actions. Both default
-  to allow_active=yes: any user with an active local session is authorized,
-  no group membership or password prompt required - this is what lets the
-  desktop app work immediately after install/login, unlike the old design
-  (nebula-commander system group + usermod -aG + a required relogin).
-  allow_inactive/allow_any stay "no": a background/non-interactive session
-  (or a remote one, if this host is ever administered that way) should not
-  get the same free pass a real logged-in user sitting at the machine does.
+  Declares client/linux/dbus_server.py's two D-Bus actions.
+
+  .read (status, offered routes, key-redacted config) defaults to
+  allow_active=yes: any user with an active local session can look.
+
+  .manage (settings, enrollment, routes/exit node) defaults to
+  auth_admin_keep: an administrator's password. The shipped rules file
+  (../rules.d/org.nixrtr.nebulacommander.rules) is what grants members of
+  sudo/wheel the no-password path; this default is the fallback if that
+  rules file is ever missing, so a broken install fails closed rather than
+  letting any local user change the device's network.
+
+  allow_inactive/allow_any stay "no" for both: background and remote (SSH)
+  sessions get nothing.
 -->
 <policyconfig>
   <vendor>NixRTR</vendor>
@@ -32,7 +38,7 @@
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>
-      <allow_active>yes</allow_active>
+      <allow_active>auth_admin_keep</allow_active>
     </defaults>
   </action>
 </policyconfig>

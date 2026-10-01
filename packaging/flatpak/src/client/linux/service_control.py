@@ -5,10 +5,11 @@ desktop app - via direct D-Bus calls to systemd's own
 no `systemctl` binary at all inside the Flatpak sandbox, so this works
 identically in and out of it (the old design shelled out to `systemctl`
 directly, or via `flatpak-spawn --host` inside the sandbox - see this
-file's git history for that version). Authorized by the existing polkit
+file's git history for that version). Authorized by the shipped polkit
 rule (packaging/deb/service/payload/usr/share/polkit-1/rules.d/
-org.nixrtr.nebulacommander.rules), which grants any active local session
-start/stop/restart on exactly the `ncclient.service` unit - polkit
+org.nixrtr.nebulacommander.rules), which grants active local members of
+sudo/wheel start/stop/restart on exactly the `ncclient.service` unit (anyone
+else gets AccessDenied - see is_access_denied below) - polkit
 resolves this from the D-Bus caller's real identity regardless of sandbox,
 so no Flatpak-specific permission (like the old design's
 `--talk-name=org.freedesktop.Flatpak`) is needed here at all.
@@ -122,6 +123,13 @@ def _job_action(method: str) -> "tuple[bool, str]":
     finally:
         conn.close()
     return True, ""
+
+
+def is_access_denied(message: str) -> bool:
+    """True for systemd's polkit refusal of a start/stop/restart (the caller
+    isn't an administrator - see the module docstring)."""
+    m = (message or "").lower()
+    return "access denied" in m or "interactive authentication required" in m or "accessdenied" in m
 
 
 def start() -> "tuple[bool, str]":

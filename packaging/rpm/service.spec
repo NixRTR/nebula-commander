@@ -19,10 +19,10 @@ separately-fetched binary.
 
 Exposes a system D-Bus service (org.beardedtek.NebulaCommander1) that the
 optional nebula-commander-desktop package talks to for status/settings/
-enrollment/route management, authorized per-call via polkit for any active
-local session - no shared group, file permissions, or relogin step needed.
-Also installs a polkit rule letting an active local session start/stop/
-restart this one service without a password prompt.
+enrollment/route management, authorized per-call via polkit. Any active
+local session can view status; changes (and start/stop/restart of this one
+service) are allowed without a password only for active local members of
+the sudo or wheel group - everyone else needs an administrator's password.
 
 %install
 rm -rf %{buildroot}

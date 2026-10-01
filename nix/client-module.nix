@@ -77,43 +77,79 @@ in
         stateDir below.
       '';
     };
+
+    adminGroups = mkOption {
+      type = types.nullOr (types.listOf types.str);
+      default = [ "wheel" "sudo" ];
+      example = [ "wheel" ];
+      description = ''
+        Active local users in any of these groups may change this device's
+        Nebula network without a password: the desktop app's settings,
+        enrollment and route/exit-node changes (polkit action
+        org.beardedtek.NebulaCommander1.manage), and start/stop/restart of
+        ncclient.service. Everyone else needs an administrator's password.
+        Reading status is open to any active local user regardless.
+
+        null = any active local user (the old behaviour - only sensible on a
+        single-user machine).
+      '';
+    };
   };
 
   config = mkIf cfg.enable {
+    # cfg.package on PATH for its share/polkit-1/actions (NixOS's polkit module
+    # only picks actions up from systemPackages - services.dbus.packages below
+    # covers the bus policy only), plus a wrapper so `sudo ncclient routes ...`
+    # / `sudo ncclient enroll ...` act on the service's own state instead of
+    # root's per-user defaults. hiPrio: both provide bin/ncclient, and
+    # system-path's buildEnv otherwise picks one by list order.
+    environment.systemPackages = [
+      cfg.package
+      (lib.hiPrio (pkgs.writeShellScriptBin "ncclient" ''
+        export NEBULA_COMMANDER_CONFIG_DIR=${cfg.stateDir}
+        export NEBULA_DEVICE_TOKEN_FILE=${cfg.stateDir}/token
+        export NEBULA_COMMANDER_OUTPUT_DIR=${cfg.outputDir}
+        exec ${cfg.package}/bin/ncclient "$@"
+      ''))
+    ];
+
     systemd.tmpfiles.rules = [
       "d ${cfg.stateDir} 0700 root root -"
       "d ${cfg.outputDir} 0700 root root -"
     ];
 
-    # Registers cfg.package's shipped D-Bus bus policy (system.d/*.conf) and
-    # polkit action declaration (polkit-1/actions/*.policy) for
-    # client/linux/dbus_server.py's org.beardedtek.NebulaCommander1
-    # service, which `ncclient run` (below) hosts. NixOS's dbus/polkit
-    # modules pick these up from the package output directly - no manual
-    # `systemctl reload polkit`/`reload dbus` step needed the way the .deb
-    # path's postinst requires (see nix/client-package.nix's postInstall),
-    # since system activation restarts/reloads the affected services
-    # itself whenever this changes.
+    # Registers cfg.package's shipped D-Bus bus policy (system.d/*.conf) for
+    # client/linux/dbus_server.py's org.beardedtek.NebulaCommander1 service,
+    # which `ncclient run` (below) hosts. (Its polkit action declaration comes
+    # from environment.systemPackages above, not from here.) No manual
+    # `systemctl reload dbus` step needed the way the .deb path's postinst
+    # requires, since system activation reloads the affected services itself.
     services.dbus.packages = [ cfg.package ];
 
-    # Authorizes org.freedesktop.systemd1's own manage-units action, scoped
-    # to exactly the ncclient unit - this is what lets
-    # client/linux/service_control.py's Start/Stop/Restart (called by the
-    # desktop app, see nix/client-desktop-module.nix) work for any active
-    # local session with no password prompt. Inline JS via extraConfig
-    # (rather than a shipped .rules file the way the .deb path does it) -
-    # simpler for a single rule than adding another packaged file/reload
-    # dependency. Mirrors packaging/deb/service/payload/usr/share/
-    # polkit-1/rules.d/org.nixrtr.nebulacommander.rules exactly - keep the
-    # two in sync if this condition ever changes.
-    security.polkit.extraConfig = ''
+    # Who may change the device's network: org.beardedtek.NebulaCommander1's
+    # manage action (dbus_server.py - settings/enroll/routes) and systemd's
+    # manage-units for start/stop/restart of exactly ncclient.service
+    # (client/linux/service_control.py). Active local members of adminGroups
+    # get YES, everyone else AUTH_ADMIN. Mirrors packaging/deb/service/payload/
+    # usr/share/polkit-1/rules.d/org.nixrtr.nebulacommander.rules (which
+    # hardcodes sudo/wheel) - keep the two in sync.
+    security.polkit.extraConfig = let
+      groups = builtins.toJSON cfg.adminGroups; # JSON array or null - valid JS either way
+    in ''
       polkit.addRule(function(action, subject) {
-          if (action.id == "org.freedesktop.systemd1.manage-units" &&
+          var isNcclientUnit =
+              action.id == "org.freedesktop.systemd1.manage-units" &&
               action.lookup("unit") == "ncclient.service" &&
-              ["start", "stop", "restart"].indexOf(action.lookup("verb")) != -1 &&
-              subject.active && subject.local) {
+              ["start", "stop", "restart"].indexOf(action.lookup("verb")) != -1;
+          if (action.id != "org.beardedtek.NebulaCommander1.manage" && !isNcclientUnit) {
+              return polkit.Result.NOT_HANDLED;
+          }
+          var groups = ${groups};
+          if (subject.active && subject.local &&
+              (groups === null || groups.some(function(g) { return subject.isInGroup(g); }))) {
               return polkit.Result.YES;
           }
+          return polkit.Result.AUTH_ADMIN;
       });
     '';
 
@@ -149,7 +185,9 @@ in
       # populates environment.PATH with a base default at the same merge priority as a
       # plain assignment, so overwriting it outright throws "conflicting definition
       # values" (confirmed via a real nixosSystem eval).
-      path = [ cfg.nebulaPackage ];
+      # nftables/iproute2: linux_routing.apply_routes sets up forwarding/NAT for
+      # routes this node advertises as a subnet router / exit node.
+      path = [ cfg.nebulaPackage pkgs.nftables pkgs.iproute2 ];
 
       # ncclient run only honors --server via NEBULA_COMMANDER_SERVER; every other
       # flag (--output-dir, --interval, --accept-dns, --nebula, --restart-service) must

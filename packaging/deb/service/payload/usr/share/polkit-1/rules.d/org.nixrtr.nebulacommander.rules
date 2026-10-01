@@ -1,29 +1,37 @@
-// Lets any user with an active local session start/stop/restart just the
-// ncclient.service unit without a password/authentication prompt - the
-// unprivileged nebula-commander-desktop app's Start/Stop/Restart buttons
-// (client/linux/service_control.py) call systemd's own D-Bus API directly,
-// which negotiates this same polkit action; without this rule that would
-// either prompt via a polkit agent or fail outright for a non-root user.
-// Mirrors the Windows app's `sc sdset` ACL grant
-// (installer/windows/Product.wxs's GrantServiceControlAcl) - same goal,
-// this platform's mechanism.
+// Who may change this device's Nebula network without a password: active,
+// local users in an administrator group ("sudo" on Debian/Ubuntu, "wheel"
+// on Fedora/openSUSE/Arch). Covers:
 //
-// This authorizes systemd's own org.freedesktop.systemd1.manage-units
-// action (scoped to exactly this one unit), which can only be done via a
-// .rules override like this one - it can't be redeclared via our own
-// .policy file the way org.beardedtek.NebulaCommander1's two actions
-// are (see ../actions/org.beardedtek.NebulaCommander1.policy).
+//   - org.beardedtek.NebulaCommander1.manage - client/linux/dbus_server.py's
+//     SetSettings / Enroll / AcceptRoute / RejectRoute / AcceptExitNode /
+//     RejectExitNode (the desktop app's changes);
+//   - org.freedesktop.systemd1.manage-units for start/stop/restart of exactly
+//     ncclient.service (the desktop app's Start/Stop/Restart buttons,
+//     client/linux/service_control.py).
 //
-// subject.active (not subject.isInGroup(...)): dropped the
-// nebula-commander group requirement entirely, matching
-// org.beardedtek.NebulaCommander1's own actions - any real logged-in
-// user is authorized, no usermod/relogin step needed for the desktop app
-// to work right after install.
+// Everyone else gets AUTH_ADMIN (an administrator's password, where a polkit
+// agent can ask for it). Earlier versions returned YES for ANY active local
+// session, so on a shared machine a second user could re-point the device at
+// their own server, change its routes/exit node/DNS, or stop the tunnel.
+//
+// org.beardedtek.NebulaCommander1.read (status, offered routes, the
+// key-redacted config) is not handled here - its .policy default still lets
+// any active local user read.
+//
+// Also used by the rpm packages (packaging/rpm/build.py stages this same
+// payload). nix/client-module.nix renders the same rule from its
+// adminGroups option - keep the two in sync.
 polkit.addRule(function(action, subject) {
-    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+    var isNcclientUnit =
+        action.id == "org.freedesktop.systemd1.manage-units" &&
         action.lookup("unit") == "ncclient.service" &&
-        ["start", "stop", "restart"].indexOf(action.lookup("verb")) != -1 &&
-        subject.active && subject.local) {
+        ["start", "stop", "restart"].indexOf(action.lookup("verb")) != -1;
+    if (action.id != "org.beardedtek.NebulaCommander1.manage" && !isNcclientUnit) {
+        return polkit.Result.NOT_HANDLED;
+    }
+    if (subject.active && subject.local &&
+        (subject.isInGroup("sudo") || subject.isInGroup("wheel"))) {
         return polkit.Result.YES;
     }
+    return polkit.Result.AUTH_ADMIN;
 });

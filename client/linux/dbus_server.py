@@ -7,10 +7,14 @@ group-writable `/var/lib/ncclient/` directory. Every call is authorized
 per-method via polkit's `CheckAuthorization` (`_check_authorized` below)
 instead of Unix group membership - see
 packaging/deb/service/payload/usr/share/polkit-1/actions/
-org.beardedtek.NebulaCommander1.policy for the two actions this checks
-(`...read`, `...manage`), both `allow_active=yes` (any active local
-session is authorized - no group membership or relogin needed, unlike the
-old design).
+org.beardedtek.NebulaCommander1.policy for the two actions this checks.
+`...read` is open to any active local session; `...manage` is granted
+without a password only to active local members of sudo/wheel by
+packaging/deb/service/payload/usr/share/polkit-1/rules.d/
+org.nixrtr.nebulacommander.rules (nix/client-module.nix renders the same
+rule) and otherwise needs an administrator's password - which this service
+never prompts for (CheckAuthorization is called non-interactively), so a
+non-admin's manage call is simply refused with NotAuthorized.
 
 Uses jeepney (pure-Python, no GObject/GLib dependency - the same choice
 already proven in client/linux/notify.py and confirmed here to freeze
@@ -128,6 +132,11 @@ def _h_get_config_yaml(output_dir: str, msg) -> "tuple[str, tuple]":
     return "s", (service_api.get_config_yaml(output_dir),)
 
 
+_ADMIN_REQUIRED = (
+    "Administrator required - only members of the sudo or wheel group can change "
+    "Nebula Commander settings, enrollment, routes or the service."
+)
+
 # member name -> (handler, required polkit action)
 _METHODS = {
     "GetStatus": (_h_get_status, ACTION_READ),
@@ -217,7 +226,8 @@ class _DBusServerThread(threading.Thread):
         handler, action = entry
 
         if not self._check_authorized(sender, action):
-            self._conn.send(jeepney.new_error(msg, f"{INTERFACE}.Error.NotAuthorized", "s", ("Not authorized.",)))
+            reason = _ADMIN_REQUIRED if action == ACTION_MANAGE else "Not authorized."
+            self._conn.send(jeepney.new_error(msg, f"{INTERFACE}.Error.NotAuthorized", "s", (reason,)))
             return
 
         try:

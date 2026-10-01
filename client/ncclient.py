@@ -90,7 +90,13 @@ def _server_url(server: str) -> str:
 
 
 def _default_output_dir() -> str:
-    """Default directory for config/certs; Windows-friendly."""
+    """Default directory for config/certs; Windows-friendly.
+    NEBULA_COMMANDER_OUTPUT_DIR overrides it - set by the NixOS module's
+    ncclient wrapper and by _apply_linux_service_defaults() so `routes` finds
+    the available-routes.json the service actually writes."""
+    override = os.environ.get("NEBULA_COMMANDER_OUTPUT_DIR", "").strip()
+    if override:
+        return override
     if sys.platform == "win32":
         return os.path.join(os.path.expanduser("~"), ".nebula")
     return "/etc/nebula"
@@ -1184,6 +1190,26 @@ def cmd_routes_reject_exit_node(output_dir: str) -> None:
     print("Rejected the accepted exit node.")
 
 
+_LINUX_SERVICE_STATE_DIR = "/var/lib/ncclient"
+
+
+def _apply_linux_service_defaults(cmd: str) -> None:
+    """`sudo ncclient enroll` / `sudo ncclient routes ...` on a host running
+    the packaged service (deb/rpm: state in /var/lib/ncclient) must act on
+    the SERVICE's token/settings/routes - not root's own per-user keyring/
+    ~/.config, which the service never reads. Only for those commands, only
+    as root, only when the service's state dir exists, and never overriding
+    anything already set (the systemd unit and the NixOS wrapper set these
+    explicitly - NixOS's output dir is a subdirectory, for example)."""
+    if cmd not in ("enroll", "routes") or not sys.platform.startswith("linux"):
+        return
+    if os.geteuid() != 0 or not os.path.isdir(_LINUX_SERVICE_STATE_DIR):
+        return
+    os.environ.setdefault("NEBULA_COMMANDER_CONFIG_DIR", _LINUX_SERVICE_STATE_DIR)
+    os.environ.setdefault("NEBULA_DEVICE_TOKEN_FILE", os.path.join(_LINUX_SERVICE_STATE_DIR, "token"))
+    os.environ.setdefault("NEBULA_COMMANDER_OUTPUT_DIR", _LINUX_SERVICE_STATE_DIR)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(
         description="Nebula Commander device client (dnclient/dnclientd-style). Enroll once, then run to poll config and certs and optionally start/restart Nebula."
@@ -1227,6 +1253,7 @@ def main() -> None:
     routes_sub.add_parser("reject-exit-node", help="Stop using the accepted exit node")
 
     args = ap.parse_args()
+    _apply_linux_service_defaults(args.cmd)
     from client.config import load_settings
     server = (args.server or "").strip() or (load_settings().get("server") or "").strip() or None
     if args.cmd == "run" and not server:
