@@ -107,6 +107,10 @@ class Node(Base):
     unsafe_routes: Mapped[Optional[list]] = mapped_column(JSON, default=list)  # [{route, source, interface}] - subnet-router/exit-node CIDRs; only "route" is sent to Nebula
     available_subnets: Mapped[Optional[list]] = mapped_column(JSON, nullable=True)  # [{interface, cidr, kind}] reported by ncclient each heartbeat (Linux only)
     os_platform: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # "linux"/"windows"/etc, self-reported on heartbeat - Node.platform only covers desktop/ios/android
+    # Self-reported on heartbeat, shown read-only: auto-update is only ever set on the device.
+    client_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
+    auto_update: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # off/install/notify
+    update_available: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # newer release the device has verified, if any
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     network: Mapped["Network"] = relationship("Network", back_populates="nodes")

@@ -49,6 +49,16 @@ const ADVERTISE_ADDRS_HELP =
 /** Same limit as the backend's MAX_ADVERTISE_ADDRS (services/config_generator.py). */
 const MAX_ADVERTISE_ADDRS = 8;
 
+const AUTO_UPDATE_LABELS: Record<string, string> = {
+  off: "off",
+  install: "installs updates",
+  notify: "notify only",
+};
+
+/** ncclient reports "0.0.0+dev" for development builds (and NixOS builds, which have no release tag). */
+const formatClientVersion = (version: string): string =>
+  version.startsWith("0.0.0+") ? "development build" : `v${version}`;
+
 /** Soft warning (never blocks) for an IPv4 address ending in .0 or .255: on a /24 LAN that's
  * the network/broadcast address and won't work, but on a larger LAN (/23, /16, ...) it can be
  * an ordinary host, and Nebula Commander can't know the underlay's mask. Null if no warning. */
@@ -1569,6 +1579,24 @@ export function Nodes() {
                                           : "—"}
                                       </p>
                                     </div>
+                                    {deviceDetailsModal.node.client_version && (
+                                      <div className="min-w-0 sm:col-span-2">
+                                        <Label value="Client" className="text-gray-500 dark:text-gray-400" />
+                                        <p
+                                          className="text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]"
+                                          title="Reported by the device. Automatic updates can only be changed on the device itself."
+                                        >
+                                          {formatClientVersion(deviceDetailsModal.node.client_version)}
+                                          {" · auto-update: "}
+                                          {AUTO_UPDATE_LABELS[deviceDetailsModal.node.auto_update ?? "off"] ?? "off"}
+                                        </p>
+                                        {deviceDetailsModal.node.update_available && (
+                                          <div className="mt-1 flex">
+                                            <Badge color="warning">Update available: v{deviceDetailsModal.node.update_available}</Badge>
+                                          </div>
+                                        )}
+                                      </div>
+                                    )}
                                   </div>
 
                                   <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">

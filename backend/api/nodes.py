@@ -94,6 +94,9 @@ class NodeResponse(BaseModel):
     unsafe_routes: list = []
     available_subnets: list = []
     os_platform: Optional[str] = None
+    client_version: Optional[str] = None
+    auto_update: Optional[str] = None
+    update_available: Optional[str] = None
     created_at: str
 
     class Config:
@@ -153,6 +156,9 @@ async def list_nodes(
             unsafe_routes=_normalize_unsafe_routes(n.unsafe_routes),
             available_subnets=n.available_subnets or [],
             os_platform=n.os_platform,
+            client_version=n.client_version,
+            auto_update=n.auto_update,
+            update_available=n.update_available,
             created_at=n.created_at.isoformat() if n.created_at else "",
         )
         for n in nodes
@@ -339,6 +345,9 @@ async def get_node(
         unsafe_routes=_normalize_unsafe_routes(node.unsafe_routes),
         available_subnets=node.available_subnets or [],
         os_platform=node.os_platform,
+        client_version=node.client_version,
+        auto_update=node.auto_update,
+        update_available=node.update_available,
         created_at=node.created_at.isoformat() if node.created_at else "",
     )
 

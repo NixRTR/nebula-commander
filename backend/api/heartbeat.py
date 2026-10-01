@@ -1,4 +1,5 @@
 """Heartbeat API: nodes report status to update last_seen and status."""
+import re
 from datetime import datetime
 from typing import Optional
 
@@ -22,6 +23,18 @@ class HeartbeatRequest(BaseModel):
     peer_reachability: Optional[dict[int, bool]] = None
     available_subnets: Optional[list[dict]] = None
     os_platform: Optional[str] = None
+    client_version: Optional[str] = None
+    auto_update: Optional[str] = None
+    update_available: Optional[str] = None
+
+
+_VERSION_RE = re.compile(r"^[0-9A-Za-z.+-]{1,32}$")
+_AUTO_UPDATE_MODES = ("off", "install", "notify")
+
+
+def _clean_version(value: Optional[str]) -> Optional[str]:
+    value = (value or "").strip()
+    return value if _VERSION_RE.match(value) else None
 
 
 @router.post("/{node_id}/heartbeat")
@@ -60,6 +73,14 @@ async def node_heartbeat(
         node.available_subnets = body.available_subnets
     if body.os_platform is not None:
         node.os_platform = body.os_platform.strip().lower() or None
+    # Client version / auto-update state (read-only on the server). Only clients that
+    # know about auto-update send these; update_available: null means "none".
+    if "client_version" in body.model_fields_set:
+        node.client_version = _clean_version(body.client_version)
+    if "auto_update" in body.model_fields_set:
+        node.auto_update = body.auto_update if body.auto_update in _AUTO_UPDATE_MODES else None
+    if "update_available" in body.model_fields_set:
+        node.update_available = _clean_version(body.update_available)
     if body.interval_seconds is not None:
         node.checkin_interval_seconds = max(
             MIN_INTERVAL_SECONDS, min(MAX_INTERVAL_SECONDS, body.interval_seconds)

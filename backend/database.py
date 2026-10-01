@@ -109,6 +109,9 @@ def _run_sqlite_migrations() -> None:
             ("available_subnets", "ALTER TABLE nodes ADD COLUMN available_subnets TEXT"),
             ("os_platform", "ALTER TABLE nodes ADD COLUMN os_platform VARCHAR(16)"),
             ("advertise_addrs", "ALTER TABLE nodes ADD COLUMN advertise_addrs TEXT"),
+            ("client_version", "ALTER TABLE nodes ADD COLUMN client_version VARCHAR(32)"),
+            ("auto_update", "ALTER TABLE nodes ADD COLUMN auto_update VARCHAR(16)"),
+            ("update_available", "ALTER TABLE nodes ADD COLUMN update_available VARCHAR(32)"),
         ]:
             if col not in node_columns:
                 cur.execute(sql)

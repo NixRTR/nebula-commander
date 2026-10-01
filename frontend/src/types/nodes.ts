@@ -73,5 +73,9 @@ export interface Node {
   unsafe_routes: UnsafeRoute[];
   available_subnets: AvailableSubnet[];
   os_platform: string | null;
+  /** Self-reported by ncclient on heartbeat; read-only (auto-update is set on the device). */
+  client_version: string | null;
+  auto_update: "off" | "install" | "notify" | null;
+  update_available: string | null;
   created_at: string;
 }
