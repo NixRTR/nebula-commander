@@ -83,6 +83,26 @@ def test_run_upgrade_records_changes(state, monkeypatch):
     assert st["last_install_changes"] == {"nebula-commander-client": "0.7.0 -> 0.7.1"}
 
 
+def test_apt_signature_warning_is_a_failure(state, monkeypatch):
+    monkeypatch.setattr(auto_update, "repo_configured", lambda *a: True)
+    monkeypatch.setattr(auto_update, "_package_manager", lambda: "apt-get")
+    monkeypatch.setattr(auto_update, "installed_packages", lambda pm: {"nebula-commander-client": "0.7.0"})
+    out = ("W: GPG error: http://pkgs.nebulacommander.com/deb stable InRelease: The following signatures "
+           "couldn't be verified because the public key is not available: NO_PUBKEY 0123\n"
+           "W: The repository is not updated and the previous index files will be used.\n")
+    ran = []
+
+    def fake_run(argv, log):
+        ran.append(argv)
+        return subprocess.CompletedProcess(argv, 0, "", out)
+
+    monkeypatch.setattr(auto_update, "_run", fake_run)
+    st = auto_update.run_upgrade(log=lambda m: None)
+    assert st["last_install_result"] == "error" and "could not be verified" in st["last_install_error"]
+    assert len(ran) == 1  # never got to the install step
+    assert auto_update.apt_update_problem("Hit:1 http://deb.debian.org stable InRelease\n") is None
+
+
 def test_run_upgrade_records_failure(state, monkeypatch):
     monkeypatch.setattr(auto_update, "repo_configured", lambda *a: True)
     monkeypatch.setattr(auto_update, "_package_manager", lambda: "dnf")

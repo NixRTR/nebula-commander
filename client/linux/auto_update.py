@@ -165,6 +165,19 @@ def upgrade_commands(pm: str, packages: "list[str]", apt_sources: "str | None" =
     raise UpdateError(f"Unsupported package manager {pm!r}")
 
 
+def apt_update_problem(output: str) -> "str | None":
+    """apt-get update exits 0 when our repository's signature doesn't verify - it
+    just warns and keeps the previous lists - so the warning has to be caught here,
+    or a tampered or re-keyed repository would quietly look "up to date"."""
+    for line in output.splitlines():
+        line = line.strip()
+        if line.startswith("E:") or (line.startswith("W:") and (
+            "GPG error" in line or "signature" in line or "not signed" in line or "not updated" in line
+        )):
+            return line
+    return None
+
+
 def run_upgrade(log=print) -> dict:
     """Upgrade the installed Nebula Commander packages from the official repo and
     record the outcome in update-status.json. Returns the status."""
@@ -187,6 +200,10 @@ def run_upgrade(log=print) -> dict:
             if r.returncode != 0:
                 tail = (r.stderr or r.stdout).strip().splitlines()[-1:] or [""]
                 raise UpdateError(f"{argv[0]} failed (exit {r.returncode}): {tail[0]}")
+            if argv[:2] == ["apt-get", "update"]:
+                problem = apt_update_problem(r.stdout + r.stderr)
+                if problem:
+                    raise UpdateError(f"The repository could not be verified: {problem}")
         after = installed_packages(pm)
         changed = {p: f"{before[p]} -> {v}" for p, v in after.items() if before.get(p) != v}
         status.update(last_install_result="updated" if changed else "up_to_date",
