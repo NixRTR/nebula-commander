@@ -25,10 +25,11 @@ VERSION: str = (
     getattr(_stamp, "VERSION", None)
     or (f"0.0.0+git.{GIT_COMMIT[:7]}" if GIT_COMMIT else DEV_VERSION)
 )
-# Only ever set by a local test build (stamp_version.py --test-key/--test-manifest-url),
-# never by CI: an extra trusted update-signing key and a different manifest URL.
+# Only ever set by a local test build (stamp_version.py --test-*), never by CI: an extra
+# trusted update-signing key, a different manifest URL and where its installers may live.
 UPDATE_TEST_KEY: str | None = getattr(_stamp, "UPDATE_TEST_KEY", None)
 UPDATE_TEST_MANIFEST_URL: str | None = getattr(_stamp, "UPDATE_TEST_MANIFEST_URL", None)
+UPDATE_TEST_ASSET_PREFIX: str | None = getattr(_stamp, "UPDATE_TEST_ASSET_PREFIX", None)
 
 
 def is_dev_build(version: str = VERSION) -> bool:

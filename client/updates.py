@@ -221,10 +221,11 @@ def verify_manifest(body: bytes, signature: bytes, keys: "list[bytes] | None" = 
     assets = manifest.get("assets") or {}
     if not isinstance(assets, dict):
         raise UpdateError("Update manifest assets are malformed")
+    prefixes = tuple(p for p in (ALLOWED_ASSET_PREFIX, getattr(_version, "UPDATE_TEST_ASSET_PREFIX", None)) if p)
     for name, asset in assets.items():
         url = (asset or {}).get("url", "") if isinstance(asset, dict) else ""
         sha = (asset or {}).get("sha256", "") if isinstance(asset, dict) else ""
-        if not url.startswith(ALLOWED_ASSET_PREFIX) or ".." in url:
+        if not url.startswith(prefixes) or ".." in url:
             raise UpdateError(f"Update manifest asset {name!r} points outside the official releases")
         if not re.fullmatch(r"[0-9a-f]{64}", sha):
             raise UpdateError(f"Update manifest asset {name!r} has no valid SHA-256")

@@ -11,6 +11,7 @@ release version is available, so non-tag CI runs and local builds stay dev build
 For testing auto-update locally only (never in CI):
   --test-key <base64 Ed25519 public key>   trust this extra manifest signing key
   --test-manifest-url <url>                fetch the manifest from here instead
+  --test-asset-prefix <url>                also allow installers under this URL
 """
 import argparse
 import os
@@ -35,6 +36,7 @@ def main() -> int:
     ap.add_argument("version", nargs="?")
     ap.add_argument("--test-key")
     ap.add_argument("--test-manifest-url")
+    ap.add_argument("--test-asset-prefix")
     args = ap.parse_args()
     version = release_version(args.version)
     if version is None:
@@ -49,6 +51,8 @@ def main() -> int:
         lines.append(f"UPDATE_TEST_KEY = {args.test_key!r}")
     if args.test_manifest_url:
         lines.append(f"UPDATE_TEST_MANIFEST_URL = {args.test_manifest_url!r}")
+    if args.test_asset_prefix:
+        lines.append(f"UPDATE_TEST_ASSET_PREFIX = {args.test_asset_prefix!r}")
     TARGET.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"stamp_version: client version {version}")
     return 0
