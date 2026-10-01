@@ -60,6 +60,32 @@
                 <InfoBar x:Name="NebulaResultBar" IsOpen="False" IsClosable="False" />
             </StackPanel>
 
+            <!-- Nebula Commander updates -->
+            <StackPanel x:Name="UpdatesSection" Spacing="12">
+                <TextBlock Text="Updates" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock
+                    Text="When this is on, the service installs new Nebula Commander releases by itself during the window below. It only installs releases signed by the Nebula Commander project, and the tunnel restarts briefly while it upgrades."
+                    TextWrapping="Wrap"
+                    Opacity="0.7" />
+                <TextBlock x:Name="ClientVersionText" TextWrapping="Wrap" Opacity="0.85" />
+                <ToggleSwitch
+                    x:Name="AutoUpdateToggle"
+                    Header="Automatic updates"
+                    OnContent="Install updates automatically"
+                    OffContent="Off" />
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <TimePicker x:Name="WindowStartPicker" Header="Between" ClockIdentifier="24HourClock" MinuteIncrement="15" />
+                    <TimePicker x:Name="WindowEndPicker" Header="and" ClockIdentifier="24HourClock" MinuteIncrement="15" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Spacing="12">
+                    <Button x:Name="SaveUpdatesButton" Content="Save" Style="{StaticResource AccentButtonStyle}" Click="SaveUpdatesButton_Click" />
+                    <Button x:Name="CheckNowButton" Content="Check now" Click="CheckNowButton_Click" />
+                    <ProgressRing x:Name="UpdatesProgress" IsActive="False" Width="18" Height="18" />
+                </StackPanel>
+                <TextBlock x:Name="UpdateStatusText" TextWrapping="Wrap" Opacity="0.85" />
+                <InfoBar x:Name="UpdatesResultBar" IsOpen="False" IsClosable="False" />
+            </StackPanel>
+
             <!-- Startup -->
             <StackPanel Spacing="12">
                 <TextBlock Text="Startup" Style="{StaticResource SubtitleTextBlockStyle}" />

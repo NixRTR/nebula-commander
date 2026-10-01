@@ -42,6 +42,8 @@ public sealed partial class SettingsPage : Page
             _loading = false;
         }
 
+        await RefreshUpdateStatusAsync(loadSettings: true);
+
         // Nothing installed yet (e.g. the first-run install failed offline):
         // allow installing latest without a separate "check" first.
         if (await RefreshNebulaVersionTextAsync() is null)
@@ -169,6 +171,142 @@ public sealed partial class SettingsPage : Page
         NebulaResultBar.Title = title;
         NebulaResultBar.Message = message;
         NebulaResultBar.IsOpen = true;
+    }
+
+    // --- Nebula Commander updates ---
+
+    private static TimeSpan ParseHhMm(string value, TimeSpan fallback) =>
+        TimeSpan.TryParseExact(value, @"hh\:mm", null, out var t) ? t : fallback;
+
+    private static string FormatHhMm(TimeSpan t) => $"{t.Hours:00}:{t.Minutes:00}";
+
+    private static string LocalTime(string? iso) =>
+        DateTimeOffset.TryParse(iso, out var t) ? t.LocalDateTime.ToString("g") : iso ?? "";
+
+    /// <summary>Returns the status (null if the service is unreachable or too old).
+    /// loadSettings: also reset the toggle/window to what the service has.</summary>
+    private async Task<UpdateStatus?> RefreshUpdateStatusAsync(bool loadSettings)
+    {
+        var st = await ServiceApi.GetUpdateStatusAsync();
+        if (st is null || !st.Supported)
+        {
+            UpdatesSection.Visibility = Visibility.Collapsed;
+            return st;
+        }
+        UpdatesSection.Visibility = Visibility.Visible;
+        ClientVersionText.Text = st.DevBuild
+            ? "Installed: development build (never updated automatically)"
+            : $"Installed: v{st.InstalledVersion}";
+        if (loadSettings)
+        {
+            AutoUpdateToggle.IsOn = st.Enabled;
+            WindowStartPicker.Time = ParseHhMm(st.WindowStart, new TimeSpan(2, 0, 0));
+            WindowEndPicker.Time = ParseHhMm(st.WindowEnd, new TimeSpan(5, 0, 0));
+        }
+
+        var lines = new List<string>();
+        if (st.LastCheck is not null)
+        {
+            lines.Add(st.LastResult switch
+            {
+                "update_available" => $"Last checked {LocalTime(st.LastCheck)}: v{st.AvailableVersion} is available.",
+                "error" => $"Last checked {LocalTime(st.LastCheck)}: {st.LastError}",
+                _ => $"Last checked {LocalTime(st.LastCheck)}: up to date.",
+            });
+        }
+        if (st.LastInstallAttempt is not null)
+        {
+            lines.Add(st.LastInstallResult switch
+            {
+                "installing" => $"Installing since {LocalTime(st.LastInstallAttempt)}...",
+                "error" => $"Last install ({LocalTime(st.LastInstallAttempt)}) failed: {st.LastInstallError}",
+                _ => $"Last updated {LocalTime(st.LastInstallAttempt)}.",
+            });
+        }
+        UpdateStatusText.Text = string.Join(Environment.NewLine, lines);
+        UpdateStatusText.Visibility = lines.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        return st;
+    }
+
+    private void ShowUpdatesResult(InfoBarSeverity severity, string title, string message)
+    {
+        UpdatesResultBar.Severity = severity;
+        UpdatesResultBar.Title = title;
+        UpdatesResultBar.Message = message;
+        UpdatesResultBar.IsOpen = true;
+    }
+
+    private async void SaveUpdatesButton_Click(object sender, RoutedEventArgs e)
+    {
+        SaveUpdatesButton.IsEnabled = false;
+        UpdatesProgress.IsActive = true;
+        try
+        {
+            var result = await ServiceApi.SetAutoUpdateAsync(
+                AutoUpdateToggle.IsOn, FormatHhMm(WindowStartPicker.Time), FormatHhMm(WindowEndPicker.Time));
+            if (result.Ok)
+            {
+                ShowUpdatesResult(InfoBarSeverity.Success, "Saved", AutoUpdateToggle.IsOn
+                    ? $"Updates install automatically between {FormatHhMm(WindowStartPicker.Time)} and {FormatHhMm(WindowEndPicker.Time)}."
+                    : "Automatic updates are off.");
+            }
+            else
+            {
+                if (result.AdministratorRequired)
+                {
+                    App.MainWindowInstance?.ShowAdminRequired();
+                }
+                ShowUpdatesResult(InfoBarSeverity.Error, "Not saved", ServiceApi.Describe(result));
+            }
+            await RefreshUpdateStatusAsync(loadSettings: true);
+        }
+        finally
+        {
+            SaveUpdatesButton.IsEnabled = true;
+            UpdatesProgress.IsActive = false;
+        }
+    }
+
+    private async void CheckNowButton_Click(object sender, RoutedEventArgs e)
+    {
+        CheckNowButton.IsEnabled = false;
+        UpdatesProgress.IsActive = true;
+        UpdatesResultBar.IsOpen = false;
+        try
+        {
+            var before = (await ServiceApi.GetUpdateStatusAsync())?.LastCheck;
+            var result = await ServiceApi.UpdateCheckNowAsync();
+            if (!result.Ok)
+            {
+                if (result.AdministratorRequired)
+                {
+                    App.MainWindowInstance?.ShowAdminRequired();
+                }
+                ShowUpdatesResult(InfoBarSeverity.Error, "Check failed", ServiceApi.Describe(result));
+                return;
+            }
+            // The service checks on its own thread; wait for the result to land.
+            for (var i = 0; i < 60; i++)
+            {
+                await Task.Delay(1000);
+                var st = await RefreshUpdateStatusAsync(loadSettings: false);
+                if (st?.LastCheck is not null && st.LastCheck != before)
+                {
+                    if (st.LastResult == "update_available" && st.Enabled && !st.DevBuild)
+                    {
+                        ShowUpdatesResult(InfoBarSeverity.Informational, "Installing",
+                            $"Installing v{st.AvailableVersion}. This app closes and reopens while it upgrades.");
+                    }
+                    return;
+                }
+            }
+            ShowUpdatesResult(InfoBarSeverity.Warning, "Still checking", "No result yet - check back in a minute.");
+        }
+        finally
+        {
+            CheckNowButton.IsEnabled = true;
+            UpdatesProgress.IsActive = false;
+        }
     }
 
     private void RunOnStartupToggle_Toggled(object sender, RoutedEventArgs e)

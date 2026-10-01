@@ -40,7 +40,16 @@ public partial class App : Application
         var window = new MainWindow();
         _window = window;
         MainWindowInstance = window;
-        window.Activate();
+        // Reopened by the installer after an automatic update while it was in the
+        // tray: stay there (SessionEnd.cs).
+        if (Environment.GetCommandLineArgs().Contains(Services.SessionEnd.BackgroundArg))
+        {
+            window.HideToTray();
+        }
+        else
+        {
+            window.Activate();
+        }
         window.NavigateInitial();
     }
 }

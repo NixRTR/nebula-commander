@@ -32,6 +32,10 @@ public sealed partial class MainWindow : Window
         AppWindow.Closing += AppWindow_Closing;
         _trayIcon = new TrayIcon(onOpen: ShowAndActivate, onExit: ExitFromTray);
         AdminBar.IsOpen = !Elevation.IsElevated;
+
+        // Let an automatic update's installer close and reopen the app (SessionEnd.cs).
+        SessionEnd.Hook(WinRT.Interop.WindowNative.GetWindowHandle(this), ExitFromTray);
+        SessionEnd.RegisterRestart(inTray: false);
     }
 
     /// <summary>Called by pages when the service answered administrator_required
@@ -61,13 +65,20 @@ public sealed partial class MainWindow : Window
         // exiting - the service keeps running regardless either way, but the UI
         // should stay reachable from the tray rather than requiring a relaunch.
         args.Cancel = true;
+        HideToTray();
+    }
+
+    public void HideToTray()
+    {
         AppWindow.Hide();
+        SessionEnd.RegisterRestart(inTray: true);
     }
 
     public void ShowAndActivate()
     {
         AppWindow.Show();
         Activate();
+        SessionEnd.RegisterRestart(inTray: false);
     }
 
     private void ExitFromTray()

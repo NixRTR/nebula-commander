@@ -81,6 +81,56 @@ public sealed class NebulaStatus
     public string? UpdatedAt { get; set; }
 }
 
+/// <summary>Automatic updates - client/service_api.py's get_update_status
+/// (settings.json's auto_update merged with update-status.json).</summary>
+public sealed class UpdateStatus
+{
+    [JsonPropertyName("installed_version")]
+    public string? InstalledVersion { get; set; }
+
+    [JsonPropertyName("dev_build")]
+    public bool DevBuild { get; set; }
+
+    [JsonPropertyName("supported")]
+    public bool Supported { get; set; }
+
+    /// <summary>off / install / notify.</summary>
+    [JsonPropertyName("mode")]
+    public string Mode { get; set; } = "off";
+
+    [JsonPropertyName("enabled")]
+    public bool Enabled { get; set; }
+
+    [JsonPropertyName("window_start")]
+    public string WindowStart { get; set; } = "02:00";
+
+    [JsonPropertyName("window_end")]
+    public string WindowEnd { get; set; } = "05:00";
+
+    [JsonPropertyName("last_check")]
+    public string? LastCheck { get; set; }
+
+    /// <summary>up_to_date / update_available / error.</summary>
+    [JsonPropertyName("last_result")]
+    public string? LastResult { get; set; }
+
+    [JsonPropertyName("last_error")]
+    public string? LastError { get; set; }
+
+    [JsonPropertyName("available_version")]
+    public string? AvailableVersion { get; set; }
+
+    [JsonPropertyName("last_install_attempt")]
+    public string? LastInstallAttempt { get; set; }
+
+    /// <summary>installing / updated / up_to_date / error.</summary>
+    [JsonPropertyName("last_install_result")]
+    public string? LastInstallResult { get; set; }
+
+    [JsonPropertyName("last_install_error")]
+    public string? LastInstallError { get; set; }
+}
+
 public sealed class EnrollmentState
 {
     [JsonPropertyName("enrolled")]

@@ -61,7 +61,24 @@ public static class ServiceApi
     public static Task<PipeClient.PipeResponse> GetLatestNebulaTagAsync() =>
         PipeClient.SendAsync("get_latest_nebula_tag", timeoutMs: 70000);
 
+    /// <summary>null when the service isn't reachable (or predates automatic updates).</summary>
+    public static async Task<UpdateStatus?> GetUpdateStatusAsync() =>
+        As<UpdateStatus>(await PipeClient.SendAsync("get_update_status"));
+
     // --- changes (elevated administrator) ---
+
+    public static Task<PipeClient.PipeResponse> SetAutoUpdateAsync(bool enabled, string windowStart, string windowEnd) =>
+        PipeClient.SendAsync("set_auto_update", new Dictionary<string, object?>
+        {
+            ["enabled"] = enabled,
+            ["window_start"] = windowStart,
+            ["window_end"] = windowEnd,
+        }, timeoutMs: 30000);
+
+    /// <summary>Starts a check on the service's updater thread (and an install, if
+    /// automatic updates are on); poll <see cref="GetUpdateStatusAsync"/> for the outcome.</summary>
+    public static Task<PipeClient.PipeResponse> UpdateCheckNowAsync() =>
+        PipeClient.SendAsync("update_check_now", timeoutMs: 30000);
 
     public static Task<PipeClient.PipeResponse> SetSettingsAsync(string server, int interval, bool acceptDns) =>
         PipeClient.SendAsync("set_settings", new Dictionary<string, object?>
