@@ -769,9 +769,12 @@ def run_poll_loop(
             stop_event.wait(timeout=1)
             elapsed += 1
 
-    def _wait_for_enrollment(message: str) -> "str | None":
+    def _wait_for_enrollment(message: str, rejected: "str | None" = None) -> "str | None":
         """Block, re-checking token_store every couple seconds, until a
         token exists or stop_event is set (returns None in that case).
+        rejected: a token the server just refused (401) - wait for a
+        DIFFERENT one, otherwise the still-stored rejected token is returned
+        straight away and the poll loop retries it with no delay forever.
 
         Only reached when status_callback is set - i.e. running as a
         long-lived service that also hosts client/linux/dbus_server.py's
@@ -790,7 +793,7 @@ def run_poll_loop(
         status_callback("idle", message)
         while not stop_event.is_set():
             t = get_token()
-            if t:
+            if t and t != rejected:
                 return t
             stop_event.wait(timeout=2)
         return None
@@ -833,6 +836,52 @@ def run_poll_loop(
             if dns_debug_log:
                 dns_debug_log(f"ensure_split_horizon_dns result={ok}")
 
+    def _start_from_last_config(proc: "subprocess.Popen | None", reason: str) -> "subprocess.Popen | None":
+        """The server couldn't be reached (or answered with a non-auth error): if Nebula
+        isn't running yet - e.g. this is the first poll after a reboot during a server
+        outage - start it from the last config.yaml on disk rather than leaving the node
+        offline until the server comes back. A revoked device never gets here with a
+        config: the 401 path below deletes it. Nebula itself refuses an expired cert."""
+        if not nebula_bin or (proc is not None and proc.poll() is None):
+            return proc
+        if not os.path.exists(_config_path(output_dir)):
+            return proc
+        if dns_debug_log:
+            dns_debug_log(f"{reason}; starting Nebula from the last known config")
+        started = _start_nebula(nebula_bin, output_dir)
+        if started is not None and status_callback:
+            status_callback("error", f"{reason} - running on the last known config")
+        return started
+
+    def _tear_down_revoked() -> None:
+        """The server rejected this device's token (revoked, deleted, or re-enrolled
+        elsewhere): stop Nebula and delete everything that lets it rejoin the mesh -
+        config.yaml holds the certificate AND private key inline - plus the routes/DNS
+        it applied. The network-wide blocklist is what enforces revocation; this is the
+        honest client cooperating so it doesn't keep a dead tunnel and key around."""
+        nonlocal nebula_proc, last_etag, last_advertised_routes
+        _stop_nebula(nebula_proc)
+        nebula_proc = None
+        last_etag = None
+        for path in (_config_path(output_dir), _dns_client_config_path(output_dir), _available_routes_path(output_dir)):
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                if dns_debug_log:
+                    dns_debug_log(f"could not remove {path}: {e}")
+        applied_dns_config.clear()
+        remove_split_horizon_dns()
+        if sys.platform.startswith("linux") and last_advertised_routes:
+            try:
+                from client import linux_routing
+                linux_routing.apply_routes([], current_tun_dev or "nebula1", debug_log=dns_debug_log)
+            except Exception as e:
+                if dns_debug_log:
+                    dns_debug_log(f"removing advertised routes failed: {e}")
+        last_advertised_routes = None
+
     if not status_callback:
         if nebula_bin:
             print(f"Orchestrating Nebula: {nebula_bin} (restart on config change)")
@@ -866,16 +915,24 @@ def run_poll_loop(
                     headers["If-None-Match"] = last_etag
                 r = requests.get(url, headers=headers, timeout=30)
                 if r.status_code == 401:
+                    _tear_down_revoked()
                     if status_callback:
-                        status_callback("error", "Token invalid or expired.")
-                        new_token = _wait_for_enrollment("Token invalid or expired. Waiting for re-enrollment...")
+                        status_callback("error", "This device was revoked, deleted, or re-enrolled elsewhere.")
+                        new_token = _wait_for_enrollment(
+                            "Revoked, deleted, or re-enrolled elsewhere - Nebula stopped. Enroll again to reconnect.",
+                            rejected=token,
+                        )
                         if new_token is None:
                             break
                         token = new_token
                         node_id = load_settings().get("node_id")
                         last_etag = None
                         continue
-                    print("Token invalid or expired. Re-enroll with a new code.", file=sys.stderr)
+                    print(
+                        "This device was revoked, deleted, or re-enrolled elsewhere: Nebula stopped and its "
+                        "config removed. Re-enroll with a new code.",
+                        file=sys.stderr,
+                    )
                     sys.exit(1)
                 if r.ok and node_id:
                     peer_reachability = None
@@ -914,6 +971,7 @@ def run_poll_loop(
                         status_callback("error", msg)
                     else:
                         print(msg, file=sys.stderr)
+                    nebula_proc = _start_from_last_config(nebula_proc, f"Server returned {r.status_code}")
                     _sleep()
                     continue
                 etag_raw = r.headers.get("ETag")
@@ -1011,6 +1069,7 @@ def run_poll_loop(
                     status_callback("error", err)
                 else:
                     print(f"Request error: {e}", file=sys.stderr)
+                nebula_proc = _start_from_last_config(nebula_proc, "Server unreachable")
             except Exception as e:
                 # Anything else (a bug anywhere in this loop body, e.g. in route
                 # filtering) must never silently kill this thread. Python's default

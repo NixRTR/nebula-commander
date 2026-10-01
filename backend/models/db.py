@@ -214,8 +214,31 @@ class AllocatedIP(Base):
     network_id: Mapped[int] = mapped_column(ForeignKey("networks.id"), nullable=False)
     ip_address: Mapped[str] = mapped_column(String(64), nullable=False)
     node_id: Mapped[Optional[int]] = mapped_column(ForeignKey("nodes.id"), nullable=True)
+    # Set when the IP was released by revoke/delete/re-enroll: the old certificate still
+    # claims this IP until it expires, so the address isn't handed to a different node
+    # before then (only the same node_id may reclaim it early - see IPAllocator).
+    quarantined_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     network: Mapped["Network"] = relationship("Network", back_populates="allocated_ips")
+
+
+class BlockedCertificate(Base):
+    """A host certificate that must no longer be trusted (revoked, deleted, or superseded
+    by a re-sign/re-enroll), by Nebula fingerprint. Every node in the network gets these in
+    pki.blocklist so peers reject it - Nebula has no other way to un-trust a certificate
+    that hasn't expired. Kept independent of the node row so the entry survives node
+    deletion; pruned once expires_at (the certificate's own notAfter) has passed."""
+
+    __tablename__ = "blocked_certificates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    network_id: Mapped[int] = mapped_column(ForeignKey("networks.id"), nullable=False, index=True)
+    fingerprint: Mapped[str] = mapped_column(String(128), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    reason: Mapped[str] = mapped_column(String(32), nullable=False)  # revoked, deleted, reenrolled, superseded
+    node_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # informational, no FK
+    hostname: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
 
 class NetworkPermission(Base):

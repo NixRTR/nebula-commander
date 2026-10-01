@@ -473,6 +473,7 @@ def build_config(
     group_firewalls: list[Any],
     inline_pki: Optional[tuple[str, str, str]] = None,
     mobile_dns: Optional[dict[str, list[str]]] = None,
+    blocklist: Optional[list[str]] = None,
 ) -> str:
     """
     Build Nebula YAML config for the given node.
@@ -480,6 +481,9 @@ def build_config(
     inline_pki: optional (ca_pem, cert_pem, key_pem) to embed certs in config (OS-independent; no file paths).
     mobile_dns: optional {"dns_resolvers": [...], "match_domains": [...]} - adds the Mobile Nebula
     app's split-horizon DNS extension block (mobile_nebula:) for iOS/Android nodes.
+    blocklist: fingerprints of certificates in this network that are revoked or
+    superseded (services/revocation.py) - peers must reject them even though they're
+    still within their validity period.
     """
     # Every peer with a (valid) public endpoint goes into static_host_map, not just
     # lighthouses and relays: a known address lets nodes reach each other directly
@@ -502,6 +506,13 @@ def build_config(
         }
     else:
         pki_section = _default_pki()
+    # Nebula's only way to un-trust a certificate before it expires. disconnect_invalid
+    # also tears down tunnels that were established with a certificate that has since
+    # been blocklisted (or expired) when this config is (re)loaded, instead of letting
+    # them live on.
+    if blocklist:
+        pki_section["blocklist"] = list(blocklist)
+    pki_section["disconnect_invalid"] = True
 
     config: dict[str, Any] = {
         "pki": pki_section,
@@ -565,6 +576,9 @@ async def generate_config_for_node(
     )
     group_firewalls = list(result.scalars().all())
 
+    from .revocation import active_blocklist
+
     return build_config(
-        node, network, peer_nodes, group_firewalls, inline_pki=inline_pki, mobile_dns=mobile_dns
+        node, network, peer_nodes, group_firewalls, inline_pki=inline_pki, mobile_dns=mobile_dns,
+        blocklist=await active_blocklist(session, network.id),
     )

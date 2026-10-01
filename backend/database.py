@@ -113,6 +113,11 @@ def _run_sqlite_migrations() -> None:
             if col not in node_columns:
                 cur.execute(sql)
                 logger.info("Migration: added column nodes.%s", col)
+        cur.execute("PRAGMA table_info(allocated_ips)")
+        alloc_columns = {row[1] for row in cur.fetchall()}
+        if alloc_columns and "quarantined_until" not in alloc_columns:
+            cur.execute("ALTER TABLE allocated_ips ADD COLUMN quarantined_until DATETIME")
+            logger.info("Migration: added column allocated_ips.quarantined_until")
         cur.execute("PRAGMA table_info(networks)")
         network_columns = {row[1] for row in cur.fetchall()}
         for col, sql in [

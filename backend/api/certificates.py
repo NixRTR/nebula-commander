@@ -269,6 +269,12 @@ async def create_certificate(
     if body.suggested_ip and body.suggested_ip.strip():
         ip_allocator = IPAllocator(session)
         if await ip_allocator.is_allocated(body.network_id, body.suggested_ip.strip()):
+            if await ip_allocator.is_quarantined(body.network_id, body.suggested_ip.strip()):
+                raise HTTPException(
+                    status_code=409,
+                    detail="This IP belonged to a revoked or deleted node and is held until that node's "
+                    "certificate expires, so it can't be given to a different node yet.",
+                )
             raise HTTPException(
                 status_code=409,
                 detail="This IP is already reserved in this network.",

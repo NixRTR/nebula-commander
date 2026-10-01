@@ -16,6 +16,7 @@ from ..models import Network, Node, Certificate, AllocatedIP
 from ..utils.nebula_cert import _check_path_under_roots, ca_generate, cert_sign, keygen
 from .cert_store import read_cert_store_file, write_cert_store_file
 from .ip_allocator import IPAllocator
+from .revocation import block_host_cert_file, unblock_issued_cert
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +100,8 @@ class CertManager:
         base = Path(settings.cert_store_path) / str(network.id) / "hosts"
         base.mkdir(parents=True, exist_ok=True)
         out_crt = base / f"{name}.crt"
+        # Any certificate this replaces must stop being trusted (see revocation.py).
+        await block_host_cert_file(self.session, network.id, name, "superseded")
 
         with tempfile.NamedTemporaryFile(
             mode="w", suffix=".pub", delete=False
@@ -128,6 +131,7 @@ class CertManager:
             _check_path_under_roots(out_crt, [Path(settings.cert_store_path)])
             cert_pem = out_crt.read_text()  # lgtm [py/path-injection] Path validated above.
             write_cert_store_file(out_crt, cert_pem)
+            await unblock_issued_cert(self.session, network.id, cert_pem)
         finally:
             pub_path.unlink(missing_ok=True)
 
@@ -185,8 +189,10 @@ class CertManager:
             private_key_pem = key_path.read_text()
             public_key_pem = pub_path.read_text()
 
-        # Persist encrypted
+        # Persist encrypted - blocklisting any certificate this replaces first
+        await block_host_cert_file(self.session, network.id, name, "superseded")
         write_cert_store_file(base / f"{name}.crt", cert_pem)
+        await unblock_issued_cert(self.session, network.id, cert_pem)
         key_file = base / f"{name}.key"
         write_cert_store_file(key_file, private_key_pem)
 
@@ -258,7 +264,12 @@ class CertManager:
         finally:
             pub_path.unlink(missing_ok=True)
 
+        # The certificate being replaced carries the OLD groups/subnets and stays valid
+        # until it expires - blocklist it, or e.g. removing the node from a group
+        # wouldn't actually take that group's firewall access away.
+        await block_host_cert_file(self.session, network.id, node.hostname, "superseded", node_id=node.id)
         write_cert_store_file(out_crt, cert_pem)
+        await unblock_issued_cert(self.session, network.id, cert_pem)
 
         await self.session.execute(
             update(Certificate)
@@ -288,7 +299,7 @@ class CertManager:
         duration_hours = duration_days * 24
 
         ip = await self.ip_allocator.allocate(
-            network.id, network.subnet_cidr, suggested_ip
+            network.id, network.subnet_cidr, suggested_ip, node_id=node.id
         )
 
         base = Path(settings.cert_store_path) / str(network.id) / "hosts"
@@ -323,7 +334,9 @@ class CertManager:
             private_key_pem = key_path.read_text()
             public_key_pem = pub_path.read_text()
 
+        await block_host_cert_file(self.session, network.id, name, "superseded", node_id=node.id)
         write_cert_store_file(base / f"{name}.crt", cert_pem)
+        await unblock_issued_cert(self.session, network.id, cert_pem)
         key_file = base / f"{name}.key"
         write_cert_store_file(key_file, private_key_pem)
 

@@ -31,6 +31,7 @@ from ..config import settings
 from ..models.db import (
     AccessGrant,
     AllocatedIP,
+    BlockedCertificate,
     AuditLog,
     Certificate,
     EnrollmentCode,
@@ -66,6 +67,7 @@ TABLES = [
     SavedTheme,
     EnrollmentCode,
     AllocatedIP,
+    BlockedCertificate,
     NetworkSettings,
     NetworkDNSConfig,
     NetworkDNSAlias,

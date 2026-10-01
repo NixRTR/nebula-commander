@@ -18,7 +18,7 @@ from ..auth.permissions import get_user_nodes
 from ..auth.reauth import clear_reauth_challenge, decode_reauth_token, verify_reauth
 from ..config import settings
 from ..database import get_session
-from ..models import Certificate, EnrollmentCode, Network, Node, User
+from ..models import AllocatedIP, Certificate, EnrollmentCode, Network, Node, User
 from ..services.audit import get_client_ip, log_audit
 from ..services.cert_store import read_cert_store_file
 from ..services.config_generator import (
@@ -29,6 +29,7 @@ from ..services.config_generator import (
 )
 from ..services.ip_allocator import IPAllocator
 from ..services.cert_manager import CertManager
+from ..services.revocation import block_host_cert_file
 
 logger = logging.getLogger(__name__)
 
@@ -747,6 +748,56 @@ async def _verify_reauth_or_403(user: UserInfo, reauth_token: str, session: Asyn
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Reauthentication required")
 
 
+async def _retire_node_certificate(
+    session: AsyncSession,
+    node: Node,
+    reason: str,
+    reclaimable_by_node: bool,
+) -> None:
+    """Take a node's current certificate out of service - shared by revoke, delete and
+    re-enroll, so it means the same thing everywhere:
+
+    - its fingerprint goes on the network's blocklist until it expires, so every peer
+      rejects it (services/revocation.py) - the part that's actually enforced;
+    - the device token is invalidated (device_token_version bump), so the device gets
+      401 and an unmodified client stops Nebula and deletes its config;
+    - the overlay IP is quarantined until that certificate expires instead of freed,
+      so a revoked device can't collide with a new owner of the address. Only this
+      node may reclaim it early (reclaimable_by_node), e.g. when re-enrolling;
+    - certificate rows are marked revoked and the host cert/key files removed.
+    """
+    not_after = await block_host_cert_file(session, node.network_id, node.hostname, reason, node_id=node.id)
+    if not_after is None:
+        # No readable cert file: fall back to the longest-lived unexpired record.
+        not_after = await session.scalar(
+            select(func.max(Certificate.expires_at)).where(
+                Certificate.node_id == node.id, Certificate.expires_at > datetime.utcnow()
+            )
+        )
+    await session.execute(
+        update(Certificate)
+        .where(Certificate.node_id == node.id, Certificate.revoked_at.is_(None))
+        .values(revoked_at=datetime.utcnow())
+    )
+    if node.ip_address:
+        await IPAllocator(session).release(
+            node.network_id,
+            node.ip_address,
+            quarantine_until=not_after,
+            node_id=node.id if reclaimable_by_node else None,
+        )
+    hosts_dir = Path(settings.cert_store_path) / str(node.network_id) / "hosts"
+    for ext in (".crt", ".key"):
+        try:
+            (hosts_dir / f"{node.hostname}{ext}").unlink(missing_ok=True)
+        except OSError:
+            pass
+    node.ip_address = None
+    node.public_key = None
+    node.device_token_version = (node.device_token_version or 1) + 1
+    await session.flush()
+
+
 @router.delete("/{node_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_node(
     node_id: int,
@@ -781,25 +832,18 @@ async def delete_node(
                 detail="Cannot delete the only lighthouse. Designate another node as lighthouse first, or delete the network.",
             )
 
-    # 1. Release the allocated IP
-    if node.ip_address:
-        ip_allocator = IPAllocator(session)
-        await ip_allocator.release(node.network_id, node.ip_address)
+    # 1. Blocklist the certificate, quarantine the IP (nobody may reclaim it early - the
+    #    node is going away), invalidate the device token, remove cert/key files.
+    await _retire_node_certificate(session, node, "deleted", reclaimable_by_node=False)
+    # Any allocation row still pointing at this node must not block the delete (FK);
+    # quarantined ones stay held, just without an owner.
+    await session.execute(update(AllocatedIP).where(AllocatedIP.node_id == node_id).values(node_id=None))
 
-    # 2. Remove host cert/key files from disk
-    hosts_dir = Path(settings.cert_store_path) / str(node.network_id) / "hosts"
-    for ext in (".crt", ".key"):
-        p = hosts_dir / f"{node.hostname}{ext}"
-        try:
-            p.unlink(missing_ok=True)
-        except OSError:
-            pass
-
-    # 3. Delete related records (certificates, enrollment_codes)
+    # 2. Delete related records (certificates, enrollment_codes)
     await session.execute(delete(Certificate).where(Certificate.node_id == node_id))
     await session.execute(delete(EnrollmentCode).where(EnrollmentCode.node_id == node_id))
 
-    # 4. Delete the node
+    # 3. Delete the node
     user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
     db_user = user_result.scalar_one_or_none()
     await session.delete(node)
@@ -842,26 +886,9 @@ async def revoke_node_certificate(
     if body.confirmation != node.hostname:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Confirmation does not match node hostname")
 
-    # Mark all certificates for this node as revoked
-    await session.execute(
-        update(Certificate).where(Certificate.node_id == node_id).values(revoked_at=datetime.utcnow())
-    )
-    await session.flush()
-
-    # Release IP and remove host cert/key files
-    if node.ip_address:
-        ip_allocator = IPAllocator(session)
-        await ip_allocator.release(node.network_id, node.ip_address)
-        hosts_dir = Path(settings.cert_store_path) / str(node.network_id) / "hosts"
-        for ext in (".crt", ".key"):
-            p = hosts_dir / f"{node.hostname}{ext}"
-            try:
-                p.unlink(missing_ok=True)
-            except OSError:
-                pass
-
-    node.ip_address = None
-    node.public_key = None
+    # Blocklist the certificate, invalidate the device token, quarantine the IP (this
+    # node may reclaim it when re-enrolled), remove cert/key files.
+    await _retire_node_certificate(session, node, "revoked", reclaimable_by_node=True)
     node.status = "revoked"
     await session.flush()
     user_result = await session.execute(select(User).where(User.oidc_sub == user.sub))
@@ -893,24 +920,10 @@ async def reenroll_node(
         raise HTTPException(status_code=404, detail="Node not found")
     await _ensure_user_can_access_node(user, session, node)
 
-    # If node has a certificate, revoke it first (mark certs, release IP, remove files, clear node fields)
+    # If node has a certificate, retire it first: blocklist it, invalidate the old device
+    # token, quarantine the IP (reclaimable by this same node below, so it keeps its IP).
     if node.ip_address:
-        await session.execute(
-            update(Certificate).where(Certificate.node_id == node_id).values(revoked_at=datetime.utcnow())
-        )
-        await session.flush()
-        ip_allocator = IPAllocator(session)
-        await ip_allocator.release(node.network_id, node.ip_address)
-        hosts_dir = Path(settings.cert_store_path) / str(node.network_id) / "hosts"
-        for ext in (".crt", ".key"):
-            p = hosts_dir / f"{node.hostname}{ext}"
-            try:
-                p.unlink(missing_ok=True)
-            except OSError:
-                pass
-        node.ip_address = None
-        node.public_key = None
-        await session.flush()
+        await _retire_node_certificate(session, node, "reenrolled", reclaimable_by_node=True)
 
     # Device is not enrolled until it polls with the new code
     node.first_polled_at = None

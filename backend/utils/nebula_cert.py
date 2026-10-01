@@ -252,3 +252,34 @@ def cert_sign(
         args.extend(["-in-pub", _path_arg(in_pub)])
     run_nebula_cert(args)
     logger.info("Signed certificate for %s at %s", name, out_crt)
+
+
+def cert_info(cert_pem: str) -> tuple[str, "datetime"]:
+    """(fingerprint, not_after) of a certificate, via `nebula-cert print -json`.
+
+    The fingerprint is exactly what Nebula's pki.blocklist matches on, for v1 and v2
+    certificates alike. not_after is returned as a naive UTC datetime (the convention
+    used by the models). Raises ValueError if the PEM can't be parsed.
+    """
+    import json
+    import tempfile
+    from datetime import datetime, timezone
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        path = Path(tmpdir) / "host.crt"
+        path.write_text(cert_pem)
+        try:
+            result = run_nebula_cert(["print", "-json", "-path", _path_arg(path)])
+        except subprocess.CalledProcessError as e:
+            raise ValueError(f"nebula-cert could not parse certificate: {e.stderr or e}") from e
+    data = json.loads(result.stdout)
+    if isinstance(data, list):  # a PEM bundle prints as a list; host certs hold one cert
+        if not data:
+            raise ValueError("nebula-cert printed no certificate")
+        data = data[0]
+    fingerprint = str(data.get("fingerprint") or "").strip()
+    not_after_raw = str((data.get("details") or {}).get("notAfter") or "").strip()
+    if not re.fullmatch(r"[0-9a-f]{64}", fingerprint) or not not_after_raw:
+        raise ValueError("nebula-cert output is missing fingerprint/notAfter")
+    not_after = datetime.fromisoformat(not_after_raw.replace("Z", "+00:00"))
+    return fingerprint, not_after.astimezone(timezone.utc).replace(tzinfo=None)
