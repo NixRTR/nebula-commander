@@ -49,6 +49,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import threading
 
 import gi
 
@@ -100,6 +101,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._route_rows: list[Adw.ActionRow] = []
         self._exit_node_vias: list[str | None] = [None]
         self._suspend_exit_signal = False
+        self._update_ticks = 0
 
         self.toast_overlay = Adw.ToastOverlay()
 
@@ -404,7 +406,146 @@ class MainWindow(Adw.ApplicationWindow):
         save_row.add_suffix(save_btn)
         save_group.add(save_row)
 
+        self._build_updates_group(page)
         return page
+
+    # ---- Automatic updates (client/updates.py, via D-Bus) ----
+
+    def _build_updates_group(self, page: Adw.PreferencesPage) -> None:
+        self.updates_group = Adw.PreferencesGroup(
+            title="Updates",
+            description="Changes need an administrator (sudo or wheel group), like the other settings.",
+        )
+        page.add(self.updates_group)
+        self.updates_version_row = Adw.ActionRow(title="Installed version")
+        self.updates_group.add(self.updates_version_row)
+        self.updates_switch = Gtk.Switch(valign=Gtk.Align.CENTER)
+        self.updates_switch_row = _action_row_with_suffix(self.updates_group, "Automatic updates", self.updates_switch)
+        self.updates_window_row = Adw.EntryRow(title="Install between (HH:MM-HH:MM, local time)")
+        self.updates_group.add(self.updates_window_row)
+        self.updates_status_row = Adw.ActionRow(title="Not checked yet")
+        self.updates_status_row.set_subtitle_selectable(True)
+        self.updates_group.add(self.updates_status_row)
+        buttons = Adw.ActionRow()
+        self.updates_check_btn = Gtk.Button(label="Check now", valign=Gtk.Align.CENTER)
+        self.updates_check_btn.connect("clicked", self._on_check_updates)
+        apply_btn = Gtk.Button(label="Apply", css_classes=["suggested-action"], valign=Gtk.Align.CENTER)
+        apply_btn.connect("clicked", self._on_apply_updates)
+        buttons.add_suffix(self.updates_check_btn)
+        buttons.add_suffix(apply_btn)
+        self.updates_group.add(buttons)
+        self._refresh_updates(load_settings=True)
+
+    def _refresh_updates(self, load_settings: bool = False, st: "dict | None" = None) -> None:
+        if st is None:
+            try:
+                st = dbus_client.get_update_status()
+            except dbus_client.DBusServiceError:
+                st = None
+        if not st or not st.get("supported"):
+            # Service stopped or too old, or an install without automatic updates.
+            self.updates_group.set_visible(False)
+            return
+        self.updates_group.set_visible(True)
+        nixos = st.get("install_kind") == "nixos"
+        if nixos and st.get("dev_build"):
+            version_text = "Built from your NixOS configuration's flake"
+        elif st.get("dev_build"):
+            version_text = "Development build (never updated automatically)"
+        else:
+            version_text = f"v{st.get('installed_version')}"
+        self.updates_version_row.set_subtitle(version_text)
+        self.updates_switch_row.set_subtitle(
+            "Check daily and tell you when a release is out - NixOS updates come from your flake"
+            if nixos else "Install new releases from the Nebula Commander repository during the window"
+        )
+        self.updates_window_row.set_visible(not nixos)
+        if load_settings:
+            self.updates_switch.set_active(bool(st.get("enabled")))
+            self.updates_window_row.set_text(f"{st.get('window_start')}-{st.get('window_end')}")
+
+        lines = []
+        result = st.get("last_result")
+        if st.get("last_check"):
+            title = {
+                "update_available": f"v{st.get('available_version')} is available",
+                "error": "Last check failed",
+            }.get(result, "Up to date")
+            self.updates_status_row.set_title(title)
+            if result == "error":
+                lines.append(st.get("last_error") or "")
+            lines.extend(st.get("instructions") or [])
+            lines.append(f"Checked {st['last_check']}")
+        if st.get("last_install_attempt"):
+            outcome = st.get("last_install_result") or ""
+            if outcome == "error":
+                outcome = st.get("last_install_error") or "failed"
+            lines.append(f"Last install {st['last_install_attempt']}: {outcome}")
+        self.updates_status_row.set_subtitle("\n".join(line for line in lines if line))
+        self._maybe_notify_update(st)
+
+    def _maybe_notify_update(self, st: dict) -> None:
+        """Once per new version, per user (remembered across app restarts)."""
+        available = st.get("available_version")
+        if not available:
+            return
+        config_home = os.environ.get("XDG_CONFIG_HOME", "").strip() or os.path.join(os.path.expanduser("~"), ".config")
+        marker = os.path.join(config_home, "nebula-commander", "notified-update")
+        try:
+            with open(marker, "r", encoding="utf-8") as f:
+                if f.read().strip() == available:
+                    return
+        except OSError:
+            pass
+        if st.get("install_kind") == "nixos":
+            body = "Update the nebula-commander flake input and rebuild to install it."
+        elif st.get("mode") == "install":
+            body = "It will be installed during the update window."
+        else:
+            body = "Open Nebula Commander for details."
+        notify.notify(f"Nebula Commander {available} is available", body)
+        try:
+            os.makedirs(os.path.dirname(marker), exist_ok=True)
+            with open(marker, "w", encoding="utf-8") as f:
+                f.write(available)
+        except OSError:
+            pass
+
+    def _on_apply_updates(self, _button: Gtk.Button) -> None:
+        start, _sep, end = self.updates_window_row.get_text().strip().partition("-")
+        try:
+            st = dbus_client.set_auto_update(self.updates_switch.get_active(), start.strip() or None, end.strip() or None)
+        except dbus_client.DBusServiceError as e:
+            self._show_error("Updates", e.message)
+            self._refresh_updates(load_settings=True)
+            return
+        self._refresh_updates(load_settings=True, st=st)
+        self._toast("Automatic updates " + ("on." if st.get("enabled") else "off."))
+
+    def _on_check_updates(self, _button: Gtk.Button) -> None:
+        # Fetching + verifying the manifest can take a while: off the UI thread.
+        self.updates_check_btn.set_sensitive(False)
+        self.updates_status_row.set_title("Checking...")
+
+        def work() -> None:
+            try:
+                st, err = dbus_client.check_for_updates_now(), None
+            except dbus_client.DBusServiceError as e:
+                st, err = None, e.message
+            GLib.idle_add(done, st, err)
+
+        def done(st, err) -> bool:
+            self.updates_check_btn.set_sensitive(True)
+            if err:
+                self._show_error("Updates", err)
+                self._refresh_updates()
+            else:
+                self._refresh_updates(st=st)
+                if st.get("install_started"):
+                    self._toast(f"Installing v{st.get('available_version')} now...")
+            return GLib.SOURCE_REMOVE
+
+        threading.Thread(target=work, name="update-check", daemon=True).start()
 
     def _on_toggle_autostart(self, switch: Gtk.Switch, _pspec) -> None:
         if switch.get_active():
@@ -483,6 +624,11 @@ class MainWindow(Adw.ApplicationWindow):
         available = dbus_client.get_available_routes()
         self._maybe_notify_new_routes(available)
         self._refresh_routes_picker(available)
+        # Update status changes rarely; once a minute is plenty.
+        self._update_ticks += 1
+        if self._update_ticks * POLL_MS >= 60_000:
+            self._update_ticks = 0
+            self._refresh_updates()
         return GLib.SOURCE_CONTINUE
 
 

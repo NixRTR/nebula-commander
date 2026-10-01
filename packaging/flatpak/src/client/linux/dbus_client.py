@@ -37,6 +37,9 @@ __all__ = [
     "reject_exit_node",
     "get_config_yaml",
     "validate_new_subnet_route",
+    "get_update_status",
+    "set_auto_update",
+    "check_for_updates_now",
 ]
 
 BUS_NAME = "org.beardedtek.NebulaCommander1"
@@ -111,6 +114,21 @@ def get_settings() -> dict:
 
 def set_settings(partial: dict) -> None:
     _call("SetSettings", "s", (json.dumps(partial),))
+
+
+def get_update_status() -> dict:
+    (payload,) = _call("GetUpdateStatus")
+    return json.loads(payload)
+
+
+def set_auto_update(enabled: bool, window_start: "str | None" = None, window_end: "str | None" = None) -> dict:
+    (payload,) = _call("SetAutoUpdate", "bss", (enabled, window_start or "", window_end or ""), timeout=90)
+    return json.loads(payload)
+
+
+def check_for_updates_now() -> dict:
+    (payload,) = _call("CheckForUpdatesNow", timeout=90)
+    return json.loads(payload)
 
 
 def is_enrolled() -> "tuple[bool, str]":
