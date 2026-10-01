@@ -58,6 +58,8 @@ export interface Node {
   is_lighthouse: boolean;
   is_relay: boolean;
   public_endpoint: string | null;
+  /** Nebula lighthouse.advertise_addrs ("ip:port"). Not sent to lighthouses' own config. */
+  advertise_addrs: string[];
   lighthouse_options: LighthouseOptions | null;
   logging_options: LoggingOptions | null;
   punchy_options: PunchyOptions | null;
