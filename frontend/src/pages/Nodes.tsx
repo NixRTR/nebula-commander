@@ -49,13 +49,52 @@ const ADVERTISE_ADDRS_HELP =
 /** Same limit as the backend's MAX_ADVERTISE_ADDRS (services/config_generator.py). */
 const MAX_ADVERTISE_ADDRS = 8;
 
-/** Quick shape check for one reachable address before it's added to the list - IPv4:port or
- * [IPv6]:port. The backend's normalize_advertise_addrs is the real validator (reserved ranges,
- * addresses inside the Nebula network, ...) and its error shows on Save. */
-const checkAdvertiseAddr = (value: string): string | null => {
+const ipv4ToNumber = (ip: string): number => ip.split(".").reduce((acc, octet) => acc * 256 + Number(octet), 0);
+
+/** True if an IPv4 address (as a number) falls inside an IPv4 CIDR like "10.123.0.0/24". */
+const ipv4InCidr = (ip: number, cidr: string): boolean => {
+  const [base, bits] = cidr.split("/");
+  if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(base ?? "") || !/^\d{1,2}$/.test(bits ?? "")) return false;
+  const size = 2 ** (32 - Number(bits));
+  const start = Math.floor(ipv4ToNumber(base) / size) * size;
+  return ip >= start && ip < start + size;
+};
+
+/** Validates one reachable address before it's added to the list: IPv4:port or [IPv6]:port,
+ * and the same address rules the backend's normalize_advertise_addrs applies (not routable,
+ * reserved, IPv4-mapped, inside this node's Nebula network) so they're caught at Add rather
+ * than on Save. The backend stays the real validator - rarer IPv6 reserved ranges are left
+ * to it, and its error still shows on Save. Returns an error message or null. */
+const checkAdvertiseAddr = (value: string, networkCidr?: string): string | null => {
+  const shapeError = "Enter IP:port, e.g. 203.0.113.7:4242 or [2001:db8::1]:4242";
   const m = /^(?:(\d{1,3}(?:\.\d{1,3}){3})|\[([0-9a-fA-F:.]+)\]):(\d{1,5})$/.exec(value);
-  const ok = m !== null && Number(m[3]) <= 65535 && (!m[1] || m[1].split(".").every((o) => Number(o) <= 255));
-  return ok ? null : "Enter IP:port, e.g. 203.0.113.7:4242 or [2001:db8::1]:4242";
+  if (!m || Number(m[3]) > 65535) return shapeError;
+
+  if (m[1]) {
+    const ip = m[1];
+    if (ip.split(".").some((o) => Number(o) > 255)) return shapeError;
+    const n = ipv4ToNumber(ip);
+    const notRoutable =
+      n === 0 || // 0.0.0.0
+      ipv4InCidr(n, "127.0.0.0/8") || // loopback
+      ipv4InCidr(n, "169.254.0.0/16") || // link-local
+      ipv4InCidr(n, "224.0.0.0/4"); // multicast
+    if (notRoutable) return `${ip} is not routable`;
+    if (ipv4InCidr(n, "240.0.0.0/4")) return `${ip} is reserved/not routable`; // incl. 255.255.255.255
+    if (networkCidr && ipv4InCidr(n, networkCidr)) return `${ip} is inside the Nebula network ${networkCidr}`;
+    return null;
+  }
+
+  // IPv6: let the URL parser validate and canonicalize it (lowercase, compressed).
+  let ip: string;
+  try {
+    ip = new URL(`http://[${m[2]}]`).hostname.slice(1, -1);
+  } catch {
+    return shapeError;
+  }
+  if (ip.startsWith("::ffff:")) return "Use the plain IPv4 address, not the IPv4-mapped form";
+  if (ip === "::" || ip === "::1" || /^fe[89ab]/.test(ip) || ip.startsWith("ff")) return `${ip} is not routable`;
+  return null;
 };
 
 export function Nodes() {
@@ -1910,7 +1949,10 @@ export function Nodes() {
                                               color="gray"
                                               onClick={() => {
                                                 const addr = advertiseAddrInput.trim();
-                                                const shapeError = checkAdvertiseAddr(addr);
+                                                const shapeError = checkAdvertiseAddr(
+                                                  addr,
+                                                  networks.find((n) => n.id === deviceDetailsModal.node?.network_id)?.subnet_cidr
+                                                );
                                                 if (shapeError) {
                                                   setAdvertiseAddrError(shapeError);
                                                   return;
