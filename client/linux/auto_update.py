@@ -209,7 +209,7 @@ def run_upgrade(log=print) -> dict:
         status.update(last_install_result="updated" if changed else "up_to_date",
                       last_install_error=None, last_install_changes=changed)
         if changed:
-            status["available_version"] = None
+            status.update(available_version=None, last_result="up_to_date")
         log(f"Auto-update: {'upgraded ' + ', '.join(f'{p} {c}' for p, c in changed.items()) if changed else 'already up to date'}")
     except (UpdateError, OSError, subprocess.SubprocessError) as e:
         status.update(last_install_result="error", last_install_error=str(e))

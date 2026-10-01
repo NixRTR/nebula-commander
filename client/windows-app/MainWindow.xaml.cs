@@ -36,6 +36,53 @@ public sealed partial class MainWindow : Window
         // Let an automatic update's installer close and reopen the app (SessionEnd.cs).
         SessionEnd.Hook(WinRT.Interop.WindowNative.GetWindowHandle(this), ExitFromTray);
         SessionEnd.RegisterRestart(inTray: false);
+        WatchForUpdate();
+    }
+
+    // An automatic update installs while the app may be running. Windows Installer
+    // moves the running exe aside and installs the new one, but the installer
+    // (started by the service) can't always close an app in the user's session -
+    // seen on Win11 25H2 - so the old version would keep running until someone
+    // restarts it. Notice the new file and offer to restart.
+    private void WatchForUpdate()
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exe))
+        {
+            return;
+        }
+        // Creation time too: Windows Installer keeps the packaged file's write time,
+        // so an identical rebuild would look unchanged by write time alone, but the
+        // replacement file is always newly created.
+        (DateTime, DateTime, long)? Stamp()
+        {
+            var info = new FileInfo(exe);
+            return info.Exists ? (info.CreationTimeUtc, info.LastWriteTimeUtc, info.Length) : null;
+        }
+        var startedWith = Stamp();
+        var timer = DispatcherQueue.CreateTimer();
+        timer.Interval = TimeSpan.FromSeconds(30);
+        timer.Tick += (_, _) =>
+        {
+            var now = Stamp();
+            if (now is not null && now != startedWith)
+            {
+                UpdatedBar.IsOpen = true;
+                timer.Stop();
+            }
+        };
+        timer.Start();
+    }
+
+    private void RestartUpdated_Click(object sender, RoutedEventArgs e)
+    {
+        var exe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exe))
+        {
+            return;
+        }
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe) { UseShellExecute = true });
+        ExitFromTray();
     }
 
     /// <summary>Called by pages when the service answered administrator_required

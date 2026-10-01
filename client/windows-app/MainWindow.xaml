@@ -55,6 +55,24 @@
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
+                <StackPanel>
+                <!-- Shown once an automatic update has replaced this app's files while
+                     it was running (see MainWindow.WatchForUpdate). -->
+                <InfoBar
+                    x:Name="UpdatedBar"
+                    Margin="24,12,24,0"
+                    Severity="Success"
+                    IsOpen="False"
+                    IsClosable="True"
+                    Title="Nebula Commander was updated"
+                    Message="Restart the app to use the new version.">
+                    <Button
+                        x:Name="RestartUpdatedButton"
+                        Margin="0,0,0,12"
+                        AccessKey="U"
+                        Content="Restart now"
+                        Click="RestartUpdated_Click" />
+                </InfoBar>
                 <!-- Shown while unelevated: reading works for everyone, but every
                      change needs an elevated administrator (the service checks). -->
                 <InfoBar
@@ -75,6 +93,7 @@
                         Content="Relaunch as administrator"
                         Click="RelaunchElevated_Click" />
                 </InfoBar>
+                </StackPanel>
                 <Frame x:Name="NavFrame" Grid.Row="1" />
             </Grid>
         </NavigationView>

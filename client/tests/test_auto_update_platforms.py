@@ -230,6 +230,8 @@ def test_record_pending_result(state, monkeypatch, running, result):
     updater.record_pending_result(lambda m: None)
     st = updates.load_status()
     assert st["last_install_result"] == result
+    if result == "updated":
+        assert st["last_result"] == "up_to_date" and st["available_version"] is None
     assert not (state / "updates" / "pending-update.json").exists()
 
 

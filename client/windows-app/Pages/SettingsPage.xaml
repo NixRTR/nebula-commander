@@ -74,8 +74,8 @@
                     OnContent="Install updates automatically"
                     OffContent="Off" />
                 <StackPanel Orientation="Horizontal" Spacing="12">
-                    <TimePicker x:Name="WindowStartPicker" Header="Between" ClockIdentifier="24HourClock" MinuteIncrement="15" />
-                    <TimePicker x:Name="WindowEndPicker" Header="and" ClockIdentifier="24HourClock" MinuteIncrement="15" />
+                    <TimePicker x:Name="WindowStartPicker" Header="Between" ClockIdentifier="24HourClock" />
+                    <TimePicker x:Name="WindowEndPicker" Header="and" ClockIdentifier="24HourClock" />
                 </StackPanel>
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <Button x:Name="SaveUpdatesButton" Content="Save" Style="{StaticResource AccentButtonStyle}" Click="SaveUpdatesButton_Click" />

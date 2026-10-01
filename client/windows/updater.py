@@ -141,7 +141,7 @@ def record_pending_result(log: Callable[[str], None]) -> None:
     if VERSION == target:
         status.update(last_install_result="updated", last_install_error=None,
                       last_install_changes={"Nebula Commander": f"{pending.get('from_version')} -> {target}"},
-                      available_version=None)
+                      available_version=None, last_result="up_to_date")
         log(f"Auto-update: now running {target}")
         _unlink(pending.get("msi", ""))
     elif VERSION == pending.get("from_version"):
