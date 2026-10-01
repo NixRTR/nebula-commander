@@ -9,6 +9,10 @@ name: Publish Package Repository
 # Needs repository secrets PACKAGE_SIGNING_KEY (armored private key) and
 # PACKAGE_SIGNING_KEY_PASSPHRASE, and Pages set to "GitHub Actions" with the
 # custom domain pkgs.nebulacommander.com.
+#
+# Also publishes the signed client auto-update manifest (updates/latest.json +
+# .sig, see client/updates.py) for the newest stable release, signed with the
+# UPDATE_SIGNING_KEY secret (Ed25519, see docs/update-signing.md).
 
 on:
   workflow_run:
@@ -66,11 +70,13 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # tags, for the update manifest's commit
 
       - name: Install repository tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y apt-utils createrepo-c rpm gnupg
+          sudo apt-get install -y apt-utils createrepo-c rpm gnupg python3-cryptography
 
       - name: Download packages from the newest releases
         env:
@@ -114,6 +120,21 @@ jobs:
         run: |
           gpg --verify site/deb/dists/stable/InRelease
           gpg --verify site/rpm/repodata/repomd.xml.asc site/rpm/repodata/repomd.xml
+
+      - name: Sign the client update manifest
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_SIGNING_KEY: ${{ secrets.UPDATE_SIGNING_KEY }}
+        run: |
+          if [ -z "$UPDATE_SIGNING_KEY" ]; then
+            echo "::warning::UPDATE_SIGNING_KEY secret is not set - publishing without an update manifest (clients won't auto-update)"
+            exit 0
+          fi
+          TAG=$(gh release list --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
+          RELEASED=$(gh release view "$TAG" --json publishedAt --jq .publishedAt)
+          gh release download "$TAG" -D sums -p SHA256SUMS.txt
+          python3 packaging/repo/build_update_manifest.py --tag "$TAG" --sums sums/SHA256SUMS.txt             --released "$RELEASED" --output site/updates
+          cat site/updates/latest.json
 
       - name: Configure Pages
         uses: actions/configure-pages@v5
