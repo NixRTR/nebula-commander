@@ -23,7 +23,7 @@ REPO_FILES = (
     "/etc/yum.repos.d/nebula-commander.repo",
     "/etc/zypp/repos.d/nebula-commander.repo",
 )
-REPO_DOCS = "https://nebulacdr.com/docs/usage/ncclient/installation/linux/"
+REPO_DOCS = "https://nebulacommander.com/docs/usage/ncclient/installation/linux/"
 TIMER = "ncclient-update.timer"
 SERVICE = "ncclient-update.service"
 DROPIN_DIR = "/etc/systemd/system/ncclient-update.timer.d"

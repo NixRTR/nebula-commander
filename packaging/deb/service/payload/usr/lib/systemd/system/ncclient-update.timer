@@ -1,6 +1,6 @@
 [Unit]
 Description=Nebula Commander client automatic update window
-Documentation=https://nebulacdr.com/docs/usage/ncclient/auto-update/
+Documentation=https://nebulacommander.com/docs/usage/ncclient/auto-update/
 
 # Disabled by default. ncclient enables it, and writes the window to
 # /etc/systemd/system/ncclient-update.timer.d/window.conf, when an administrator

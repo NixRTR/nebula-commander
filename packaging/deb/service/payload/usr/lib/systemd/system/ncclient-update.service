@@ -1,6 +1,6 @@
 [Unit]
 Description=Nebula Commander client automatic update
-Documentation=https://nebulacdr.com/docs/usage/ncclient/auto-update/
+Documentation=https://nebulacommander.com/docs/usage/ncclient/auto-update/
 After=network-online.target
 Wants=network-online.target
 
