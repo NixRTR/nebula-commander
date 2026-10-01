@@ -65,9 +65,15 @@
                     IsClosable="True"
                     Title="View only"
                     Message="Changing settings, enrollment, routes or the service requires an administrator.">
-                    <InfoBar.ActionButton>
-                        <Button Content="Relaunch as administrator" Click="RelaunchElevated_Click" />
-                    </InfoBar.ActionButton>
+                    <!-- In Content, not InfoBar.ActionButton: the ActionButton slot
+                         isn't in the keyboard tab order (verified on Win11 25H2),
+                         which left keyboard-only users no way to elevate. -->
+                    <Button
+                        x:Name="RelaunchButton"
+                        Margin="0,0,0,12"
+                        AccessKey="R"
+                        Content="Relaunch as administrator"
+                        Click="RelaunchElevated_Click" />
                 </InfoBar>
                 <Frame x:Name="NavFrame" Grid.Row="1" />
             </Grid>

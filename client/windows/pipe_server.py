@@ -42,6 +42,15 @@ class _BadRequest(Exception):
     pass
 
 
+def _winerror(e: BaseException) -> "int | None":
+    """Win32 error code of a pywin32 error. Matched by attribute, never by
+    `except pywintypes.error`: in the PyInstaller-frozen service that class
+    check silently fails to match (a second pywintypes module object), which
+    let an expected error escape and kill the pipe thread - found on a real
+    Win11 install (pipe-squatting test), not reproducible from source."""
+    return getattr(e, "winerror", None)
+
+
 def _arg(args: dict, name: str, typ: type, *, required: bool = True, default: Any = None) -> Any:
     value = args.get(name, default)
     if value is None:
@@ -198,7 +207,16 @@ class PipeServer(threading.Thread):
         return sa
 
     def run(self) -> None:
-        import pywintypes
+        # Never let anything end this loop except stop_event - if this thread
+        # dies, the app loses its whole API with no visible error.
+        while not self._stop_event.is_set():
+            try:
+                self._accept_loop()
+            except Exception as e:
+                self._log(f"Pipe server error, restarting: {e}")
+                self._stop_event.wait(5)
+
+    def _accept_loop(self) -> None:
         import win32pipe
 
         sa = self._security_attributes()
@@ -208,6 +226,7 @@ class PipeServer(threading.Thread):
         # silently sharing the name. Clients additionally verify the server
         # process is this service (see the app's PipeClient.cs).
         first = True
+        squat_logged = False  # log a squatting incident once, not every retry
         while not self._stop_event.is_set():
             try:
                 pipe = win32pipe.CreateNamedPipe(
@@ -223,12 +242,14 @@ class PipeServer(threading.Thread):
                     0,
                     sa,
                 )
-            except pywintypes.error as e:
-                if first and e.winerror == 5:
-                    self._log(
-                        f"{proto.PIPE_NAME} is already owned by another process - possible pipe "
-                        "squatting; the control API is unavailable until that process exits."
-                    )
+            except Exception as e:
+                if first and _winerror(e) == 5:
+                    if not squat_logged:
+                        self._log(
+                            f"{proto.PIPE_NAME} is already owned by another process - possible pipe "
+                            "squatting; the control API is unavailable until that process exits."
+                        )
+                        squat_logged = True
                 else:
                     self._log(f"CreateNamedPipe failed: {e}")
                 self._stop_event.wait(5)
@@ -240,16 +261,15 @@ class PipeServer(threading.Thread):
                 # outlive SvcStop until the service process exits, which SCM
                 # tolerates (daemon thread).
                 win32pipe.ConnectNamedPipe(pipe, None)
-            except pywintypes.error as e:
+            except Exception as e:
                 # ERROR_PIPE_CONNECTED (535): client connected between Create
                 # and Connect - that's a success.
-                if e.winerror != 535:
+                if _winerror(e) != 535:
                     self._close(pipe)
                     continue
             threading.Thread(target=self._serve_one, args=(pipe,), name="pipe-client", daemon=True).start()
 
     def _serve_one(self, pipe) -> None:
-        import pywintypes
         import win32file
 
         try:
@@ -257,10 +277,11 @@ class PipeServer(threading.Thread):
             resp = self._handle(pipe, data)
             win32file.WriteFile(pipe, json.dumps(resp).encode("utf-8"))
             win32file.FlushFileBuffers(pipe)
-        except pywintypes.error:
-            pass
         except Exception as e:
-            self._log(f"Pipe client handling failed: {e}")
+            # A client that disconnects early (e.g. the app refusing a pipe it
+            # doesn't trust) is a Win32 error here - expected, not worth a log.
+            if _winerror(e) is None:
+                self._log(f"Pipe client handling failed: {e}")
         finally:
             self._close(pipe)
 
