@@ -18,6 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
+from .device_throttle import rejected_device_tokens
 from ..database import get_session
 from ..models.db import LegacyDeviceKey, Node
 from ..services.encryption import decrypt_to_str
@@ -209,6 +210,16 @@ async def require_device_token(
             detail="Missing or invalid device token",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    token = credentials.credentials
+    # A device that keeps retrying a token we already rejected (ncclient before v0.7.0
+    # did, with no delay) gets 429 instead, without a database lookup.
+    retry_after = rejected_device_tokens.retry_after(token)
+    if retry_after is not None:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Device token was rejected; enroll this device again",
+            headers={"Retry-After": str(retry_after)},
+        )
     decoded = decode_device_token(credentials.credentials)
     if decoded is None:
         # Devices enrolled on an instance this one was imported from still carry tokens
@@ -219,6 +230,7 @@ async def require_device_token(
             if decoded is not None:
                 break
     if decoded is None:
+        rejected_device_tokens.record_rejection(token)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired device token",
@@ -230,6 +242,7 @@ async def require_device_token(
     result = await session.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
     if not node or (node.device_token_version or 1) != token_version:
+        rejected_device_tokens.record_rejection(token)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid or expired device token",
