@@ -95,6 +95,18 @@ def _to_safe_arg(arg: str) -> str:
     return "".join(c for c in str(arg) if c in _ALLOWED_ARG_CHARS)
 
 
+def _path_arg(path: Path) -> str:
+    """A filesystem path as a nebula-cert argument, always with forward slashes.
+
+    _SAFE_ARG_PATTERN deliberately has no backslash, so str(path) - which uses
+    backslash separators on Windows - was rejected there, breaking CA/cert
+    generation on Windows dev machines. as_posix() is identical to str() on
+    Linux (the production target) and gives C:/... on Windows, which both the
+    allowlist and nebula-cert accept.
+    """
+    return Path(path).as_posix()
+
+
 def run_nebula_cert(args: list[str], cwd: Optional[Path] = None) -> subprocess.CompletedProcess:
     """
     Run nebula-cert with given args. Raises CalledProcessError on failure; stderr is logged.
@@ -137,8 +149,8 @@ def keygen(
     out_key.parent.mkdir(parents=True, exist_ok=True)
     run_nebula_cert([
         "keygen",
-        "-out-pub", str(out_pub),
-        "-out-key", str(out_key),
+        "-out-pub", _path_arg(out_pub),
+        "-out-key", _path_arg(out_key),
     ])
     logger.info("Generated keypair: %s, %s", out_pub, out_key)
 
@@ -174,8 +186,8 @@ def ca_generate(
     run_nebula_cert([
         "ca",
         "-name", name,
-        "-out-crt", str(out_crt),
-        "-out-key", str(out_key),
+        "-out-crt", _path_arg(out_crt),
+        "-out-key", _path_arg(out_key),
         "-duration", f"{duration_hours}h",
         "-version", str(version),
         "-curve", curve,
@@ -225,11 +237,11 @@ def cert_sign(
         ip_cidr = ip if "/" in ip else f"{ip_base}/32"
     args = [
         "sign",
-        "-ca-crt", str(ca_crt),
-        "-ca-key", str(ca_key),
+        "-ca-crt", _path_arg(ca_crt),
+        "-ca-key", _path_arg(ca_key),
         "-name", name,
         "-ip", ip_cidr,
-        "-out-crt", str(out_crt),
+        "-out-crt", _path_arg(out_crt),
         "-duration", f"{duration_hours}h",
     ]
     if groups:
@@ -237,6 +249,6 @@ def cert_sign(
     if unsafe_subnets:
         args.extend(["-subnets", ",".join(unsafe_subnets)])
     if in_pub is not None:
-        args.extend(["-in-pub", str(in_pub)])
+        args.extend(["-in-pub", _path_arg(in_pub)])
     run_nebula_cert(args)
     logger.info("Signed certificate for %s at %s", name, out_crt)
