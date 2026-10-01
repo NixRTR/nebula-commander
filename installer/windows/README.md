@@ -45,16 +45,22 @@ Output: `NebulaCommander-windows-amd64.msi`.
   runs as LocalSystem) - this is what actually polls Nebula Commander, runs
   Nebula, and applies split-horizon DNS. It's stopped on upgrade/uninstall and
   removed on uninstall.
-- Creates `%ProgramData%\nebula-commander\` (shared settings, DPAPI-encrypted
-  device token, status file, downloaded Nebula binary, and Nebula's own runtime
-  files) with an ACL granting local `Users` modify rights, so the unelevated
-  GUI app can write there while the LocalSystem service reads/writes freely.
-- Grants local `Authenticated Users` start/stop/query-status rights on the
-  service (via a deferred `sc sdset` custom action, since only Administrators
-  can control a service by default) - this is what lets the GUI app's
-  Start/Stop/Restart Service actions work without a UAC prompt. **Verify on a
-  real install**: `sc sdshow NebulaCommanderService` should show an ACE for
-  `Authenticated Users`, and using those controls shouldn't trigger UAC.
+- Creates `%ProgramData%\nebula-commander\` (settings, DPAPI-encrypted
+  device token, status file, the service-managed Nebula install, and Nebula's
+  own runtime files - `config.yaml` contains the node's private key) as
+  **SYSTEM/Administrators-only**, with a protected DACL so nothing is inherited
+  from `%ProgramData%`. The app never touches this folder; it goes through the
+  service's named pipe. The service also re-applies this ACL to the whole tree
+  on every start (`client/windows/harden.py`), which is what secures installs
+  upgraded from versions that granted local `Users` full control here.
+- Sets the service's ACL (deferred `sc sdset` custom action) so
+  `Authenticated Users` can only **query** it (status/PID). Start/Stop/Restart
+  need an elevated administrator. Verify with `sc sdshow
+  NebulaCommanderService`: the `AU` ACE should be `CCLCSWLORC` (no `RP`/`WP`).
+- Nebula itself isn't bundled: on first start the service downloads the
+  official `slackhq/nebula` Windows release, verifies its SHA256 against the
+  release's `SHASUM256.txt`, and installs the whole archive (`nebula.exe`,
+  `nebula-cert.exe`, `dist\` incl. wintun) into the protected folder.
 - **Optional feature**: "Add install directory to PATH" so `ncclient` works from any command prompt.
 - **Finish dialog**: "Launch Nebula Commander now" checkbox launches `NebulaCommanderApp.exe`.
 - **Start Menu** shortcuts: "Nebula Commander (CLI)" and "Nebula Commander" (the windowed app).

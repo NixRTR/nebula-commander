@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """
 Run PyInstaller to build the Windows service exe. The service does not bundle
-Nebula - it uses nebula from the shared %ProgramData% location, the user's
-PATH, or the path set in Settings (see client/windows-app/Services/
-NebulaDownload.cs for the GUI's own download flow, which is separate C# code,
-not this script).
+Nebula - it downloads, SHA256-verifies and installs the official release itself
+into its SYSTEM/Administrators-only %ProgramData% folder at runtime (see
+nebula_install.py), and only ever runs that copy.
 
 Usage (from client/windows/):
   python build.py

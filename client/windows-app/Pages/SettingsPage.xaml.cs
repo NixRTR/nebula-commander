@@ -1,8 +1,6 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using NebulaCommanderApp.Services;
-using Windows.Storage.Pickers;
-using WinRT.Interop;
 
 namespace NebulaCommanderApp.Pages;
 
@@ -14,28 +12,42 @@ public sealed partial class SettingsPage : Page
     public SettingsPage()
     {
         InitializeComponent();
-        Loaded += (_, _) => LoadSettings();
+        Loaded += async (_, _) => await LoadSettingsAsync();
     }
 
-    private void LoadSettings()
+    private async Task LoadSettingsAsync()
     {
         _loading = true;
         try
         {
-            var settings = SettingsStore.Load();
-            ServerBox.Text = settings.Server;
-            IntervalBox.Value = settings.Interval;
-            NebulaPathBox.Text = settings.NebulaPath;
-            AcceptDnsToggle.IsOn = settings.AcceptDns;
             RunOnStartupToggle.IsOn = AutoStart.IsEnabled();
+            var settings = await ServiceApi.GetSettingsAsync();
+            if (settings is null)
+            {
+                ShowSaveResult(InfoBarSeverity.Warning, "Service not running",
+                    "Start the Nebula Commander service (Status page) to view or change settings.");
+                SaveButton.IsEnabled = false;
+            }
+            else
+            {
+                ServerBox.Text = settings.Server ?? "";
+                IntervalBox.Value = settings.Interval ?? 60;
+                AcceptDnsToggle.IsOn = settings.AcceptDns ?? false;
+                SaveButton.IsEnabled = true;
+                SaveResultBar.IsOpen = false;
+            }
         }
         finally
         {
             _loading = false;
         }
 
-        SaveResultBar.IsOpen = false;
-        RefreshNebulaVersionText();
+        // Nothing installed yet (e.g. the first-run install failed offline):
+        // allow installing latest without a separate "check" first.
+        if (await RefreshNebulaVersionTextAsync() is null)
+        {
+            DownloadButton.IsEnabled = true;
+        }
     }
 
     private async void SaveButton_Click(object sender, RoutedEventArgs e)
@@ -44,21 +56,22 @@ public sealed partial class SettingsPage : Page
         SaveProgress.IsActive = true;
         try
         {
-            var settings = SettingsStore.Load();
-            settings.Server = BackendClient.NormalizeServerUrl(ServerBox.Text.Trim());
-            settings.Interval = Math.Clamp((int)(double.IsNaN(IntervalBox.Value) ? 60 : IntervalBox.Value), 10, 3600);
-            settings.NebulaPath = NebulaPathBox.Text.Trim();
-            settings.AcceptDns = AcceptDnsToggle.IsOn;
-            SettingsStore.Save(settings);
-
-            var result = await PipeClient.SendCommandAsync(PipeClient.CmdReloadSettings);
-
-            SaveResultBar.Severity = InfoBarSeverity.Success;
-            SaveResultBar.Title = "Saved";
-            SaveResultBar.Message = result.Ok
-                ? "Settings saved. The service is reloading them now."
-                : $"Settings saved. The service will pick them up on its next poll ({result.Error}).";
-            SaveResultBar.IsOpen = true;
+            var server = string.IsNullOrWhiteSpace(ServerBox.Text) ? "" : BackendClient.NormalizeServerUrl(ServerBox.Text.Trim());
+            var interval = Math.Clamp((int)(double.IsNaN(IntervalBox.Value) ? 60 : IntervalBox.Value), 10, 3600);
+            // The service saves and restarts its poll loop with the new settings.
+            var result = await ServiceApi.SetSettingsAsync(server, interval, AcceptDnsToggle.IsOn);
+            if (result.Ok)
+            {
+                ShowSaveResult(InfoBarSeverity.Success, "Saved", "Settings saved. The service is using them now.");
+            }
+            else
+            {
+                if (result.AdministratorRequired)
+                {
+                    App.MainWindowInstance?.ShowAdminRequired();
+                }
+                ShowSaveResult(InfoBarSeverity.Error, "Not saved", ServiceApi.Describe(result));
+            }
         }
         finally
         {
@@ -67,49 +80,21 @@ public sealed partial class SettingsPage : Page
         }
     }
 
-    private async void BrowseButton_Click(object sender, RoutedEventArgs e)
+    private void ShowSaveResult(InfoBarSeverity severity, string title, string message)
     {
-        if (App.MainWindowInstance is null)
-        {
-            return;
-        }
-
-        var picker = new FileOpenPicker
-        {
-            SuggestedStartLocation = PickerLocationId.ComputerFolder,
-        };
-        picker.FileTypeFilter.Add(".exe");
-
-        // Unpackaged WinUI3 apps have no implicit window association - a picker
-        // needs an explicit owner HWND or PickSingleFileAsync throws.
-        var hwnd = WindowNative.GetWindowHandle(App.MainWindowInstance);
-        InitializeWithWindow.Initialize(picker, hwnd);
-
-        var file = await picker.PickSingleFileAsync();
-        if (file is not null)
-        {
-            NebulaPathBox.Text = file.Path;
-            RefreshNebulaVersionText();
-        }
+        SaveResultBar.Severity = severity;
+        SaveResultBar.Title = title;
+        SaveResultBar.Message = message;
+        SaveResultBar.IsOpen = true;
     }
 
-    private string EffectiveNebulaPath()
+    private async Task<string?> RefreshNebulaVersionTextAsync()
     {
-        var configured = NebulaPathBox.Text.Trim();
-        if (!string.IsNullOrEmpty(configured))
-        {
-            return configured;
-        }
-        return File.Exists(SharedPaths.NebulaExePath) ? SharedPaths.NebulaExePath : "nebula";
-    }
-
-    private void RefreshNebulaVersionText()
-    {
-        var path = EffectiveNebulaPath();
-        var version = NebulaDownload.GetInstalledVersion(path);
+        var version = await ServiceApi.GetNebulaVersionAsync();
         NebulaVersionText.Text = version is not null
-            ? $"Installed: v{version} ({path})"
-            : $"Not found or not runnable at \"{path}\".";
+            ? $"Installed: v{version}"
+            : "Not installed (or the service isn't running).";
+        return version;
     }
 
     private async void CheckUpdateButton_Click(object sender, RoutedEventArgs e)
@@ -119,26 +104,25 @@ public sealed partial class SettingsPage : Page
         NebulaResultBar.IsOpen = false;
         try
         {
-            _latestNebulaTag = await NebulaDownload.FetchLatestTagAsync();
+            var latest = await ServiceApi.GetLatestNebulaTagAsync();
+            _latestNebulaTag = latest.Ok && latest.Result.ValueKind == System.Text.Json.JsonValueKind.String
+                ? latest.Result.GetString()
+                : null;
             if (_latestNebulaTag is null)
             {
-                NebulaResultBar.Severity = InfoBarSeverity.Error;
-                NebulaResultBar.Title = "Check failed";
-                NebulaResultBar.Message = $"Could not reach GitHub releases ({NebulaDownload.ReleasesUrl}).";
-                NebulaResultBar.IsOpen = true;
+                ShowNebulaResult(InfoBarSeverity.Error, "Check failed", ServiceApi.Describe(latest));
                 DownloadButton.IsEnabled = false;
                 return;
             }
 
-            var installed = NebulaDownload.GetInstalledVersion(EffectiveNebulaPath());
-            var newer = NebulaDownload.IsNewerVersion(installed, _latestNebulaTag);
-
-            NebulaResultBar.Severity = InfoBarSeverity.Informational;
-            NebulaResultBar.Title = "Latest release";
-            NebulaResultBar.Message = newer
-                ? $"{_latestNebulaTag} is available (installed: {(installed is null ? "none" : "v" + installed)})."
-                : $"Already up to date ({_latestNebulaTag}).";
-            NebulaResultBar.IsOpen = true;
+            var installed = await RefreshNebulaVersionTextAsync();
+            var newer = ServiceApi.IsNewerVersion(installed, _latestNebulaTag);
+            ShowNebulaResult(
+                InfoBarSeverity.Informational,
+                "Latest release",
+                newer
+                    ? $"{_latestNebulaTag} is available (installed: {(installed is null ? "none" : "v" + installed)})."
+                    : $"Already up to date ({_latestNebulaTag}).");
             DownloadButton.IsEnabled = true;
         }
         finally
@@ -150,43 +134,41 @@ public sealed partial class SettingsPage : Page
 
     private async void DownloadButton_Click(object sender, RoutedEventArgs e)
     {
-        var tag = _latestNebulaTag;
-        if (tag is null)
-        {
-            return;
-        }
-
         DownloadButton.IsEnabled = false;
+        CheckUpdateButton.IsEnabled = false;
         NebulaProgress.IsActive = true;
+        ShowNebulaResult(InfoBarSeverity.Informational, "Installing",
+            "The service is downloading and verifying Nebula - the tunnel restarts briefly when it switches over.");
         try
         {
-            var (ok, exePath, error) = await NebulaDownload.DownloadToDirAsync(tag, SharedPaths.NebulaDir);
-            if (!ok || exePath is null)
+            var result = await ServiceApi.UpdateNebulaAsync(_latestNebulaTag);
+            if (!result.Ok)
             {
-                NebulaResultBar.Severity = InfoBarSeverity.Error;
-                NebulaResultBar.Title = "Download failed";
-                NebulaResultBar.Message = error;
-                NebulaResultBar.IsOpen = true;
+                if (result.AdministratorRequired)
+                {
+                    App.MainWindowInstance?.ShowAdminRequired();
+                }
+                ShowNebulaResult(InfoBarSeverity.Error, "Install failed", ServiceApi.Describe(result));
                 return;
             }
-
-            NebulaPathBox.Text = exePath;
-            var settings = SettingsStore.Load();
-            settings.NebulaPath = exePath;
-            SettingsStore.Save(settings);
-            await PipeClient.SendCommandAsync(PipeClient.CmdReloadSettings);
-
-            NebulaResultBar.Severity = InfoBarSeverity.Success;
-            NebulaResultBar.Title = "Downloaded";
-            NebulaResultBar.Message = $"Installed {tag} to {exePath} and notified the service.";
-            NebulaResultBar.IsOpen = true;
-            RefreshNebulaVersionText();
+            var tag = result.Result.TryGetProperty("tag", out var t) ? t.GetString() : _latestNebulaTag;
+            ShowNebulaResult(InfoBarSeverity.Success, "Installed", $"Nebula {tag} installed and running.");
+            await RefreshNebulaVersionTextAsync();
         }
         finally
         {
             DownloadButton.IsEnabled = true;
+            CheckUpdateButton.IsEnabled = true;
             NebulaProgress.IsActive = false;
         }
+    }
+
+    private void ShowNebulaResult(InfoBarSeverity severity, string title, string message)
+    {
+        NebulaResultBar.Severity = severity;
+        NebulaResultBar.Title = title;
+        NebulaResultBar.Message = message;
+        NebulaResultBar.IsOpen = true;
     }
 
     private void RunOnStartupToggle_Toggled(object sender, RoutedEventArgs e)

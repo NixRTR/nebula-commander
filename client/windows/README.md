@@ -12,21 +12,33 @@ config/certs, runs the Nebula binary, and applies split-horizon DNS. Runs
 continuously, whether or not anyone is logged in, with no UAC prompt
 (LocalSystem is already fully privileged).
 
-GUI clients (currently just `client/windows-app/`) talk to it via shared state
-under `%ProgramData%\nebula-commander\` (settings, the DPAPI-encrypted device
-token, a status file, the downloaded `nebula.exe`, and Nebula's own
-`config.yaml`/`dns-client.json`/`nebula.log`) and a small named pipe used to
-tell the service "act on this change now" instead of waiting for its next
-poll cycle. See `client/windows/shared_paths.py`,
-`client/windows/pipe_protocol.py`, and `client/windows/service.py` for the
-details.
+All state lives under `%ProgramData%\nebula-commander\` (settings, the
+DPAPI-encrypted device token, a status file, the service-managed Nebula
+install, and Nebula's own `config.yaml`/`dns-client.json`/`nebula.log`), which
+is **SYSTEM/Administrators-only** (`harden.py` enforces this on every start).
+GUI clients (currently just `client/windows-app/`) never touch it - they use
+the named-pipe API (`pipe_protocol.py` / `pipe_server.py`), the Windows
+counterpart of the Linux D-Bus service:
+
+- **Read** commands (status, settings, offered routes, redacted config, ...)
+  are open to any local user.
+- **Manage** commands (settings, enroll, accept/reject routes and exit nodes,
+  Nebula install/update, re-poll) require the caller to be an **elevated
+  administrator** - the service checks the caller's token on every call.
+  Remote (network) clients are rejected outright.
+
+The service only ever runs its own Nebula install (`nebula_install.py`):
+downloaded from the official `slackhq/nebula` release, SHA256-verified against
+`SHASUM256.txt`, and the whole archive (`nebula.exe`, `nebula-cert.exe`,
+`dist\`) extracted into the protected folder. There is no user-configurable
+Nebula path.
 
 ## Do I need a system service or network adapter?
 
 - **Yes, a Windows Service is installed** (`NebulaCommanderService`) - that's
   what actually runs the VPN. The MSI installer registers it (start type:
-  Automatic) and grants local users start/stop/query rights so GUI clients'
-  service-control actions work without repeated UAC prompts.
+  Automatic) and lets local users query its status; starting/stopping it
+  needs an elevated administrator.
 - **Nebula's virtual network adapter.** When the service is running with a
   valid enrollment, Nebula creates a virtual network interface (Nebula on
   Windows uses [Wintun](https://www.wintun.net/)). No separate driver install
@@ -56,13 +68,13 @@ python -m client.windows.service debug
 ## Settings
 
 - Stored in `%ProgramData%\nebula-commander\settings.json` (server URL, poll
-  interval, optional Nebula path, accept-DNS flag) - shared between the
-  service and any GUI client, not per-user.
+  interval, accept-DNS flag, accepted routes) - machine-wide, written only by
+  the service (via the pipe's manage commands).
 - The device token is stored DPAPI-encrypted (machine scope) at
-  `%ProgramData%\nebula-commander\token.bin` - readable by any process on this
-  machine (not tied to one user's login session, which is what lets the
-  LocalSystem service and an unelevated GUI client both use it), but not a
-  defense against other local users on a shared multi-user machine.
+  `%ProgramData%\nebula-commander\token.bin`. Machine-scope DPAPI alone would
+  let any local process decrypt it; what protects it is the folder's
+  SYSTEM/Administrators-only ACL. The app never reads it - token-authenticated
+  calls (enroll, advertised routes) happen inside the service.
 
 ## Build (PyInstaller)
 

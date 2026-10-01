@@ -44,10 +44,12 @@
       <Directory Id="ProgramMenuDir" Name="Nebula Commander" />
     </StandardDirectory>
 
-    <!-- %ProgramData%\nebula-commander - shared state (settings.json, the DPAPI-encrypted
-         device token, status.json, the downloaded nebula.exe, and Nebula's own
-         config.yaml/dns-client.json/nebula.log) that both the LocalSystem service and the
-         unelevated GUI app need to read/write. See client/windows/shared_paths.py. -->
+    <!-- %ProgramData%\nebula-commander - the service's state (settings.json, the
+         DPAPI-encrypted device token, status.json, the service-managed Nebula install,
+         and Nebula's own config.yaml (which holds the node's private key)/
+         dns-client.json/nebula.log). SYSTEM/Administrators-only: the app reads and
+         changes it exclusively through the service's named pipe. See
+         client/windows/shared_paths.py and harden.py. -->
     <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="SHAREDDATADIR" Name="nebula-commander" />
     </StandardDirectory>
@@ -79,9 +81,9 @@
       <!-- The windowed WinUI 3 app (client/windows-app/) - side-tab Status/
            Enrollment/Settings UI, minimizes to tray on close. Self-contained
            single-file publish, so just one file to ship, same as the exes
-           above. Talks to NcclientServiceExe over the same
-           %ProgramData%\nebula-commander\ shared state and named pipe that
-           NcclientServiceExe itself exposes. -->
+           above. Talks to NcclientServiceExe only over the named pipe
+           NcclientServiceExe exposes (client/windows/pipe_server.py); changes
+           require running it as administrator. -->
       <Component Id="NebulaCommanderAppExe" Guid="02804C73-586C-4ACC-BF1B-7235A2CF233C">
         <File Id="NebulaCommanderAppExe"
               Source="redist\NebulaCommanderApp.exe"
@@ -117,17 +119,17 @@
       </Component>
     </ComponentGroup>
 
-    <!-- Create %ProgramData%\nebula-commander with an ACL granting local Users
-         modify rights, so the unelevated GUI app can write settings.json/token.bin/
-         nebula\nebula.exe there while the LocalSystem service reads/writes freely.
-         Nothing else lives in this folder beyond app state for this one product, so
-         a broad grant within it is an acceptable, deliberate tradeoff (see notes in
-         client/token_store.py on what machine-scope DPAPI does and doesn't protect
-         against). -->
+    <!-- Create %ProgramData%\nebula-commander SYSTEM/Administrators-only, with a
+         protected DACL (P) so ProgramData's default "Users may create files" ACE is
+         not inherited. Versions before this granted Users full control here, which
+         let any local user replace the nebula.exe the LocalSystem service runs and
+         read the node's private key; the service itself re-applies this ACL to the
+         whole tree on every start (client/windows/harden.py), which is what fixes
+         upgraded installs regardless of how MSI propagates this one. -->
     <DirectoryRef Id="SHAREDDATADIR">
       <Component Id="SharedDataFolderPermissions" Guid="F5A6B7C8-D9E0-4F1A-2B3C-4D5E6F7A8B9C">
         <CreateFolder>
-          <util:PermissionEx User="Users" GenericAll="yes" />
+          <PermissionEx Sddl="O:SYG:SYD:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)" />
         </CreateFolder>
         <RemoveFolder Id="RemoveSharedDataFolder" On="uninstall" />
         <RegistryValue Root="HKLM"
@@ -139,18 +141,18 @@
       </Component>
     </DirectoryRef>
 
-    <!-- By default only Administrators can start/stop/query a Windows service via
-         the Service Control Manager - grant Authenticated Users the same rights
-         (plus the harmless read-only ones) so the app's Start/Stop/Restart Service
-         actions work without a UAC prompt. Deferred, elevated (Impersonate="no")
-         custom action run once, after the service is registered and started.
-         NEEDS VERIFICATION ON A REAL WINDOWS MACHINE: run `sc sdshow
-         NebulaCommanderService` after install to confirm the ACL applied as
-         intended, and confirm Start/Stop/Restart from the app actually avoids a
-         UAC prompt. -->
+    <!-- Service ACL: SYSTEM and Administrators keep full control; Authenticated
+         Users may only QUERY the service (CC LC SW LO RC - status/config/
+         interrogate), so the app can show its state and look up its PID (to
+         verify the control pipe's server). Start/Stop/Restart need an elevated
+         administrator. Earlier versions also granted AU start (RP) and stop (WP),
+         letting any user take the tunnel down. Deferred, elevated (Impersonate="no")
+         custom action, run after the service is registered and started - on fresh
+         installs and major upgrades alike (the new product is "NOT Installed"
+         during a MajorUpgrade). Verify with `sc sdshow NebulaCommanderService`. -->
     <CustomAction Id="GrantServiceControlAcl"
                   Directory="INSTALLDIR"
-                  ExeCommand="&quot;[SystemFolder]sc.exe&quot; sdset NebulaCommanderService &quot;D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWRPWPLORC;;;AU)&quot;"
+                  ExeCommand="&quot;[SystemFolder]sc.exe&quot; sdset NebulaCommanderService &quot;D:(A;;CCLCSWRPWPDTLOCRRC;;;SY)(A;;CCDCLCSWRPWPDTLOCRSDRCWDWO;;;BA)(A;;CCLCSWLORC;;;AU)&quot;"
                   Execute="deferred"
                   Impersonate="no"
                   Return="ignore" />

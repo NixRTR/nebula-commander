@@ -10,18 +10,24 @@ namespace NebulaCommanderApp.Pages;
 
 public sealed partial class StatusPage : Page
 {
-    // Cheap local-only refresh (files + service query, no network) on a short
+    // Cheap local refresh (pipe reads + service query, no network) on a short
     // timer so the page feels live; routing info hits the backend so it's only
     // refetched on page load / the Refresh button, not on every tick.
     private readonly DispatcherTimer _timer;
+    private bool _refreshingLocal;
+    // Set while RefreshRoutesPicker rebuilds the controls, so the Checked/
+    // Unchecked events it triggers aren't mistaken for user actions.
+    private bool _rebuildingRoutes;
+    private TunConfig? _tun;
 
     public StatusPage()
     {
         InitializeComponent();
         _timer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _timer.Tick += (_, _) => RefreshLocal();
+        _timer.Tick += async (_, _) => await RefreshLocalAsync();
         Loaded += StatusPage_Loaded;
         Unloaded += (_, _) => _timer.Stop();
+        OpenFolderButton.IsEnabled = Elevation.IsElevated;
     }
 
     private async void StatusPage_Loaded(object sender, RoutedEventArgs e)
@@ -38,7 +44,11 @@ public sealed partial class StatusPage : Page
         RefreshProgress.IsActive = true;
         try
         {
-            RefreshLocal();
+            var config = await ServiceApi.GetConfigYamlAsync();
+            _tun = config.Ok && config.Result.ValueKind == System.Text.Json.JsonValueKind.String
+                ? ConfigYaml.ParseTunConfig(config.Result.GetString())
+                : null;
+            await RefreshLocalAsync();
             await RefreshRoutingAsync();
         }
         finally
@@ -48,20 +58,32 @@ public sealed partial class StatusPage : Page
         }
     }
 
-    private void RefreshLocal()
+    private async Task RefreshLocalAsync()
     {
-        var settings = SettingsStore.Load();
-        var status = StatusStore.Load();
-        var serviceState = ServiceControl.GetState();
-        var tun = ConfigYaml.ReadTunConfig(SharedPaths.ConfigPath);
+        if (_refreshingLocal)
+        {
+            return;
+        }
+        _refreshingLocal = true;
+        try
+        {
+            var serviceState = ServiceControl.GetState();
+            var settings = await ServiceApi.GetSettingsAsync() ?? new NebulaSettings();
+            var status = await ServiceApi.GetStatusAsync();
+            var dnsConfigured = await ServiceApi.GetDnsConfiguredAsync();
 
-        var server = string.IsNullOrWhiteSpace(settings.Server) ? "(not set)" : settings.Server;
-        ServerLink.Content = server;
-        ServerLink.IsEnabled = !string.IsNullOrWhiteSpace(settings.Server);
+            var server = string.IsNullOrWhiteSpace(settings.Server) ? "(not set)" : settings.Server;
+            ServerLink.Content = server;
+            ServerLink.IsEnabled = !string.IsNullOrWhiteSpace(settings.Server);
 
-        UpdateServiceCard(serviceState);
-        UpdateNebulaCard(status, tun);
-        UpdateDnsCard(settings);
+            UpdateServiceCard(serviceState);
+            UpdateNebulaCard(status, _tun);
+            UpdateDnsCard(settings, dnsConfigured);
+        }
+        finally
+        {
+            _refreshingLocal = false;
+        }
         // Deliberately NOT refreshed by the 2s timer (unlike the cards above): this
         // panel holds interactive checkboxes/radios, and rebuilding it periodically
         // could disrupt a mid-click user. It's refreshed on load, the Refresh
@@ -94,6 +116,7 @@ public sealed partial class StatusPage : Page
             "idle" => (Colors.SteelBlue, "Idle"),
             "error" => (Colors.Firebrick, "Error"),
             "starting" => (Colors.Goldenrod, "Starting"),
+            "updating" => (Colors.Goldenrod, "Updating Nebula"),
             "stopped" => (Colors.Gray, "Stopped"),
             _ => (Colors.Gray, "Unknown"),
         };
@@ -114,15 +137,14 @@ public sealed partial class StatusPage : Page
         NebulaDetailText.Text = sb.ToString();
     }
 
-    private void UpdateDnsCard(NebulaSettings settings)
+    private void UpdateDnsCard(NebulaSettings settings, bool dnsConfigured)
     {
-        var dnsConfigured = File.Exists(SharedPaths.DnsClientConfigPath);
         if (!dnsConfigured)
         {
             DnsDot.Fill = new SolidColorBrush(Colors.Gray);
             DnsStateText.Text = "Not configured for this network";
         }
-        else if (settings.AcceptDns)
+        else if (settings.AcceptDns == true)
         {
             DnsDot.Fill = new SolidColorBrush(Colors.SeaGreen);
             DnsStateText.Text = "Active";
@@ -136,27 +158,42 @@ public sealed partial class StatusPage : Page
 
     private async Task RefreshRoutingAsync()
     {
-        var settings = SettingsStore.Load();
-        var token = TokenStore.GetToken();
-
-        var advertised = !string.IsNullOrWhiteSpace(settings.Server) && token is not null
-            ? await BackendClient.GetAdvertisedRoutesAsync(settings.Server, token)
-            : new List<string>();
+        // Fetched by the service with the device token - the app never sees it.
+        var advertised = await ServiceApi.GetAdvertisedRoutesAsync();
         AdvertisingText.Text = advertised.Count > 0
             ? string.Join(", ", advertised)
             : "Nothing (not acting as a gateway)";
 
-        RefreshRoutesPicker(settings);
+        await RebuildRoutesPickerAsync();
+    }
+
+    private async Task RebuildRoutesPickerAsync()
+    {
+        var settings = await ServiceApi.GetSettingsAsync() ?? new NebulaSettings();
+        var available = await ServiceApi.GetAvailableRoutesAsync();
+        RefreshRoutesPicker(settings, available);
     }
 
     /// <summary>Rebuilds the subnet-route checkboxes and exit-node radio buttons
     /// from available-routes.json (everything the server authorizes this node to
     /// consume) against settings.json (what's been locally accepted) - the
-    /// client-side consent gate described in docs/unsafe-routes.md. Local-only,
-    /// no network call.</summary>
-    private void RefreshRoutesPicker(NebulaSettings settings)
+    /// client-side consent gate described in docs/unsafe-routes.md. Both read
+    /// from the service; no network call.</summary>
+    private void RefreshRoutesPicker(NebulaSettings settings, List<AvailableRoute> available)
     {
-        var available = RoutesStore.Load();
+        _rebuildingRoutes = true;
+        try
+        {
+            BuildRoutesPicker(settings, available);
+        }
+        finally
+        {
+            _rebuildingRoutes = false;
+        }
+    }
+
+    private void BuildRoutesPicker(NebulaSettings settings, List<AvailableRoute> available)
+    {
         var acceptedSubnetRoutes = settings.AcceptedSubnetRoutes ?? new List<SubnetRouteRef>();
         var acceptedExitVia = settings.AcceptedExitNode?.Via;
 
@@ -211,67 +248,51 @@ public sealed partial class StatusPage : Page
         }
     }
 
-    private void SubnetRouteCheckbox_Toggled(object sender, RoutedEventArgs e)
+    private async void SubnetRouteCheckbox_Toggled(object sender, RoutedEventArgs e)
     {
-        if (sender is not CheckBox { Tag: AvailableRoute route } checkbox)
+        if (_rebuildingRoutes || sender is not CheckBox { Tag: AvailableRoute route } checkbox)
         {
             return;
         }
-        var settings = SettingsStore.Load();
-        var accepted = settings.AcceptedSubnetRoutes ?? new List<SubnetRouteRef>();
         var wantAccepted = checkbox.IsChecked == true;
-        var isCurrentlyAccepted = accepted.Any(a => a.Route == route.Route && a.Via == route.Via);
-        if (wantAccepted == isCurrentlyAccepted)
-        {
-            return;
-        }
-
-        if (wantAccepted)
-        {
-            var conflict = CidrUtil.ValidateNewSubnetRoute(route.Route, accepted);
-            if (conflict is not null)
-            {
-                // Shouldn't normally happen (conflicting boxes are disabled), but a
-                // stale rebuild race is possible - revert and explain rather than
-                // silently accepting a conflicting route.
-                checkbox.IsChecked = false;
-                ShowRoutesResult(InfoBarSeverity.Error, conflict);
-                return;
-            }
-            accepted = accepted.Where(a => a.Route != route.Route).ToList();
-            accepted.Add(new SubnetRouteRef { Route = route.Route, Via = route.Via });
-            ShowRoutesResult(InfoBarSeverity.Success, $"Accepted {route.Route} via {route.Via}.");
-        }
-        else
-        {
-            accepted = accepted.Where(a => a.Route != route.Route).ToList();
-            ShowRoutesResult(InfoBarSeverity.Success, $"Rejected {route.Route}.");
-        }
-
-        settings.AcceptedSubnetRoutes = accepted;
-        SettingsStore.Save(settings);
-        _ = PipeClient.SendCommandAsync(PipeClient.CmdPollNow);
-        RefreshRoutesPicker(settings); // re-evaluate conflict-disabled state for the other checkboxes
+        // The service validates (offered? overlapping?) and restarts its poll
+        // loop; on any failure the picker is rebuilt from the service's state,
+        // which reverts this checkbox.
+        var result = wantAccepted
+            ? await ServiceApi.AcceptRouteAsync(route.Route, route.Via)
+            : await ServiceApi.RejectRouteAsync(route.Route);
+        HandleRouteResult(result, wantAccepted
+            ? $"Accepted {route.Route} via {route.Via}."
+            : $"Rejected {route.Route}.");
+        await RebuildRoutesPickerAsync(); // re-evaluate conflict-disabled state for the other checkboxes
     }
 
-    private void ExitNodeRadio_Checked(object sender, RoutedEventArgs e)
+    private async void ExitNodeRadio_Checked(object sender, RoutedEventArgs e)
     {
-        if (sender is not RadioButton radio)
+        if (_rebuildingRoutes || sender is not RadioButton radio)
         {
             return;
         }
         var via = radio.Tag as string; // null for the "None" option
-        var settings = SettingsStore.Load();
-        if (settings.AcceptedExitNode?.Via == via)
+        var result = via is not null
+            ? await ServiceApi.AcceptExitNodeAsync(via)
+            : await ServiceApi.RejectExitNodeAsync();
+        HandleRouteResult(result, via is not null ? $"Accepted exit node via {via}." : "Rejected the exit node.");
+        await RebuildRoutesPickerAsync();
+    }
+
+    private void HandleRouteResult(PipeClient.PipeResponse result, string successMessage)
+    {
+        if (result.Ok)
         {
+            ShowRoutesResult(InfoBarSeverity.Success, successMessage);
             return;
         }
-        settings.AcceptedExitNode = via is not null ? new ExitNodeRef { Via = via } : null;
-        SettingsStore.Save(settings);
-        _ = PipeClient.SendCommandAsync(PipeClient.CmdPollNow);
-        ShowRoutesResult(
-            InfoBarSeverity.Success,
-            via is not null ? $"Accepted exit node via {via}." : "Rejected the exit node.");
+        if (result.AdministratorRequired)
+        {
+            App.MainWindowInstance?.ShowAdminRequired();
+        }
+        ShowRoutesResult(InfoBarSeverity.Error, ServiceApi.Describe(result));
     }
 
     private void ShowRoutesResult(InfoBarSeverity severity, string message)
@@ -282,9 +303,9 @@ public sealed partial class StatusPage : Page
         RoutesResultBar.IsOpen = true;
     }
 
-    private void ServerLink_Click(object sender, RoutedEventArgs e)
+    private async void ServerLink_Click(object sender, RoutedEventArgs e)
     {
-        var server = SettingsStore.Load().Server;
+        var server = (await ServiceApi.GetSettingsAsync())?.Server;
         if (string.IsNullOrWhiteSpace(server))
         {
             return;
@@ -294,7 +315,7 @@ public sealed partial class StatusPage : Page
 
     private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
     {
-        var server = SettingsStore.Load().Server;
+        var server = (await ServiceApi.GetSettingsAsync())?.Server;
         if (string.IsNullOrWhiteSpace(server))
         {
             TestConnectionResult.Text = "No server configured.";
@@ -338,28 +359,35 @@ public sealed partial class StatusPage : Page
         }
         catch (Exception ex)
         {
-            ServiceActionResult.Text = $"Failed: {ex.Message}";
+            // Starting/stopping the service needs an elevated administrator
+            // (the service's ACL) - surfaced as an access-denied failure.
+            if (!Elevation.IsElevated)
+            {
+                App.MainWindowInstance?.ShowAdminRequired();
+                ServiceActionResult.Text = "Failed: administrator required.";
+            }
+            else
+            {
+                ServiceActionResult.Text = $"Failed: {ex.Message}";
+            }
         }
         finally
         {
             ServiceProgress.IsActive = false;
-            RefreshLocal();
+            await RefreshLocalAsync();
         }
     }
 
     private async void ViewConfigButton_Click(object sender, RoutedEventArgs e)
     {
-        string content;
-        try
-        {
-            content = File.Exists(SharedPaths.ConfigPath)
-                ? File.ReadAllText(SharedPaths.ConfigPath)
+        // Served by the service with pki.key redacted - the node's private key
+        // is never shown or readable outside the SYSTEM-only state folder.
+        var result = await ServiceApi.GetConfigYamlAsync();
+        var content = result.Ok && result.Result.ValueKind == System.Text.Json.JsonValueKind.String
+            ? result.Result.GetString() ?? ""
+            : result.Unreachable
+                ? $"Service not reachable: {result.Error}"
                 : "config.yaml not found yet - not enrolled, or the service hasn't polled successfully.";
-        }
-        catch (Exception ex)
-        {
-            content = $"Failed to read config.yaml: {ex.Message}";
-        }
 
         var textBlock = new TextBlock
         {

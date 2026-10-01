@@ -3,13 +3,18 @@
 A windowed, side-tab (Status / Enrollment / Settings) desktop app that
 minimizes to the tray on close instead of exiting. It's a native front end
 for the `NebulaCommanderService` Windows Service (`client/windows/service.py`)
-- it doesn't run the VPN itself, doesn't change the service or its IPC
-contract, and shares the same `%ProgramData%\nebula-commander\` state
-(settings, the DPAPI-encrypted device token, `status.json`,
-`available-routes.json`, and Nebula's own
-`config.yaml`/`dns-client.json`/`nebula.log`) and named pipe
-(`client/windows/pipe_protocol.py`) used to nudge the service to act
-immediately instead of waiting for its next poll cycle.
+- it doesn't run the VPN itself. Everything it shows or changes goes through
+the service's named-pipe API (`client/windows/pipe_protocol.py`); it never
+touches `%ProgramData%\nebula-commander\`, which is
+SYSTEM/Administrators-only.
+
+**Running unelevated is view-only.** Changing settings, enrolling,
+accepting/rejecting routes or exit nodes, installing/updating Nebula, and
+starting/stopping the service all require an elevated administrator - the
+service checks the caller on every change, and the service's ACL only lets
+non-admins query it. The app shows a "Relaunch as administrator" bar when it
+isn't elevated. The manifest stays `asInvoker` so login autostart (HKCU Run
+key) keeps working without a UAC prompt at every login.
 
 This is the **only** GUI now (the installer's finish-dialog checkbox launches
 it) - an older Python/Tkinter system-tray-only app that used to ship
@@ -43,10 +48,11 @@ Exit menu item is what actually ends the process). For faster iteration,
 `bin\Debug\net10.0-windows10.0.26100.0\win-x64\NebulaCommanderApp.exe`
 directly.
 
-No elevation needed - it only talks to the already-installed,
-already-elevated `NebulaCommanderService` (service start/stop/restart works
-unelevated because the MSI grants Authenticated Users those specific rights
-on the service - see `installer/windows/Product.wxs`'s `GrantServiceControlAcl`).
+Unelevated it's view-only (see above); run it elevated to exercise any
+change. It talks to the installed `NebulaCommanderService` and refuses to use
+the control pipe unless the pipe's server process is that service (checked via
+the service's PID), so a dev copy of the service has to be installed/started
+as the real service (`python -m client.windows.service install` + `start`).
 If the service isn't installed/running yet, the Status page reflects that
 rather than failing.
 
@@ -77,19 +83,19 @@ MainWindow.xaml(.cs)       NavigationView shell (side tabs); Closing -> hide to 
 Pages/
   StatusPage               server/service/interface/DNS/routing status, live
   EnrollmentPage           enroll/re-enroll with a code
-  SettingsPage             server/interval/Nebula path/DNS toggle, Nebula binary
-                            download, run-on-startup
+  SettingsPage             server/interval/DNS toggle, service-managed Nebula
+                            install/update, run-on-startup
 Services/
-  SharedPaths               %ProgramData%\nebula-commander\ path resolution
-  SettingsStore, StatusStore, RoutesStore   settings.json / status.json /
-                            available-routes.json read(/write)
-  TokenStore                 token.bin via DPAPI (ProtectedData, LocalMachine
-                            scope, no entropy) - see "Notes" below
-  PipeClient                 \\.\pipe\NebulaCommanderControl client
-  ServiceControl              ServiceController wrapper (status/start/stop/restart)
-  BackendClient               HTTP: enroll, /api/health, /api/device/advertised-routes
-  ConfigYaml                  minimal read of config.yaml's tun.dev/unsafe_routes
-  NebulaDownload               GitHub-releases download/version-check for nebula.exe
+  PipeClient                 \\.\pipe\NebulaCommanderControl client (identification-
+                            level impersonation; verifies the server is the service)
+  ServiceApi                  typed wrappers for every pipe command
+  ServiceModels               DTOs (settings, status, routes, enrollment)
+  Elevation                   IsElevated / relaunch elevated ("runas")
+  SharedPaths                 %ProgramData%\nebula-commander\ (Open folder button only)
+  ServiceControl              ServiceController wrapper (status/start/stop/restart,
+                            service PID via QueryServiceStatusEx)
+  BackendClient               HTTP: /api/health (unauthenticated) only
+  ConfigYaml                  parse tun.dev/unsafe_routes from the (redacted) config
   AutoStart                   HKCU Run-key toggle
   CidrUtil                    CIDR overlap check for the subnet-route picker
 Tray/
@@ -119,14 +125,15 @@ Tray/
   .NET single-file behavior, not something this project's code needs to
   account for (relative-path file lookups like `Assets/AppIcon.ico` resolve
   correctly with no special-casing).
-- **`TokenStore.cs`'s DPAPI usage must stay byte-compatible with
-  `client/token_store.py`**: `ProtectedData.Protect(data, null,
-  DataProtectionScope.LocalMachine)` is the .NET equivalent of
-  `win32crypt.CryptProtectData(data, "nebula-commander-token", None, None,
-  None, CRYPTPROTECT_LOCAL_MACHINE | CRYPTPROTECT_UI_FORBIDDEN)` - no extra
-  entropy either side (the Python side's description string is DPAPI
-  metadata, not entropy, so it doesn't need to match). This is what lets the
-  LocalSystem service and this app both read/write the same `token.bin`.
+- **Never read or write `%ProgramData%\nebula-commander\` from this app.**
+  An earlier design shared that folder with all local users, which let any
+  user replace the `nebula.exe` the LocalSystem service runs (SYSTEM code
+  execution) and read the node's private key. New features need a pipe
+  command (`client/windows/pipe_server.py`'s `_COMMANDS`, marked READ or
+  MANAGE) plus a `ServiceApi` wrapper here.
+- **`PipeClient` must connect with `TokenImpersonationLevel.Identification`.**
+  .NET's default (`None`, anonymous) leaves the service unable to tell who's
+  calling, so every MANAGE command would be refused.
 - **Nebula's firewall `cidr` field is combinable with `local_cidr`** (since
   Nebula 1.9.0) and matches the peer's certificate-verified overlay IP, not
   a spoofable source address - this is what makes `CidrUtil`'s

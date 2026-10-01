@@ -31,6 +31,24 @@ public sealed partial class MainWindow : Window
 
         AppWindow.Closing += AppWindow_Closing;
         _trayIcon = new TrayIcon(onOpen: ShowAndActivate, onExit: ExitFromTray);
+        AdminBar.IsOpen = !Elevation.IsElevated;
+    }
+
+    /// <summary>Called by pages when the service answered administrator_required
+    /// (or a service start/stop was denied): re-show the bar, highlighted.</summary>
+    public void ShowAdminRequired()
+    {
+        AdminBar.Severity = InfoBarSeverity.Warning;
+        AdminBar.Title = "Administrator required";
+        AdminBar.IsOpen = true;
+    }
+
+    private void RelaunchElevated_Click(object sender, RoutedEventArgs e)
+    {
+        if (Elevation.TryRelaunchElevated())
+        {
+            ExitFromTray();
+        }
     }
 
     private void AppWindow_Closing(AppWindow sender, AppWindowClosingEventArgs args)
@@ -73,11 +91,13 @@ public sealed partial class MainWindow : Window
     }
 
     /// <summary>Enrolled -> Status, not enrolled -> Enrollment. Called once at
-    /// launch (see App.xaml.cs::OnLaunched); mirrors ncclient.py's own
-    /// `get_token() is None` check for whether a device is enrolled yet.</summary>
-    public void NavigateInitial()
+    /// launch (see App.xaml.cs::OnLaunched). Asks the service (is_enrolled) -
+    /// the token itself is never readable by this app. Service unreachable ->
+    /// Status, which explains that.</summary>
+    public async void NavigateInitial()
     {
-        NavigateToTag(TokenStore.GetToken() is not null ? "status" : "enrollment");
+        var enrollment = await ServiceApi.GetEnrollmentAsync();
+        NavigateToTag(enrollment is { Enrolled: false } ? "enrollment" : "status");
     }
 
     private void TitleBar_PaneToggleRequested(TitleBar sender, object args)

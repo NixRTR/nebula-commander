@@ -50,7 +50,27 @@
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>
-            <Frame x:Name="NavFrame" />
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                </Grid.RowDefinitions>
+                <!-- Shown while unelevated: reading works for everyone, but every
+                     change needs an elevated administrator (the service checks). -->
+                <InfoBar
+                    x:Name="AdminBar"
+                    Margin="24,12,24,0"
+                    Severity="Informational"
+                    IsOpen="False"
+                    IsClosable="True"
+                    Title="View only"
+                    Message="Changing settings, enrollment, routes or the service requires an administrator.">
+                    <InfoBar.ActionButton>
+                        <Button Content="Relaunch as administrator" Click="RelaunchElevated_Click" />
+                    </InfoBar.ActionButton>
+                </InfoBar>
+                <Frame x:Name="NavFrame" Grid.Row="1" />
+            </Grid>
         </NavigationView>
     </Grid>
 </Window>

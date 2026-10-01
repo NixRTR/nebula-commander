@@ -30,19 +30,6 @@
                     SmallChange="10"
                     LargeChange="60" />
 
-                <StackPanel Orientation="Horizontal" Spacing="12">
-                    <TextBox
-                        x:Name="NebulaPathBox"
-                        Header="Nebula executable path (optional)"
-                        PlaceholderText="Leave empty to use nebula from system PATH"
-                        Width="360" />
-                    <Button
-                        x:Name="BrowseButton"
-                        Content="Browse..."
-                        VerticalAlignment="Bottom"
-                        Click="BrowseButton_Click" />
-                </StackPanel>
-
                 <ToggleSwitch
                     x:Name="AcceptDnsToggle"
                     Header="Split-horizon DNS"
@@ -59,11 +46,15 @@
 
             <!-- Nebula binary -->
             <StackPanel Spacing="12">
-                <TextBlock Text="Nebula binary" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock Text="Nebula" Style="{StaticResource SubtitleTextBlockStyle}" />
+                <TextBlock
+                    Text="The service downloads Nebula from the official GitHub release, verifies its SHA256 checksum, and installs it where only administrators can change it."
+                    TextWrapping="Wrap"
+                    Opacity="0.7" />
                 <TextBlock x:Name="NebulaVersionText" TextWrapping="Wrap" Opacity="0.85" />
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <Button x:Name="CheckUpdateButton" Content="Check for updates" Click="CheckUpdateButton_Click" />
-                    <Button x:Name="DownloadButton" Content="Download / update Nebula" IsEnabled="False" Click="DownloadButton_Click" />
+                    <Button x:Name="DownloadButton" Content="Install / update Nebula" IsEnabled="False" Click="DownloadButton_Click" />
                     <ProgressRing x:Name="NebulaProgress" IsActive="False" Width="18" Height="18" />
                 </StackPanel>
                 <InfoBar x:Name="NebulaResultBar" IsOpen="False" IsClosable="False" />

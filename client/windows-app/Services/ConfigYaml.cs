@@ -15,21 +15,22 @@ public sealed class TunConfig
 /// Status page to show what this node consumes as a subnet-router/exit-node
 /// client. A node's *own* advertised routes never appear here (Nebula's `via`
 /// points at other nodes reaching it, not at itself) - see
-/// BackendClient.GetAdvertisedRoutesAsync for that half of the picture.
+/// ServiceApi.GetAdvertisedRoutesAsync for that half of the picture.
 /// </summary>
 public static class ConfigYaml
 {
-    public static TunConfig? ReadTunConfig(string path)
+    /// <summary>Parses config.yaml text (as returned, key-redacted, by the
+    /// service's get_config_yaml). Null if missing/unparseable.</summary>
+    public static TunConfig? ParseTunConfig(string? yaml)
     {
-        if (!File.Exists(path))
+        if (string.IsNullOrWhiteSpace(yaml))
         {
             return null;
         }
         try
         {
             var deserializer = new DeserializerBuilder().Build();
-            using var reader = new StreamReader(path);
-            var root = deserializer.Deserialize<Dictionary<object, object>>(reader);
+            var root = deserializer.Deserialize<Dictionary<object, object>>(yaml);
             if (root is null || !TryGet(root, "tun", out var tunObj) || tunObj is not Dictionary<object, object> tun)
             {
                 return null;

@@ -41,7 +41,9 @@ __all__ = [
     "get_settings",
     "set_settings",
     "get_status",
+    "get_advertised_routes",
     "get_available_routes",
+    "redact_config_yaml",
     "get_config_yaml",
     "validate_new_subnet_route",
     "accept_route",
@@ -57,7 +59,14 @@ _lock = threading.Lock()
 # this module's own accept/reject/enroll functions, never by a raw
 # SetSettings call - keeps route selection consistent with what
 # available-routes.json actually currently offers.
-_SETTABLE_KEYS = ("server", "interval", "nebula_path", "accept_dns")
+#
+# nebula_path is deliberately NOT settable: on Windows the LocalSystem
+# service used to execute whatever path settings.json named, which let any
+# caller who could write settings run arbitrary code as SYSTEM. The Windows
+# service now only ever runs its own verified install (see
+# client/windows/nebula_install.py), and Linux never read it from
+# settings.json in the first place.
+_SETTABLE_KEYS = ("server", "interval", "accept_dns")
 
 
 class ServiceApiError(Exception):
@@ -126,12 +135,26 @@ def get_settings() -> dict:
 
 
 def set_settings(partial: dict) -> None:
-    """Merge server/interval/nebula_path/accept_dns into settings.json.
+    """Merge server/interval/accept_dns into settings.json.
     Silently ignores any other key (route selection/node_id have their own
     dedicated functions below - never settable via a raw partial update)."""
     updates = {k: v for k, v in partial.items() if k in _SETTABLE_KEYS}
     with _lock:
         save_settings({**load_settings(), **updates})
+
+
+def get_advertised_routes() -> list[str]:
+    """CIDRs this device advertises as a subnet router / exit node, fetched
+    with the stored token inside the caller's (privileged) process - so a GUI
+    can show them without ever reading the token itself. Empty when not
+    enrolled or on any failure."""
+    from client.ncclient import _fetch_advertised_routes
+
+    token = get_token()
+    server = (load_settings().get("server") or "").strip()
+    if not token or not server:
+        return []
+    return _fetch_advertised_routes(_server_url(server), token)
 
 
 def get_status(output_dir: str) -> dict:
@@ -158,11 +181,43 @@ def get_available_routes(output_dir: str) -> list[dict]:
         return []
 
 
+REDACTED = "<redacted>"
+
+
+def redact_config_yaml(content: str) -> str:
+    """Replace pki.key (the node's inline private key, see the backend's
+    config_generator) with a placeholder. Readers of this API are allowed to
+    see the config (read action / unprivileged pipe client) but must never
+    get the node's identity. Falls back to dropping every PEM private-key
+    block if the YAML can't be parsed, so a malformed file still never
+    leaks the key."""
+    import re
+
+    import yaml
+
+    try:
+        parsed = yaml.safe_load(content)
+    except yaml.YAMLError:
+        parsed = None
+    if isinstance(parsed, dict):
+        pki = parsed.get("pki")
+        if isinstance(pki, dict) and "key" in pki:
+            pki["key"] = REDACTED
+        return yaml.safe_dump(parsed, default_flow_style=False, sort_keys=False)
+    return re.sub(
+        r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----",
+        REDACTED,
+        content,
+        flags=re.DOTALL,
+    )
+
+
 def get_config_yaml(output_dir: str) -> str:
+    """config.yaml with the private key redacted - see redact_config_yaml."""
     path = os.path.join(output_dir, "config.yaml")
     try:
         with open(path, "r", encoding="utf-8") as f:
-            return f.read()
+            return redact_config_yaml(f.read())
     except OSError as e:
         raise ServiceApiError(f"Could not read {path}: {e}") from e
 

@@ -9,18 +9,23 @@ public sealed partial class EnrollmentPage : Page
     public EnrollmentPage()
     {
         InitializeComponent();
-        Loaded += (_, _) => LoadExisting();
+        Loaded += async (_, _) => await LoadExistingAsync();
     }
 
-    private void LoadExisting()
+    private async Task LoadExistingAsync()
     {
-        var settings = SettingsStore.Load();
-        if (!string.IsNullOrWhiteSpace(settings.Server))
-        {
-            ServerBox.Text = settings.Server;
-        }
-        AlreadyEnrolledBar.IsOpen = TokenStore.GetToken() is not null;
         ResultBar.IsOpen = false;
+        var enrollment = await ServiceApi.GetEnrollmentAsync();
+        if (enrollment is null)
+        {
+            ShowResult(InfoBarSeverity.Warning, "The Nebula Commander service isn't running - start it from the Status page.");
+            return;
+        }
+        if (!string.IsNullOrWhiteSpace(enrollment.Server))
+        {
+            ServerBox.Text = enrollment.Server;
+        }
+        AlreadyEnrolledBar.IsOpen = enrollment.Enrolled;
     }
 
     private async void EnrollButton_Click(object sender, RoutedEventArgs e)
@@ -44,30 +49,24 @@ public sealed partial class EnrollmentPage : Page
         ShowResult(InfoBarSeverity.Informational, "Enrolling...");
         try
         {
-            var result = await BackendClient.EnrollAsync(server, code);
+            // The service makes the enroll HTTP call and stores the token itself
+            // (SYSTEM-only), then re-polls immediately.
+            var result = await ServiceApi.EnrollAsync(BackendClient.NormalizeServerUrl(server), code);
+            if (result.AdministratorRequired)
+            {
+                App.MainWindowInstance?.ShowAdminRequired();
+                ShowResult(InfoBarSeverity.Error, ServiceApi.Describe(result));
+                return;
+            }
+            if (!result.Ok)
+            {
+                ShowResult(InfoBarSeverity.Error, ServiceApi.Describe(result));
+                return;
+            }
 
-            TokenStore.SetToken(result.DeviceToken);
-
-            var settings = SettingsStore.Load();
-            settings.Server = BackendClient.NormalizeServerUrl(server);
-            settings.NodeId = result.NodeId;
-            SettingsStore.Save(settings);
-
-            // Best-effort: ask the service to poll immediately instead of waiting
-            // for its next interval tick. A failure here isn't fatal - the
-            // service will pick up the new token/server on its own regardless.
-            await PipeClient.SendCommandAsync(PipeClient.CmdPollNow);
-
+            CodeBox.Text = "";
             ShowResult(InfoBarSeverity.Success, "Enrolled. Loading status...");
             App.MainWindowInstance?.NavigateToTag("status");
-        }
-        catch (BackendClient.EnrollException ex)
-        {
-            ShowResult(InfoBarSeverity.Error, ex.Message);
-        }
-        catch (Exception ex)
-        {
-            ShowResult(InfoBarSeverity.Error, $"Enroll failed: {ex.Message}");
         }
         finally
         {

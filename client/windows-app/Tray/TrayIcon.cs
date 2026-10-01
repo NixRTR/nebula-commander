@@ -63,7 +63,8 @@ public sealed class TrayIcon : IDisposable
     {
         try
         {
-            var status = StatusStore.Load();
+            // Runs on a threadpool timer thread, so blocking on the pipe call is fine.
+            var status = ServiceApi.GetStatusAsync().GetAwaiter().GetResult();
             var text = $"Nebula Commander - {status.Message}";
             // NotifyIcon.Text has a hard 127-char limit (throws ArgumentException past it).
             var truncated = text.Length > 127 ? text[..127] : text;

@@ -1,9 +1,11 @@
 namespace NebulaCommanderApp.Services;
 
 /// <summary>
-/// Paths under %ProgramData%\nebula-commander\ shared with the Windows service
-/// (see client/windows/shared_paths.py on the Python side). This app never
-/// changes that layout - it's a second reader/writer of it.
+/// %ProgramData%\nebula-commander\ - the service's state folder (see
+/// client/windows/shared_paths.py). SYSTEM/Administrators-only: this app never
+/// reads or writes it directly (everything goes through <see cref="ServiceApi"/>);
+/// the path is only used for the "Open folder" convenience button, which works
+/// for an elevated administrator.
 /// </summary>
 public static class SharedPaths
 {
@@ -16,14 +18,4 @@ public static class SharedPaths
             ?? @"C:\ProgramData";
         return Path.Combine(programData, "nebula-commander");
     }
-
-    public static string SettingsPath => Path.Combine(Root, "settings.json");
-    public static string StatusPath => Path.Combine(Root, "status.json");
-    public static string TokenPath => Path.Combine(Root, "token.bin");
-    public static string ConfigPath => Path.Combine(Root, "config.yaml");
-    public static string DnsClientConfigPath => Path.Combine(Root, "dns-client.json");
-    public static string AvailableRoutesPath => Path.Combine(Root, "available-routes.json");
-    public static string NebulaLogPath => Path.Combine(Root, "nebula.log");
-    public static string NebulaDir => Path.Combine(Root, "nebula");
-    public static string NebulaExePath => Path.Combine(NebulaDir, "nebula.exe");
 }
