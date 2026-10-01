@@ -97,9 +97,11 @@ in
   };
 
   config = mkIf cfg.enable {
-    # cfg.package on PATH for its share/polkit-1/actions (NixOS's polkit module
-    # only picks actions up from systemPackages - services.dbus.packages below
-    # covers the bus policy only), plus a wrapper so `sudo ncclient routes ...`
+    # cfg.package on PATH for its share/polkit-1/actions (NixOS's polkit module,
+    # when security.polkit.enable is on - client-desktop-module.nix turns it on -
+    # only links actions from systemPackages; services.dbus.packages below
+    # covers the bus policy only). Without polkitd every D-Bus call is refused
+    # (fails closed), which is fine headless. Plus a wrapper so `sudo ncclient routes ...`
     # / `sudo ncclient enroll ...` act on the service's own state instead of
     # root's per-user defaults. hiPrio: both provide bin/ncclient, and
     # system-path's buildEnv otherwise picks one by list order.

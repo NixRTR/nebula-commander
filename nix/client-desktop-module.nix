@@ -18,15 +18,21 @@ in
     };
   };
 
-  # Deliberately minimal - unlike client-module.nix (the systemd service
-  # this app talks to), there's no D-Bus/polkit wiring to do here: the
-  # service side already registers org.beardedtek.NebulaCommander1's bus
-  # policy and polkit action (see client-module.nix's services.dbus.packages
-  # and security.polkit.extraConfig), and this app is purely a consumer of
-  # that API over client/linux/dbus_client.py - no filesystem permissions,
-  # group membership, or relogin step needed for it to work, on any host
-  # that already has services.ncclient.enable = true.
+  # Deliberately minimal - the service side (client-module.nix) registers
+  # org.beardedtek.NebulaCommander1's bus policy, polkit action and the
+  # adminGroups rule, and this app is purely a consumer of that API over
+  # client/linux/dbus_client.py. The one thing needed here is polkitd itself
+  # (below). Changes need membership in services.ncclient.adminGroups
+  # (default wheel/sudo); viewing works for any active local user.
   config = mkIf cfg.enable {
     environment.systemPackages = [ cfg.package ];
+
+    # Every D-Bus call this app makes is authorized by polkit
+    # (client/linux/dbus_server.py's CheckAuthorization), and NixOS's polkit
+    # is opt-in. Without polkitd those calls all fail closed (refused), and
+    # client-module.nix's security.polkit.extraConfig rule and its action
+    # file aren't even installed. Desktop environments usually enable it
+    # already; mkDefault so an explicit setting still wins.
+    security.polkit.enable = mkDefault true;
   };
 }
