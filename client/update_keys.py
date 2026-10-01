@@ -8,4 +8,5 @@ added a release before the old one is retired.
 """
 
 PUBLIC_KEYS: "list[str]" = [
+    "aeAcNfwt16yUtKoHCU4PsJDwFvIMn2CoiNyfJ3p8VPk=",  # 2026-10-01
 ]
