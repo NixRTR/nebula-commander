@@ -35,5 +35,8 @@ lighthouse sees it connect from. This list should have what that doesn't cover.
   reserved (`240.0.0.0/4`, including the broadcast address `255.255.255.255`),
   IPv4-mapped IPv6 (use the plain IPv4 address instead), and `0.0.0.0` / `::`
   are rejected.
+- IPv4 addresses ending in `.0` or `.255` are accepted, with a warning next to
+  them: on a `/24` LAN they're the network/broadcast address and won't work, but
+  on a larger LAN they can be ordinary hosts.
 - Changing the list restarts Nebula on that node only. It does not re-sign the
   certificate.

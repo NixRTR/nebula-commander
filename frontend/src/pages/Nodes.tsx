@@ -49,6 +49,15 @@ const ADVERTISE_ADDRS_HELP =
 /** Same limit as the backend's MAX_ADVERTISE_ADDRS (services/config_generator.py). */
 const MAX_ADVERTISE_ADDRS = 8;
 
+/** Soft warning (never blocks) for an IPv4 address ending in .0 or .255: on a /24 LAN that's
+ * the network/broadcast address and won't work, but on a larger LAN (/23, /16, ...) it can be
+ * an ordinary host, and Nebula Commander can't know the underlay's mask. Null if no warning. */
+const advertiseAddrWarning = (addr: string): string | null => {
+  const m = /^\d{1,3}\.\d{1,3}\.\d{1,3}\.(\d{1,3}):\d+$/.exec(addr);
+  if (!m || (m[1] !== "0" && m[1] !== "255")) return null;
+  return `Usually a ${m[1] === "0" ? "network" : "broadcast"} address - make sure it's a real host on that LAN`;
+};
+
 const ipv4ToNumber = (ip: string): number => ip.split(".").reduce((acc, octet) => acc * 256 + Number(octet), 0);
 
 /** True if an IPv4 address (as a number) falls inside an IPv4 CIDR like "10.123.0.0/24". */
@@ -1912,8 +1921,13 @@ export function Nodes() {
                                           <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">None</p>
                                         )}
                                         {deviceDetailsForm.advertise_addrs.map((addr) => (
-                                          <div key={addr} className="flex items-center gap-2 mt-2">
+                                          <div key={addr} className="flex flex-wrap items-center gap-2 mt-2">
                                             <span className="text-sm text-gray-700 dark:text-gray-300">{addr}</span>
+                                            {advertiseAddrWarning(addr) && (
+                                              <span className="text-xs text-yellow-600 dark:text-yellow-400">
+                                                {advertiseAddrWarning(addr)}
+                                              </span>
+                                            )}
                                             {deviceDetailsModal.isEditing && (
                                               <Button
                                                 type="button"
