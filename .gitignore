@@ -131,3 +131,6 @@ certs/
 # =============================================================================
 *.log
 logs/
+
+# Release version stamped by client/stamp_version.py at build time
+client/_build_version.py

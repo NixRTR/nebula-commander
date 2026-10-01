@@ -1,5 +1,7 @@
 requests>=2.28.0
 PyYAML>=6.0
+# Ed25519 verification of the signed auto-update manifest (client/updates.py).
+cryptography>=42
 # client/linux/dbus_server.py's system D-Bus service (client/ncclient.py's
 # cmd_run imports this on Linux) - matches client/pyproject.toml's own
 # sys_platform marker. Without this, client/binaries/ncclient.spec's

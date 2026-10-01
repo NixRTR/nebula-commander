@@ -76,7 +76,15 @@
     )
     // {
       nixosModules.default = import ./nix/module.nix;
-      nixosModules.client = import ./nix/client-module.nix;
+      # Wrapped so the default package knows which commit it was built from, for the
+      # client's update check (nix/client-package.nix sourceRev/sourceDate).
+      nixosModules.client = { pkgs, lib, ... }: {
+        imports = [ ./nix/client-module.nix ];
+        services.ncclient.package = lib.mkDefault (pkgs.callPackage ./nix/client-package.nix {
+          sourceRev = self.rev or null;
+          sourceDate = self.lastModified or null;
+        });
+      };
       nixosModules.client-desktop = import ./nix/client-desktop-module.nix;
     };
 }

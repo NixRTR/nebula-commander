@@ -198,6 +198,9 @@ in
         NEBULA_COMMANDER_SERVER = cfg.server;
         NEBULA_DEVICE_TOKEN_FILE = "${cfg.stateDir}/token";
         NEBULA_COMMANDER_CONFIG_DIR = cfg.stateDir;
+        # Auto-update on NixOS only ever notifies: the version is pinned by this
+        # machine's flake, so the client must never install anything itself.
+        NEBULA_COMMANDER_INSTALL_KIND = "nixos";
       };
 
       serviceConfig = {

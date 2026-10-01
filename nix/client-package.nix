@@ -3,6 +3,12 @@
 # "src" from pkgs (which as of nixpkgs 25.11 is a throwing alias for a renamed
 # package), silently overriding a default given here and breaking the build.
 , repoSrc ? ../.
+# Which commit this was built from and that commit's time (Unix seconds), from the
+# flake (self.rev / self.lastModified, see flake.nix). A Nix build has no release tag
+# to stamp a version from, so the client's NixOS update check compares these against
+# the signed update manifest instead (client/updates.py). null = unknown.
+, sourceRev ? null
+, sourceDate ? null
 }:
 
 pkgs.python313.pkgs.buildPythonApplication {
@@ -24,6 +30,7 @@ pkgs.python313.pkgs.buildPythonApplication {
     requests
     keyring
     pyyaml
+    cryptography # client/updates.py: verifies the signed update manifest
     # client/linux/dbus_server.py's system D-Bus service (see
     # client/pyproject.toml's own sys_platform=='linux' marker for the
     # same dependency on PyPI) - nixpkgs deps aren't auto-derived from
@@ -41,6 +48,15 @@ pkgs.python313.pkgs.buildPythonApplication {
   # No test suite is wired up for `client/` (nothing under pytest discovery here); skip
   # rather than have buildPythonApplication's default checkPhase fail on collection.
   doCheck = false;
+
+  # See client/version.py - the same file CI's client/stamp_version.py writes for
+  # release builds, minus VERSION (left as the dev fallback).
+  postPatch = pkgs.lib.optionalString (sourceRev != null || sourceDate != null) ''
+    cat > _build_version.py <<'PYEOF'
+    GIT_COMMIT = ${if sourceRev != null then "\"${sourceRev}\"" else "None"}
+    SOURCE_DATE = ${if sourceDate != null then toString sourceDate else "None"}
+    PYEOF
+  '';
 
   # D-Bus bus policy + polkit action declaration for client/linux/
   # dbus_server.py's org.beardedtek.NebulaCommander1 service, which this

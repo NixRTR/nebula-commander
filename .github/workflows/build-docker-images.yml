@@ -178,6 +178,10 @@ jobs:
             type=raw,value=${{ needs.get-version.outputs.version }}
             type=raw,value=latest,enable=${{ !contains(needs.get-version.outputs.version, '-') }}
 
+      # client/version.py (see build-ncclient-binaries.yml); "latest" stays a dev build.
+      - name: Stamp client version
+        run: python3 client/stamp_version.py "${{ needs.get-version.outputs.version }}"
+
       - name: Build and push ncclient image
         uses: docker/build-push-action@v5
         with:

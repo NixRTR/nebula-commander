@@ -70,6 +70,12 @@ jobs:
           architecture: ${{ matrix.arch }}
           cache: 'pip'
 
+      # client/version.py: release builds know their own version (dev builds don't
+      # auto-update). Uses the tag on tag pushes; anything else stays a dev build.
+      - name: Stamp client version
+        run: python3 client/stamp_version.py || python client/stamp_version.py
+        shell: bash
+
       - name: Set up QEMU (for Linux ARM64)
         if: runner.os == 'Linux' && matrix.arch == 'arm64'
         uses: docker/setup-qemu-action@v3
@@ -166,6 +172,12 @@ jobs:
           pip install -r client/requirements.txt
           pip install -r client/windows/requirements.txt
           pip install pyinstaller
+
+      # client/version.py: release builds know their own version (dev builds don't
+      # auto-update). Uses the tag on tag pushes; anything else stays a dev build.
+      - name: Stamp client version
+        run: python3 client/stamp_version.py || python client/stamp_version.py
+        shell: bash
 
       - name: Build service exe
         working-directory: client/windows
