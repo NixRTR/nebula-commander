@@ -448,8 +448,9 @@ class MainWindow(Adw.ApplicationWindow):
             return
         self.updates_group.set_visible(True)
         nixos = st.get("install_kind") == "nixos"
-        if nixos and st.get("dev_build"):
-            version_text = "Built from your NixOS configuration's flake"
+        installed = st.get("installed_version") or ""
+        if installed.startswith("0.0.0+git."):
+            version_text = f"Built from commit {installed[len('0.0.0+git.'):]} (your NixOS flake)"
         elif st.get("dev_build"):
             version_text = "Development build (never updated automatically)"
         else:

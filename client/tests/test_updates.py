@@ -118,6 +118,21 @@ def test_is_newer(candidate, current, expected):
     assert updates.is_newer(candidate, current) is expected
 
 
+@pytest.mark.parametrize("version,dev", [
+    ("0.0.0+dev", True), ("0.0.0+git.f67bc81", True), ("0.7.0", False), ("0.7.1-rc1", False),
+])
+def test_is_dev_build(version, dev):
+    from client.version import is_dev_build
+
+    assert is_dev_build(version) is dev
+
+
+def test_evaluate_nix_build_reports_by_commit():
+    m = json.loads(_manifest())
+    assert updates.evaluate(m, "nixos", current="0.0.0+git.ddddddd", git_commit="d" * 40,
+                            source_date=1_900_000_000) == "0.7.1"
+
+
 def test_evaluate_release_build():
     m = json.loads(_manifest())
     assert updates.evaluate(m, "windows", current="0.7.0") == "0.7.1"

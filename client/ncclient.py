@@ -1355,7 +1355,12 @@ def _auto_update_call(action: str, **kwargs) -> dict:
 
 def _print_update_status(st: dict) -> None:
     kind = st.get("install_kind")
-    print(f"Installed version: {st.get('installed_version')}{' (development build)' if st.get('dev_build') else ''}")
+    installed = st.get("installed_version") or ""
+    if installed.startswith("0.0.0+git."):
+        installed = f"built from commit {installed[len('0.0.0+git.'):]}"
+    elif st.get("dev_build"):
+        installed += " (development build)"
+    print(f"Installed version: {installed}")
     if not st.get("supported"):
         print("Automatic updates: not available for this kind of install")
         return

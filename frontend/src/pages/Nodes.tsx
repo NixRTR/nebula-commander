@@ -55,9 +55,11 @@ const AUTO_UPDATE_LABELS: Record<string, string> = {
   notify: "notify only",
 };
 
-/** ncclient reports "0.0.0+dev" for development builds (and NixOS builds, which have no release tag). */
-const formatClientVersion = (version: string): string =>
-  version.startsWith("0.0.0+") ? "development build" : `v${version}`;
+/** ncclient reports "0.0.0+git.<commit>" for NixOS builds (no release tag) and "0.0.0+dev" for development builds. */
+const formatClientVersion = (version: string): string => {
+  if (version.startsWith("0.0.0+git.")) return `built from commit ${version.slice("0.0.0+git.".length)}`;
+  return version.startsWith("0.0.0+") ? "development build" : `v${version}`;
+};
 
 /** Soft warning (never blocks) for an IPv4 address ending in .0 or .255: on a /24 LAN that's
  * the network/broadcast address and won't work, but on a larger LAN (/23, /16, ...) it can be
