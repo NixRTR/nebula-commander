@@ -1,0 +1,14 @@
+[Unit]
+Description=Nebula Commander client automatic update window
+Documentation=https://nebulacdr.com/docs/usage/ncclient/auto-update/
+
+# Disabled by default. ncclient enables it, and writes the window to
+# /etc/systemd/system/ncclient-update.timer.d/window.conf, when an administrator
+# turns on automatic updates. Don't enable it by hand.
+[Timer]
+OnCalendar=*-*-* 02:00:00
+RandomizedDelaySec=3h
+Persistent=false
+
+[Install]
+WantedBy=timers.target

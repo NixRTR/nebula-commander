@@ -50,6 +50,10 @@ __all__ = [
     "reject_route",
     "accept_exit_node",
     "reject_exit_node",
+    "UpdateSettingsError",
+    "get_update_status",
+    "set_auto_update",
+    "check_updates_now",
 ]
 
 _lock = threading.Lock()
@@ -79,6 +83,10 @@ class ServiceApiError(Exception):
 
 
 class EnrollError(ServiceApiError):
+    pass
+
+
+class UpdateSettingsError(ServiceApiError):
     pass
 
 
@@ -301,3 +309,73 @@ def reject_exit_node(output_dir: str) -> None:
             raise RouteError("No exit node is currently accepted.")
         settings["accepted_exit_node"] = None
         save_settings(settings)
+
+
+# --- automatic updates (client/updates.py) -------------------------------------------
+# Deliberately not in _SETTABLE_KEYS: like routes, auto_update has its own functions,
+# which validate the window and (on deb/rpm installs) arm the systemd timer.
+
+def get_update_status() -> dict:
+    from client import updates
+    from client.version import VERSION, is_dev_build
+
+    kind = updates.install_kind()
+    settings = updates.auto_update_settings()
+    status = updates.load_status()
+    return {
+        **status,
+        "installed_version": VERSION,
+        "dev_build": is_dev_build(),
+        "install_kind": kind,
+        "supported": kind in updates.SUPPORTED_KINDS,
+        "mode": updates.mode(kind=kind),
+        **settings,
+    }
+
+
+def set_auto_update(enabled: bool, window_start: "str | None" = None, window_end: "str | None" = None) -> dict:
+    """Turn automatic updates on/off and/or change the window. Returns the new status."""
+    from client import updates
+
+    kind = updates.install_kind()
+    current = updates.auto_update_settings()
+    try:
+        new = updates.validate_settings(
+            enabled, window_start or current["window_start"], window_end or current["window_end"],
+        )
+        if enabled and kind not in updates.SUPPORTED_KINDS:
+            raise updates.UpdateError(
+                "Automatic updates aren't available for this kind of install (they cover the "
+                "Windows installer, deb/rpm packages from the official repository, and NixOS). "
+                "Docker images, Flatpak and pip installs are updated the way they were installed."
+            )
+        with _lock:
+            if kind == "package":
+                from client.linux import auto_update
+
+                auto_update.apply(new["enabled"], new["window_start"], new["window_end"])
+            save_settings({**load_settings(), updates.SETTINGS_KEY: new})
+    except updates.UpdateError as e:
+        raise UpdateSettingsError(str(e)) from e
+    return get_update_status()
+
+
+def check_updates_now() -> dict:
+    """Check the signed manifest now (never installs by itself). On a deb/rpm install
+    with automatic updates on, an available update is then installed right away by
+    ncclient-update.service. The Windows service does its own install step instead
+    (client/windows/updater.py)."""
+    from client import updates
+
+    kind = updates.install_kind()
+    result = updates.check(kind)
+    result.pop("manifest", None)
+    if kind == "package" and updates.mode(kind=kind) == "install" and result.get("available_version"):
+        from client.linux import auto_update
+
+        try:
+            auto_update.run_now()
+            result["install_started"] = True
+        except updates.UpdateError as e:
+            raise UpdateSettingsError(str(e)) from e
+    return {**get_update_status(), **result}

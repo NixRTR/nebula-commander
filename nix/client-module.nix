@@ -111,6 +111,7 @@ in
         export NEBULA_COMMANDER_CONFIG_DIR=${cfg.stateDir}
         export NEBULA_DEVICE_TOKEN_FILE=${cfg.stateDir}/token
         export NEBULA_COMMANDER_OUTPUT_DIR=${cfg.outputDir}
+        export NEBULA_COMMANDER_INSTALL_KIND=nixos
         exec ${cfg.package}/bin/ncclient "$@"
       ''))
     ];

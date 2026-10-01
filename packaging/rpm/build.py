@@ -185,6 +185,8 @@ def stage_service(work_dir: Path) -> Path:
 
     (stage / "usr" / "lib" / "nebula-commander" / "ncclient-run.sh").chmod(0o755)
     (stage / "usr" / "lib" / "systemd" / "system" / "ncclient.service").chmod(0o644)
+    (stage / "usr" / "lib" / "systemd" / "system" / "ncclient-update.service").chmod(0o644)
+    (stage / "usr" / "lib" / "systemd" / "system" / "ncclient-update.timer").chmod(0o644)
     (stage / "etc" / "default" / "ncclient").chmod(0o644)
     (stage / "usr" / "share" / "polkit-1" / "rules.d" / "org.nixrtr.nebulacommander.rules").chmod(0o644)
     (stage / "usr" / "share" / "polkit-1" / "actions" / "org.beardedtek.NebulaCommander1.policy").chmod(0o644)

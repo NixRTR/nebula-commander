@@ -6,6 +6,12 @@
 set -e
 
 if [ "$1" = "0" ]; then
+    # Automatic updates (client/linux/auto_update.py): stop the timer and drop
+    # its window, which ncclient wrote outside the package's own files.
+    if [ -d /run/systemd/system ]; then
+        systemctl disable --now ncclient-update.timer 2>/dev/null || true
+    fi
+    rm -rf /etc/systemd/system/ncclient-update.timer.d
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
         systemctl reload polkit 2>/dev/null || systemctl try-restart polkit 2>/dev/null || true

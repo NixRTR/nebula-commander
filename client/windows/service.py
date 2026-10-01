@@ -47,6 +47,7 @@ from client.ncclient import run_poll_loop  # noqa: E402
 from client.windows import nebula_install  # noqa: E402
 from client.windows.harden import harden_shared_root  # noqa: E402
 from client.windows.pipe_server import PipeServer, ServiceHooks  # noqa: E402
+from client.windows.updater import Updater  # noqa: E402
 
 
 def _drop_legacy_nebula_path() -> None:
@@ -75,6 +76,7 @@ class NebulaCommanderService(win32serviceutil.ServiceFramework, ServiceHooks):
         # Serializes poll-loop restarts and Nebula updates - pipe commands are
         # served on concurrent threads.
         self.control_lock = threading.Lock()
+        self.updater: Updater | None = None
 
     def SvcStop(self) -> None:
         self.ReportServiceStatus(win32service.SERVICE_STOP_PENDING)
@@ -164,6 +166,14 @@ class NebulaCommanderService(win32serviceutil.ServiceFramework, ServiceHooks):
                 self._start_poll()
             return staged
 
+    def reschedule_updates(self) -> None:
+        if self.updater:
+            self.updater.reschedule()
+
+    def update_check_now(self) -> None:
+        if self.updater:
+            self.updater.check_now()
+
     def _first_run_install(self) -> None:
         """No Nebula yet (fresh install, or the upgrade that removed the old
         user-writable copy): install the latest release once, in the
@@ -188,6 +198,9 @@ class NebulaCommanderService(win32serviceutil.ServiceFramework, ServiceHooks):
         with self.control_lock:
             self._start_poll()
         threading.Thread(target=self._first_run_install, name="nebula-first-install", daemon=True).start()
+        # Automatic updates (off unless an administrator turned them on).
+        self.updater = Updater(self.pipe_stop, servicemanager.LogInfoMsg)
+        self.updater.start()
 
         win32event.WaitForSingleObject(self.win32_stop_event, win32event.INFINITE)
 

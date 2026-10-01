@@ -72,6 +72,12 @@ class ServiceHooks:
     def update_nebula(self, tag: "str | None") -> str:  # pragma: no cover - interface
         raise NotImplementedError
 
+    def reschedule_updates(self) -> None:  # pragma: no cover - interface
+        raise NotImplementedError
+
+    def update_check_now(self) -> None:  # pragma: no cover - interface
+        raise NotImplementedError
+
 
 def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], Any], str]]":
     out_dir = shared_root()
@@ -137,6 +143,21 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         hooks.restart_poll()
         return None
 
+    def set_auto_update(a):
+        status = service_api.set_auto_update(
+            _arg(a, "enabled", bool),
+            _arg(a, "window_start", str, required=False),
+            _arg(a, "window_end", str, required=False),
+        )
+        hooks.reschedule_updates()
+        return status
+
+    def update_check_now(_a):
+        # Runs on the updater thread (check, then install if automatic updates are
+        # on); poll get_update_status for the outcome.
+        hooks.update_check_now()
+        return None
+
     return {
         proto.CMD_GET_STATUS: (get_status, READ),
         proto.CMD_GET_SETTINGS: (get_settings, READ),
@@ -147,6 +168,7 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         proto.CMD_GET_DNS_CONFIGURED: (get_dns_configured, READ),
         proto.CMD_GET_NEBULA_VERSION: (lambda _a: nebula_install.installed_version(), READ),
         proto.CMD_GET_LATEST_NEBULA_TAG: (lambda _a: nebula_install.latest_tag(), READ),
+        proto.CMD_GET_UPDATE_STATUS: (lambda _a: service_api.get_update_status(), READ),
         proto.CMD_SET_SETTINGS: (set_settings, MANAGE),
         proto.CMD_ENROLL: (enroll, MANAGE),
         proto.CMD_ACCEPT_ROUTE: (accept_route, MANAGE),
@@ -156,6 +178,8 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         proto.CMD_UPDATE_NEBULA: (update_nebula, MANAGE),
         proto.CMD_POLL_NOW: (poll_now, MANAGE),
         proto.CMD_RELOAD_SETTINGS: (poll_now, MANAGE),
+        proto.CMD_SET_AUTO_UPDATE: (set_auto_update, MANAGE),
+        proto.CMD_UPDATE_CHECK_NOW: (update_check_now, MANAGE),
     }
 
 

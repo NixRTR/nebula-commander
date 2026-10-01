@@ -132,6 +132,20 @@ def _h_get_config_yaml(output_dir: str, msg) -> "tuple[str, tuple]":
     return "s", (service_api.get_config_yaml(output_dir),)
 
 
+def _h_get_update_status(output_dir: str, msg) -> "tuple[str, tuple]":
+    return "s", (json.dumps(service_api.get_update_status()),)
+
+
+def _h_set_auto_update(output_dir: str, msg) -> "tuple[str, tuple]":
+    # enabled, window_start, window_end ("" = keep the current value)
+    enabled, start, end = msg.body
+    return "s", (json.dumps(service_api.set_auto_update(enabled, start or None, end or None)),)
+
+
+def _h_check_for_updates_now(output_dir: str, msg) -> "tuple[str, tuple]":
+    return "s", (json.dumps(service_api.check_updates_now()),)
+
+
 _ADMIN_REQUIRED = (
     "Administrator required - only members of the sudo or wheel group can change "
     "Nebula Commander settings, enrollment, routes or the service."
@@ -150,6 +164,9 @@ _METHODS = {
     "AcceptExitNode": (_h_accept_exit_node, ACTION_MANAGE),
     "RejectExitNode": (_h_reject_exit_node, ACTION_MANAGE),
     "GetConfigYaml": (_h_get_config_yaml, ACTION_READ),
+    "GetUpdateStatus": (_h_get_update_status, ACTION_READ),
+    "SetAutoUpdate": (_h_set_auto_update, ACTION_MANAGE),
+    "CheckForUpdatesNow": (_h_check_for_updates_now, ACTION_MANAGE),
 }
 
 

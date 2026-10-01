@@ -9,6 +9,8 @@ Type=simple
 EnvironmentFile=-/etc/default/ncclient
 Environment=NEBULA_COMMANDER_CONFIG_DIR=/var/lib/ncclient
 Environment=NEBULA_DEVICE_TOKEN_FILE=/var/lib/ncclient/token
+# Auto-update (client/updates.py): a deb/rpm install, upgraded via ncclient-update.timer.
+Environment=NEBULA_COMMANDER_INSTALL_KIND=package
 # /var/lib/ncclient is 0700 root:root (see packaging/deb/service's
 # tmpfiles.d rule) - the desktop app no longer needs direct file access at
 # all, since client/linux/dbus_server.py (hosted in this same process)

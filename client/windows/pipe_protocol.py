@@ -40,6 +40,7 @@ CMD_GET_CONFIG_YAML = "get_config_yaml"
 CMD_GET_DNS_CONFIGURED = "get_dns_configured"
 CMD_GET_NEBULA_VERSION = "get_nebula_version"
 CMD_GET_LATEST_NEBULA_TAG = "get_latest_nebula_tag"
+CMD_GET_UPDATE_STATUS = "get_update_status"
 
 # --- MANAGE commands ---
 CMD_SET_SETTINGS = "set_settings"
@@ -53,6 +54,9 @@ CMD_UPDATE_NEBULA = "update_nebula"
 CMD_POLL_NOW = "poll_now"
 # Stop the current poll loop and start a fresh one, re-reading settings.json.
 CMD_RELOAD_SETTINGS = "reload_settings"
+# Automatic updates (client/updates.py, client/windows/updater.py).
+CMD_SET_AUTO_UPDATE = "set_auto_update"
+CMD_UPDATE_CHECK_NOW = "update_check_now"
 
 ERR_ADMIN_REQUIRED = "administrator_required"
 ERR_UNKNOWN_COMMAND = "unknown_command"

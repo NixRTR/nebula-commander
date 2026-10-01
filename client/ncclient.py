@@ -614,6 +614,67 @@ def cmd_install(no_start: bool = False, non_interactive: bool = False) -> None:
     print("Done. Edit /etc/default/ncclient to change settings.")
 
 
+def _update_heartbeat_fields() -> dict:
+    """client_version / auto_update (off|install|notify) / update_available, shown
+    read-only on the server. Never raises."""
+    try:
+        from client import updates
+        from client.version import VERSION
+
+        return {
+            "client_version": VERSION,
+            "auto_update": updates.mode(),
+            "update_available": updates.load_status().get("available_version"),
+        }
+    except Exception:
+        return {}
+
+
+_UPDATE_CHECK_EVERY = 24 * 3600
+_update_check_lock = threading.Lock()
+
+
+def _maybe_check_for_updates(debug_log: Callable[[str], None] | None = None) -> None:
+    """Daily signed-manifest check while automatic updates are on, for NixOS (the
+    only thing it does there: notify) and deb/rpm installs (so status shows what's
+    available between upgrade windows). The Windows service has its own updater
+    thread. Runs in the background; never raises."""
+    try:
+        from client import updates
+
+        kind = updates.install_kind()
+        if kind not in ("nixos", "package") or updates.mode(kind=kind) == "off":
+            return
+        last = updates.load_status().get("last_check")
+        if last:
+            import datetime as _dt
+            age = _dt.datetime.now(_dt.timezone.utc) - _dt.datetime.fromisoformat(last.replace("Z", "+00:00"))
+            if age.total_seconds() < _UPDATE_CHECK_EVERY:
+                return
+    except Exception:
+        return
+    if not _update_check_lock.acquire(blocking=False):
+        return
+
+    def _check() -> None:
+        try:
+            st = updates.check(kind)
+            if st.get("available_version"):
+                print(f"Nebula Commander {st['available_version']} is available "
+                      f"(installed: {updates._version.VERSION}).", file=sys.stderr)
+                for line in st.get("instructions") or []:
+                    print(f"  {line}", file=sys.stderr)
+            elif st.get("last_result") == "error" and debug_log:
+                debug_log(f"update check failed: {st.get('last_error')}")
+        except Exception as e:
+            if debug_log:
+                debug_log(f"update check failed: {e}")
+        finally:
+            _update_check_lock.release()
+
+    threading.Thread(target=_check, name="update-check", daemon=True).start()
+
+
 def _send_heartbeat(
     base: str,
     token: str,
@@ -640,6 +701,7 @@ def _send_heartbeat(
     reporting endpoint.
     """
     body: dict = {"interval_seconds": interval, "os_platform": _detect_os_platform()}
+    body.update(_update_heartbeat_fields())
     if peer_reachability:
         body["peer_reachability"] = peer_reachability
     if sys.platform.startswith("linux"):
@@ -935,6 +997,7 @@ def run_poll_loop(
                     )
                     sys.exit(1)
                 if r.ok and node_id:
+                    _maybe_check_for_updates(dns_debug_log)
                     peer_reachability = None
                     peers = _fetch_lighthouse_peers(base, token, dns_debug_log)
                     if peers:
@@ -1144,6 +1207,15 @@ def cmd_run(
             dbus_thread = start_dbus_server(output_dir, stop_event, lambda m: _log_callback("info", m))
         except Exception as e:
             print(f"[warn] D-Bus service could not be started: {e}", file=sys.stderr, flush=True)
+        # deb/rpm: make ncclient-update.timer match settings.json (after a restore, or a
+        # timer someone enabled/disabled by hand).
+        try:
+            from client import updates
+            if updates.install_kind() == "package" and os.geteuid() == 0:
+                from client.linux import auto_update
+                auto_update.reconcile(updates.auto_update_settings(), lambda m: _log_callback("info", m))
+        except Exception as e:
+            print(f"[warn] Auto-update timer check failed: {e}", file=sys.stderr, flush=True)
 
     try:
         run_poll_loop(
@@ -1249,6 +1321,93 @@ def cmd_routes_reject_exit_node(output_dir: str) -> None:
     print("Rejected the accepted exit node.")
 
 
+def _auto_update_call(action: str, **kwargs) -> dict:
+    """Run an auto-update action against the service that owns the state: through
+    the pipe on Windows (needs an elevated prompt), in-process on Linux (as root,
+    with the service's state dir - see _apply_linux_service_defaults)."""
+    if sys.platform == "win32":
+        from client.windows import pipe_protocol as proto
+
+        cmd = {"status": proto.CMD_GET_UPDATE_STATUS, "set": proto.CMD_SET_AUTO_UPDATE,
+               "check": proto.CMD_UPDATE_CHECK_NOW}[action]
+        reply = proto.send_request(cmd, kwargs or None, timeout_ms=5000)
+        if not reply.get("ok"):
+            if reply.get("code") == proto.ERR_ADMIN_REQUIRED:
+                raise SystemExit("Run this from an elevated (Administrator) prompt.")
+            raise SystemExit(f"Nebula Commander service: {reply.get('error')}")
+        if action == "check":  # runs on the service's updater thread
+            return {"started": True}
+        return reply.get("result") or {}
+
+    from client import service_api
+
+    if action != "status" and os.geteuid() != 0:
+        raise SystemExit("Run this as root (sudo).")
+    try:
+        if action == "status":
+            return service_api.get_update_status()
+        if action == "set":
+            return service_api.set_auto_update(kwargs["enabled"], kwargs.get("window_start"), kwargs.get("window_end"))
+        return service_api.check_updates_now()
+    except service_api.ServiceApiError as e:
+        raise SystemExit(e.message)
+
+
+def _print_update_status(st: dict) -> None:
+    kind = st.get("install_kind")
+    print(f"Installed version: {st.get('installed_version')}{' (development build)' if st.get('dev_build') else ''}")
+    if not st.get("supported"):
+        print("Automatic updates: not available for this kind of install")
+        return
+    mode = {"install": "on - installs updates", "notify": "on - notify only (NixOS)", "off": "off"}[st.get("mode", "off")]
+    print(f"Automatic updates: {mode}")
+    if kind != "nixos":
+        print(f"Update window:     {st.get('window_start')}-{st.get('window_end')} (local time)")
+    if st.get("last_check"):
+        result = st.get("last_result")
+        detail = st.get("last_error") if result == "error" else result
+        print(f"Last check:        {st['last_check']} ({detail})")
+    if st.get("latest_version"):
+        print(f"Latest release:    {st['latest_version']}")
+    if st.get("available_version"):
+        print(f"Update available:  {st['available_version']}")
+        for line in st.get("instructions") or []:
+            print(f"    {line}")
+    if st.get("last_install_attempt"):
+        result = st.get("last_install_result")
+        detail = st.get("last_install_error") if result == "error" else result
+        print(f"Last install:      {st['last_install_attempt']} ({detail})")
+
+
+def cmd_auto_update(args) -> None:
+    sub = args.auto_update_cmd
+    if sub == "run-upgrade":  # ncclient-update.service only
+        from client.linux.auto_update import run_upgrade
+
+        status = run_upgrade()
+        sys.exit(1 if status.get("last_install_result") == "error" else 0)
+    if sub == "status":
+        _print_update_status(_auto_update_call("status"))
+    elif sub in ("enable", "disable"):
+        window_start = window_end = None
+        if sub == "enable" and args.window:
+            window_start, sep, window_end = args.window.partition("-")
+            if not sep:
+                raise SystemExit("--window takes START-END, e.g. 02:00-05:00")
+        kwargs = {"enabled": sub == "enable"}
+        if window_start:
+            kwargs.update(window_start=window_start, window_end=window_end)
+        _print_update_status(_auto_update_call("set", **kwargs))
+    elif sub == "check-now":
+        st = _auto_update_call("check")
+        if st.get("started"):
+            print("Checking for updates in the service; see `ncclient auto-update status` shortly.")
+        else:
+            _print_update_status(st)
+            if st.get("install_started"):
+                print("Installing it now (journalctl -u ncclient-update to follow).")
+
+
 _LINUX_SERVICE_STATE_DIR = "/var/lib/ncclient"
 
 
@@ -1260,10 +1419,13 @@ def _apply_linux_service_defaults(cmd: str) -> None:
     as root, only when the service's state dir exists, and never overriding
     anything already set (the systemd unit and the NixOS wrapper set these
     explicitly - NixOS's output dir is a subdirectory, for example)."""
-    if cmd not in ("enroll", "routes") or not sys.platform.startswith("linux"):
+    if cmd not in ("enroll", "routes", "auto-update") or not sys.platform.startswith("linux"):
         return
     if os.geteuid() != 0 or not os.path.isdir(_LINUX_SERVICE_STATE_DIR):
         return
+    if cmd == "auto-update" and os.path.isfile("/usr/lib/systemd/system/ncclient-update.timer"):
+        # The deb/rpm service package (its unit sets the same thing for the service).
+        os.environ.setdefault("NEBULA_COMMANDER_INSTALL_KIND", "package")
     os.environ.setdefault("NEBULA_COMMANDER_CONFIG_DIR", _LINUX_SERVICE_STATE_DIR)
     os.environ.setdefault("NEBULA_DEVICE_TOKEN_FILE", os.path.join(_LINUX_SERVICE_STATE_DIR, "token"))
     os.environ.setdefault("NEBULA_COMMANDER_OUTPUT_DIR", _LINUX_SERVICE_STATE_DIR)
@@ -1274,6 +1436,8 @@ def main() -> None:
         description="Nebula Commander device client (dnclient/dnclientd-style). Enroll once, then run to poll config and certs and optionally start/restart Nebula."
     )
     ap.add_argument("--server", "-s", default=os.environ.get("NEBULA_COMMANDER_SERVER"), help="Nebula Commander base URL (default: NEBULA_COMMANDER_SERVER env)")
+    from client.version import VERSION
+    ap.add_argument("--version", action="version", version=f"ncclient {VERSION}")
     sub = ap.add_subparsers(dest="cmd", required=True)
 
     p_install = sub.add_parser("install", help="Install systemd service (Linux only)")
@@ -1310,6 +1474,18 @@ def main() -> None:
     p_routes_accept_exit.add_argument("--via", required=True, help="The exit node gateway's Nebula IP")
 
     routes_sub.add_parser("reject-exit-node", help="Stop using the accepted exit node")
+
+    p_au = sub.add_parser(
+        "auto-update",
+        help="Automatic client updates (off by default; changing them needs root / an elevated prompt)",
+    )
+    au_sub = p_au.add_subparsers(dest="auto_update_cmd", required=True)
+    au_sub.add_parser("status", help="Show the installed version, the setting and the last check/install")
+    p_au_enable = au_sub.add_parser("enable", help="Turn automatic updates on (on NixOS: check and notify only)")
+    p_au_enable.add_argument("--window", metavar="START-END", help="Daily local-time window to install in (default 02:00-05:00)")
+    au_sub.add_parser("disable", help="Turn automatic updates off")
+    au_sub.add_parser("check-now", help="Check for an update now (and install it, if automatic updates are on)")
+    au_sub.add_parser("run-upgrade", help=argparse.SUPPRESS)
 
     args = ap.parse_args()
     _apply_linux_service_defaults(args.cmd)
@@ -1358,5 +1534,7 @@ def main() -> None:
             cmd_routes_accept_exit_node(output_dir, args.via)
         elif args.routes_cmd == "reject-exit-node":
             cmd_routes_reject_exit_node(output_dir)
+    elif args.cmd == "auto-update":
+        cmd_auto_update(args)
 if __name__ == "__main__":
     main()
