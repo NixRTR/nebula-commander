@@ -146,6 +146,14 @@ export function ClientDownload() {
               talks to the service over a system D-Bus API authorized via polkit. On a server without
               a desktop, install only <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">nebula-commander-service</code>.
             </p>
+            <p className="text-gray-700 dark:text-gray-300 mb-4 text-sm">
+              <strong>Recommended for Linux nodes other than lighthouses:</strong> install from the package
+              repository at <a href={PACKAGE_REPO_URL} className="underline">pkgs.nebulacommander.com</a>.
+              It's the only Linux install that can update itself: turn on automatic updates with 
+              <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">sudo ncclient auto-update enable</code> (or Settings → Updates in the app), and the
+              client upgrades during a daily window. The .deb and .rpm files downloaded directly further down can't.
+              For lighthouses, see the Docker tab.
+            </p>
             <div className="space-y-4 mb-6">
               <div>
                 <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Package repository (recommended)</p>
