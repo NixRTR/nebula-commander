@@ -1444,15 +1444,20 @@ def main() -> None:
     from client.version import VERSION
     ap.add_argument("--version", action="version", version=f"ncclient {VERSION}")
     sub = ap.add_subparsers(dest="cmd", required=True)
+    # Also accept --server after the subcommand (`ncclient enroll --server URL
+    # --code X`, the form the docs and the packages' install messages show).
+    # SUPPRESS keeps an omitted one from overwriting the top-level value/env default.
+    server_after = argparse.ArgumentParser(add_help=False)
+    server_after.add_argument("--server", "-s", default=argparse.SUPPRESS, help="Nebula Commander base URL (same as the top-level --server)")
 
     p_install = sub.add_parser("install", help="Install systemd service (Linux only)")
     p_install.add_argument("--no-start", action="store_true", help="Do not start the service after enable")
     p_install.add_argument("--non-interactive", action="store_true", help="Use env vars only, no prompts")
 
-    p_enroll = sub.add_parser("enroll", help="Enroll with a one-time code from the UI")
+    p_enroll = sub.add_parser("enroll", parents=[server_after], help="Enroll with a one-time code from the UI")
     p_enroll.add_argument("--code", "-c", required=True, help="Enrollment code")
 
-    p_run = sub.add_parser("run", help="Run daemon: poll for config and certs, optionally start/restart Nebula (dnclientd-style)")
+    p_run = sub.add_parser("run", parents=[server_after], help="Run daemon: poll for config and certs, optionally start/restart Nebula (dnclientd-style)")
     p_run.add_argument("--output-dir", "-o", default=None, help="Directory to write config.yaml, ca.crt, host.crt (default: /etc/nebula on Linux, ~/.nebula on Windows)")
     p_run.add_argument("--interval", "-i", type=int, default=60, help="Poll interval in seconds (default: 60)")
     p_run.add_argument("--nebula", "-n", metavar="PATH", help="Path to nebula binary if not in PATH (default: run 'nebula' from PATH)")
