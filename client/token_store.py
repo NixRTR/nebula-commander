@@ -2,8 +2,11 @@
 Device token storage: file (when NEBULA_DEVICE_TOKEN_FILE is set) or OS keyring.
 Used by ncclient enroll/run; in Docker, set NEBULA_DEVICE_TOKEN_FILE so the token
 is stored in a file instead of keyring.
-When keyring is not available (e.g. PyInstaller binary without keyring), falls back
-to ~/.nebula/device-token.
+When keyring is not available (e.g. PyInstaller binary without keyring) or not
+usable (e.g. a headless server whose Secret Service collection is locked, or no
+D-Bus session at all), falls back to ~/.nebula/device-token (mode 0600). That
+file is only ever written by the fallback, so when it exists it is the current
+token and is read in preference to the keyring.
 
 On Windows, when NEBULA_COMMANDER_CONFIG_DIR is set (see
 client/windows/shared_paths.py::enable_shared_mode, used by the Windows service
@@ -98,8 +101,13 @@ def _read_token_file(path: str) -> str | None:
 
 
 def _write_token_file(path: str, token: str) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
+    os.makedirs(os.path.dirname(path) or ".", mode=0o700, exist_ok=True)
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    try:
+        os.chmod(path, 0o600)  # an existing file keeps its old mode through os.open
+    except OSError:
+        pass
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
         f.write(token)
 
 
@@ -111,12 +119,15 @@ def get_token() -> str | None:
     path = _token_file_path()
     if path:
         return _read_token_file(path)
+    fallback = _read_token_file(_default_token_path())
+    if fallback:
+        return fallback
     try:
         import keyring
         value = keyring.get_password(_SERVICE, _KEY)
         return value if value else None
     except (ImportError, ModuleNotFoundError):
-        return _read_token_file(_default_token_path())
+        return None
     except Exception as e:
         print(f"Keyring read failed: {e}", file=sys.stderr)
         return None
@@ -132,8 +143,21 @@ def set_token(token: str) -> None:
     if path:
         _write_token_file(path, token)
         return
+    fallback = _default_token_path()
     try:
         import keyring
         keyring.set_password(_SERVICE, _KEY, token)
     except (ImportError, ModuleNotFoundError):
-        _write_token_file(_default_token_path(), token)
+        _write_token_file(fallback, token)
+        return
+    except Exception as e:
+        # KeyringLocked, NoKeyringError, a D-Bus error with no session bus, ...
+        _write_token_file(fallback, token)
+        print(f"Keyring unavailable ({e}); stored the device token in {fallback} instead.", file=sys.stderr)
+        return
+    # The keyring now holds the current token; a fallback file left from an
+    # earlier enrollment would otherwise shadow it in get_token().
+    try:
+        os.remove(fallback)
+    except FileNotFoundError:
+        pass
