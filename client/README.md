@@ -23,6 +23,28 @@ pip install -r client/requirements.txt
 
 Or install the package in development mode from the `client/` directory: `pip install -e .` to get the `ncclient` command.
 
+**Linux:** ncclient runs as root there, so install it where root owns it and `sudo` can find it (not a virtualenv in your home directory, whose code your user could change):
+
+```bash
+sudo python3 -m venv /opt/ncclient
+sudo /opt/ncclient/bin/pip install nebula-commander
+sudo ln -s /opt/ncclient/bin/ncclient /usr/local/bin/ncclient
+```
+
+On Debian, Ubuntu, Fedora and openSUSE the deb/rpm packages (pkgs.nebulacommander.com) are easier still; they set up the service for you.
+
+## Linux setup
+
+Nebula needs root to create its TUN interface, so on Linux the client runs as root, and every step is done as root, in this order:
+
+```bash
+sudo ncclient enroll --server https://YOUR_NEBULA_COMMANDER_URL --code XXXXXXXX   # 1. enroll as root
+sudo ncclient install                                                              # 2. install + start the systemd service
+systemctl status ncclient                                                          # 3. check it's running
+```
+
+From then on the service *is* the client; don't also run `ncclient run` by hand. Keep using `sudo` for `ncclient routes …` and re-enrolling. Run as a regular user, `ncclient` reads that user's own (empty) token and settings, not the service's. See [Running at startup](#running-at-startup) for what `install` prompts for.
+
 ## Enroll (one-time)
 
 1. In Nebula Commander, open **Nodes**, find your node, and click **Enroll**.
@@ -32,7 +54,9 @@ Or install the package in development mode from the `client/` directory: `pip in
 ncclient enroll --server https://YOUR_NEBULA_COMMANDER_URL --code XXXXXXXX
 ```
 
-This saves the device token to your OS credential store (e.g. Windows Credential Manager, macOS Keychain, Linux Secret Service) and saves the server URL so you can run `ncclient run` without `--server` next time.
+Run it as the same user that will run the client: root on Linux (see [Linux setup](#linux-setup)).
+
+This saves the device token to your OS credential store (e.g. Windows Credential Manager, macOS Keychain, Linux Secret Service), or to `~/.nebula/device-token` (mode 0600) when there's no usable one, which is the case for root, servers and SSH sessions. It also saves the server URL so you can run `ncclient run` without `--server` next time.
 
 **Upgrading from an older version:** If you previously used a token file, you must re-enroll once after upgrading. You can then delete the old token file if it exists (`~/.config/nebula-commander/token` or `/etc/nebula-commander/token`).
 
@@ -67,7 +91,7 @@ ncclient run --server https://nc.example.com --restart-service nebula
 
 When the certificate was **created** via the server (Create certificate in the Nebula Commander UI), the bundle includes `host.key` and no manual copy is needed. For certificates created via **Sign** (betterkeys, client-generated key), the server does not have the key; place your own `host.key` in the same directory as the generated certs.
 
-**Linux:** Creating the Nebula TUN device requires root. Run ncclient as root so the Nebula process can create the interface, e.g. `sudo ncclient run --server https://...` (or use `--output-dir ~/.nebula` and run as root so nebula reads from a dir that has host.key).
+**Linux:** Creating the Nebula TUN device requires root. Run ncclient as root so the Nebula process can create the interface, e.g. `sudo ncclient run --server https://...` (or use `--output-dir ~/.nebula` and run as root so nebula reads from a dir that has host.key). Running it by hand is fine for testing; for normal use install the service (see [Linux setup](#linux-setup)) and don't run both.
 
 ## Split-horizon DNS (Linux)
 
@@ -133,7 +157,7 @@ On Linux you can install the systemd service with one command:
 sudo ncclient install
 ```
 
-This checks that you have already enrolled (token is stored in the OS credential store). If not, it prints the exact `ncclient enroll --server URL --code XXXXXXXX` command to run first (get the code from the Nebula Commander UI: Nodes → Enroll). Then it prompts for the server URL and optional settings (output directory, poll interval, nebula path, restart-service), writes `/etc/default/ncclient` and `/etc/systemd/system/ncclient.service`, enables the service, and optionally starts it. Use `--no-start` to enable without starting; use `--non-interactive` with `NEBULA_COMMANDER_SERVER` (and optional env vars) set for scripting.
+This is step 2 of [Linux setup](#linux-setup). It checks that root has already enrolled. If not, it prints the exact `ncclient enroll --server URL --code XXXXXXXX` command to run first (get the code from the Nebula Commander UI: Nodes → Enroll). Then it prompts for the server URL and optional settings (output directory, poll interval, nebula path, restart-service), writes `/etc/default/ncclient` and `/etc/systemd/system/ncclient.service`, enables the service, and optionally starts it. Use `--no-start` to enable without starting; use `--non-interactive` with `NEBULA_COMMANDER_SERVER` (and optional env vars) set for scripting.
 
 ### Manual setup (all platforms)
 
