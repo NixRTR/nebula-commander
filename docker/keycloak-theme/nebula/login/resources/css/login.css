@@ -115,6 +115,40 @@ body::before {
   border: none !important;
   box-shadow: none !important;
 }
+/* Default text on the card is light whatever the OS color scheme. keycloak.v2
+   only switches PatternFly to its dark palette when the OS prefers dark, so in
+   light mode any text not styled below (the "Remember me" checkbox label, the
+   footer's "New user?", info/helper text) came out near-black on this card. */
+.pf-v5-c-login__main,
+#kc-content-wrapper .card-pf,
+#kc-form-wrapper,
+#kc-register-form {
+  color: #e5e7eb;
+  --pf-v5-global--Color--100: #e5e7eb;
+  --pf-v5-global--Color--200: #9ca3af;
+  --pf-v5-c-check__label--Color: #e5e7eb;
+  --pf-v5-c-form__helper-text--Color: #9ca3af;
+  --pf-v5-c-helper-text__item-text--Color: #9ca3af;
+  --pf-v5-c-form-control--Color: #fff;
+}
+/* The typed text: .pf-v5-c-form-control is a wrapper span in keycloak.v2, so
+   the rule further down colors the span, not the <input> inside it. */
+.pf-v5-c-form-control > input,
+.pf-v5-c-form-control > textarea,
+.pf-v5-c-form-control > select {
+  color: #fff !important;
+  -webkit-text-fill-color: #fff;
+}
+/* Field errors ("Invalid username or password") – PatternFly's dark red is
+   unreadable on the dark card */
+.pf-v5-c-helper-text__item.pf-m-error,
+.pf-v5-c-helper-text__item-text.pf-m-error {
+  color: #f87171 !important;
+}
+.pf-v5-c-login__main-footer-band,
+.pf-v5-c-login__main-footer-band-item {
+  color: #e5e7eb;
+}
 /* Padding only on the outer card (main), not on inner form wrappers – avoids stacked padding and excess bottom space */
 .pf-v5-c-login__main,
 #kc-content-wrapper .card-pf {
@@ -157,10 +191,10 @@ body::before {
 }
 /* Inputs – no padding, no vertical margin */
 .pf-v5-c-login__main .pf-v5-c-form-control,
-#kc-form-wrapper input,
+#kc-form-wrapper input:not([type="submit"]),
 .pf-v5-c-form-control,
 #kc-register-form .pf-v5-c-form-control,
-#kc-register-form input {
+#kc-register-form input:not([type="submit"]) {
   background: rgba(31, 41, 55, 0.95) !important;
   border: 1px solid rgba(75, 85, 99, 0.8) !important;
   border-radius: 0.375rem;
