@@ -6,7 +6,9 @@ A small client that works like [Defined.net's dnclient](https://docs.defined.net
 
 ## Install
 
-From PyPI (recommended):
+Most users should install the deb/rpm packages (Linux, from pkgs.nebulacommander.com), the MSI (Windows), or the Docker image instead; see the [installation docs](https://nebulacommander.com/docs/usage/ncclient/installation/). **Pip is for advanced users only:** it's the most delicate method, and easy to set up so that `sudo` can't find ncclient or the service can't find its token.
+
+From PyPI:
 
 ```bash
 pip install nebula-commander

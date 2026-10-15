@@ -38,6 +38,20 @@ sudo apt install nebula-commander-desktop nebula-commander-service`;
 const DNF_REPO_SNIPPET = `sudo curl -fsSL -o /etc/yum.repos.d/nebula-commander.repo ${PACKAGE_REPO_URL}/rpm/nebula-commander.repo
 sudo dnf install nebula-commander-desktop nebula-commander-service`;
 
+// This instance's own URL, so the commands below can be pasted as-is.
+const SERVER_URL = typeof window !== "undefined" ? window.location.origin : "https://<YOUR_SERVER>";
+
+const PIP_LINUX_SNIPPET = `sudo python3 -m venv /opt/ncclient
+sudo /opt/ncclient/bin/pip install nebula-commander
+sudo ln -s /opt/ncclient/bin/ncclient /usr/local/bin/ncclient`;
+
+const STANDALONE_SETUP_SNIPPET = `# 1. Enroll as root
+sudo ncclient enroll --server ${SERVER_URL} --code XXXXXXXX
+# 2. Install and start the service
+sudo ncclient install
+# 3. Check that it's running
+systemctl status ncclient`;
+
 type PlatformTab = "docker" | "linux" | "windows" | "macos" | "mobile";
 
 const TAB_ORDER: PlatformTab[] = ["docker", "linux", "windows", "macos", "mobile"];
@@ -97,7 +111,7 @@ export function ClientDownload() {
         ncclient is an experimental client application for enrolling devices with Nebula Commander and automatically pulling down Nebula config and certificates. It is a work in progress and not yet recommended for production use, but if you want to try it out or provide feedback, choose your platform below.
       </p>
       <p className="text-gray-600 dark:text-gray-400 mb-6">
-        Get the enrollment code from the Nodes page (Enroll button). You can run ncclient as a native binary, via Python, or inside a Docker container.
+        Get the enrollment code from the Nodes page (Enroll button). On Linux, the packages are the easiest way to install it; you can also run ncclient as a standalone binary, via Python, or inside a Docker container.
       </p>
 
       <Tabs
@@ -125,32 +139,12 @@ export function ClientDownload() {
 
         <Tabs.Item title="Linux">
           <Card className="mt-4">
-            <h2 className="text-xl font-bold mb-4">Downloads</h2>
+            <h2 className="text-xl font-bold mb-2">Packages (recommended)</h2>
             <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-              Pre-built command-line executables — no Python required.
-            </p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-              {DOWNLOADS.filter((d) => d.platform === "linux").map((d) => (
-                <a
-                  key={d.file}
-                  href={`/downloads/${d.file}`}
-                  download={d.file}
-                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
-                >
-                  <HiDownload className="w-5 h-5 shrink-0" />
-                  <span>{d.name}</span>
-                </a>
-              ))}
-            </div>
-            <p className="text-sm text-gray-500 dark:text-gray-400 mb-6">
-              After download run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">chmod +x ncclient-*</code> then move to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/usr/local/bin</code> or your PATH.
-            </p>
-
-            <h2 className="text-xl font-bold mb-4">Desktop App (GTK4)</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
-              GUI app with enrollment, status, and subnet route/exit node selection. Talks to the
-              backend service over a system D-Bus API authorized via polkit - no group membership
-              or relogin step needed.
+              The <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> command, a background service that runs it as root, and a
+              GTK4 desktop app for enrollment, status, and subnet route/exit node selection. The app
+              talks to the service over a system D-Bus API authorized via polkit. On a server without
+              a desktop, install only <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">nebula-commander-service</code>.
             </p>
             <div className="space-y-4 mb-6">
               <div>
@@ -236,31 +230,66 @@ export function ClientDownload() {
               </div>
             </div>
 
-            <h2 className="text-xl font-bold mb-4">Install (Python)</h2>
-            <p className="text-gray-700 dark:text-gray-300 mb-2">Requires Python 3.10+. From PyPI:</p>
-            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              pip install nebula-commander
-            </pre>
 
-            <h2 className="text-xl font-bold mb-4">Enroll (one-time)</h2>
-            <p className="text-gray-700 dark:text-gray-300 mb-2">Get the enrollment code from Nebula Commander: Nodes → Enroll. Then run on the device:</p>
-            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              ncclient --server https://&lt;YOUR_SERVER&gt;:&lt;PORT&gt; enroll --code XXXXXXXX
-            </pre>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Token is saved to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">~/.config/nebula-commander/token</code> (or <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/etc/nebula-commander/token</code> when run as root).</p>
+            <h3 className="text-lg font-semibold mb-2">Then start the service and enroll</h3>
+            <p className="text-gray-700 dark:text-gray-300 mb-2">
+              Get the enrollment code from Nodes → Enroll. Start the service first; it waits for enrollment:
+            </p>
+            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">{`sudo systemctl enable --now ncclient`}</pre>
+            <p className="text-gray-700 dark:text-gray-300 mb-2">
+              Then enroll in the desktop app (Enrollment tab), or from a shell:
+            </p>
+            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">{`sudo ncclient enroll --server ${SERVER_URL} --code XXXXXXXX`}</pre>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-8">
+              The service picks up the token right away. Check it with 
+              <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">systemctl status ncclient</code>.
+            </p>
 
-            <h2 className="text-xl font-bold mb-4">Run (daemon)</h2>
-            <p className="text-gray-700 dark:text-gray-300 mb-2">Creating the Nebula TUN device requires root on Linux. Run:</p>
-            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              sudo ncclient --server https://&lt;YOUR_SERVER&gt;:&lt;PORT&gt; run
-            </pre>
-            <p className="text-sm text-gray-600 dark:text-gray-400 mb-4">Config and certs are written to <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">/etc/nebula</code> by default. Use <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">--output-dir</code> to override.</p>
+            <h2 className="text-xl font-bold mb-2">Standalone binary or pip (advanced)</h2>
+            <p className="text-gray-600 dark:text-gray-400 mb-4 text-sm">
+              For distributions the packages don't cover. These install only the command; you set up
+              the service yourself, as root, and there's no desktop app. Pip in particular is for
+              advanced users only: it's easy to end up with a setup that root can't find or that
+              stores its token where the service doesn't look.
+            </p>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Binary - no Python required</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
+              {DOWNLOADS.filter((d) => d.platform === "linux").map((d) => (
+                <a
+                  key={d.file}
+                  href={`/downloads/${d.file}`}
+                  download={d.file}
+                  className="inline-flex items-center gap-2 px-4 py-3 rounded-lg bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] transition-colors"
+                >
+                  <HiDownload className="w-5 h-5 shrink-0" />
+                  <span>{d.name}</span>
+                </a>
+              ))}
+            </div>
+            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">{`sudo install -m 0755 ncclient-linux-amd64 /usr/local/bin/ncclient   # or ncclient-linux-arm64`}</pre>
+            <p className="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Or pip (Python 3.10+)</p>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              Install into a root-owned virtualenv, not one in your home directory: the service runs this
+              code as root, so your user must not be able to change it.
+            </p>
+            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">{PIP_LINUX_SNIPPET}</pre>
 
-            <h2 className="text-xl font-bold mb-4">Run at startup (systemd)</h2>
-            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">
-              sudo ncclient install
-            </pre>
-            <p className="text-sm text-gray-600 dark:text-gray-400">Prompts for server URL and installs the systemd service. Enroll first if you have not already.</p>
+            <h3 className="text-lg font-semibold mb-2">Then enroll as root and install the service</h3>
+            <p className="text-gray-700 dark:text-gray-300 mb-2">
+              Nebula needs root to create its network interface, so every step runs as root, in this order.
+              Get the enrollment code from Nodes → Enroll, then:
+            </p>
+            <pre className="p-4 bg-gray-100 dark:bg-gray-800 rounded text-sm overflow-x-auto mb-4">{STANDALONE_SETUP_SNIPPET}</pre>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mb-2">
+              <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient install</code> asks for the server URL and options, writes a systemd
+              service that runs <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient run</code> as root, and offers to start it. From then on
+              the service is the client: don't also run <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient run</code> by hand.
+            </p>
+            <p className="text-sm text-gray-600 dark:text-gray-400">
+              Keep using <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">sudo</code> for <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient routes</code> and re-enrolling.
+              Run as a regular user, <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ncclient</code> reads that user's own (empty) token and
+              settings, not the service's.
+            </p>
           </Card>
         </Tabs.Item>
 
