@@ -22,7 +22,7 @@ import json
 import threading
 from typing import Any, Callable
 
-from client import service_api
+from client import connectivity, service_api
 from client.windows import nebula_install
 from client.windows import pipe_protocol as proto
 from client.windows.shared_paths import load_status, shared_root
@@ -169,6 +169,7 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         proto.CMD_GET_NEBULA_VERSION: (lambda _a: nebula_install.installed_version(), READ),
         proto.CMD_GET_LATEST_NEBULA_TAG: (lambda _a: nebula_install.latest_tag(), READ),
         proto.CMD_GET_UPDATE_STATUS: (lambda _a: service_api.get_update_status(), READ),
+        proto.CMD_GET_CONNECTIVITY: (lambda _a: connectivity.get_connectivity(out_dir), READ),
         proto.CMD_SET_SETTINGS: (set_settings, MANAGE),
         proto.CMD_ENROLL: (enroll, MANAGE),
         proto.CMD_ACCEPT_ROUTE: (accept_route, MANAGE),

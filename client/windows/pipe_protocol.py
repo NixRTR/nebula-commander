@@ -41,6 +41,8 @@ CMD_GET_DNS_CONFIGURED = "get_dns_configured"
 CMD_GET_NEBULA_VERSION = "get_nebula_version"
 CMD_GET_LATEST_NEBULA_TAG = "get_latest_nebula_tag"
 CMD_GET_UPDATE_STATUS = "get_update_status"
+# Overlay IP + lighthouse reachability (client/connectivity.py); takes a few seconds.
+CMD_GET_CONNECTIVITY = "get_connectivity"
 
 # --- MANAGE commands ---
 CMD_SET_SETTINGS = "set_settings"
