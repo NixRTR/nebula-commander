@@ -78,7 +78,10 @@ def _classify(ifname: str) -> Optional[str]:
         return None
     if ifname == "tailscale0":
         return "tailscale"
-    if ifname.startswith(_NEBULA_PREFIXES):
+    # Another ncclient's nebula on this host: its device is named after its network, so
+    # match on tun type as well as the legacy nebula* name. Other tun-based VPNs
+    # (e.g. OpenVPN's tun0) land here too.
+    if ifname.startswith(_NEBULA_PREFIXES) or os.path.exists(f"/sys/class/net/{ifname}/tun_flags"):
         return "nebula"
     if os.path.isdir(f"/sys/class/net/{ifname}/wireless") or ifname.startswith(_WIFI_PREFIXES):
         return "wifi"
@@ -115,9 +118,9 @@ def discover_available_subnets(own_tun_dev: Optional[str] = None) -> list[dict]:
     with unusual networking.
 
     own_tun_dev: this node's own Nebula tun device name (from its config's `tun.dev`),
-    excluded so a node never offers to advertise its own overlay interface. Other
-    nebula*-named interfaces (a different ncclient/network on the same host) are still
-    included as kind="nebula".
+    excluded so a node never offers to advertise its own overlay interface. Other tun
+    interfaces (a different ncclient/network on the same host) are still included as
+    kind="nebula".
     """
     subnets: list[dict] = []
     try:

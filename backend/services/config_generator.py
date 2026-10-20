@@ -4,6 +4,7 @@ Generate Nebula YAML config for a node from Node + Network + peer nodes.
 import ipaddress
 import logging
 import re
+import unicodedata
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,6 +22,9 @@ DEFAULT_PKI_CA = "/etc/nebula/ca.crt"
 DEFAULT_PKI_CERT = "/etc/nebula/host.crt"
 DEFAULT_PKI_KEY = "/etc/nebula/host.key"
 DEFAULT_LISTEN_PORT = 4242
+DEFAULT_TUN_DEV = "nebula1"
+# Linux IFNAMSIZ is 16 bytes including the NUL (dev_valid_name in net/core/dev.c).
+TUN_DEV_MAX_LEN = 15
 
 
 async def get_dns_client_config(
@@ -273,9 +277,24 @@ def _collect_advertised_routes(node: Node, peer_nodes: list[Node]) -> list[dict[
     return entries
 
 
-def _default_tun(advertised_routes: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
+def tun_dev_for_network(network_name: Optional[str]) -> str:
+    """
+    Tun device name for a network: one per network, so a host can join several networks
+    without the second nebula failing to attach to the first one's device. Sanitized for
+    Linux, the strictest platform that honours a free-form name: lowercase ASCII, digits,
+    "_" and "-", at most 15 bytes. Network.name has no character validation, so anything
+    else becomes "-". Falls back to DEFAULT_TUN_DEV if nothing usable is left.
+    """
+    ascii_name = unicodedata.normalize("NFKD", network_name or "").encode("ascii", "ignore").decode("ascii")
+    dev = re.sub(r"[^a-z0-9_-]+", "-", ascii_name.lower())
+    dev = re.sub(r"-{2,}", "-", dev).strip("-")
+    dev = dev[:TUN_DEV_MAX_LEN].rstrip("-")
+    return dev or DEFAULT_TUN_DEV
+
+
+def _default_tun(dev: str, advertised_routes: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
     tun: dict[str, Any] = {
-        "dev": "nebula1",
+        "dev": dev,
         "drop_local_broadcast": False,
         "drop_multicast": False,
         "tx_queue": 500,
@@ -521,7 +540,7 @@ def build_config(
         "relay": _relay_section(node, other_relay_ips),
         "listen": _default_listen(),
         "punchy": _punchy_section(node),
-        "tun": _default_tun(_collect_advertised_routes(node, peer_nodes)),
+        "tun": _default_tun(tun_dev_for_network(network.name), _collect_advertised_routes(node, peer_nodes)),
         "logging": _logging_section(node),
         "firewall": _firewall_section(network, node, group_firewalls, peer_nodes),
     }

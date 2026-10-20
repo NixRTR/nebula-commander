@@ -147,14 +147,18 @@ Linux-only. On such a gateway node you need to:
 3. **Allow forwarding and (for an exit node) NAT between the Nebula tun interface and
    your physical interface.** On Linux with nftables, this is exactly what
    [`client/linux_routing.py`](../client/linux_routing.py) does for `ncclient` - use
-   it as a reference. For a subnet route to `192.168.1.0/24` via tun device `nebula1`:
+   it as a reference. The tun device is named after the network: lowercase, characters
+   other than `a-z`, `0-9`, `_` and `-` replaced by `-`, at most 15 characters (network
+   `Home Lab` gets `home-lab`). The node's `config.yaml` has the exact name under
+   `tun.dev`. Releases up to v0.7.1 used `nebula1` for every network.
+   For a subnet route to `192.168.1.0/24` via tun device `home-lab`:
 
    ```
    table inet ncclient_routing {
        chain forward {
            type filter hook forward priority filter; policy accept;
-           iifname "nebula1" ip daddr 192.168.1.0/24 accept
-           ip saddr 192.168.1.0/24 oifname "nebula1" accept
+           iifname "home-lab" ip daddr 192.168.1.0/24 accept
+           ip saddr 192.168.1.0/24 oifname "home-lab" accept
        }
    }
    ```
@@ -166,7 +170,7 @@ Linux-only. On such a gateway node you need to:
    table inet ncclient_routing {
        chain postrouting {
            type nat hook postrouting priority srcnat; policy accept;
-           iifname "nebula1" oifname "eth0" masquerade
+           iifname "home-lab" oifname "eth0" masquerade
        }
    }
    ```
