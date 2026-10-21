@@ -107,6 +107,8 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
             partial["interval"] = max(10, min(3600, _arg(a, "interval", int)))
         if "accept_dns" in a:
             partial["accept_dns"] = _arg(a, "accept_dns", bool)
+        if "exit_allow_lan" in a:
+            partial["exit_allow_lan"] = _arg(a, "exit_allow_lan", bool)
         service_api.set_settings(partial)
         hooks.restart_poll()
         return None

@@ -2237,6 +2237,14 @@ export function Nodes() {
                                             <Label htmlFor="dd_exit_node">Exit node (route all traffic)</Label>
                                           </div>
                                           {deviceDetailsForm.unsafe_routes.some((r) => r.route === "0.0.0.0/0") &&
+                                            !deviceDetailsForm.public_endpoint.trim() && (
+                                              <p className="text-sm text-amber-600 dark:text-amber-400 mt-2">
+                                                Set a public endpoint for this node. Windows nodes using this exit node
+                                                keep their tunnel to it outside the exit route by its address, and can
+                                                only do that for an address in static_host_map.
+                                              </p>
+                                            )}
+                                          {deviceDetailsForm.unsafe_routes.some((r) => r.route === "0.0.0.0/0") &&
                                             renderConsumerPicker(
                                               "exit",
                                               deviceDetailsForm.unsafe_routes.find((r) => r.route === "0.0.0.0/0"),

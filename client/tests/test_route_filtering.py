@@ -89,7 +89,8 @@ def test_filter_preserves_pki_block_content_through_reserialize():
 def test_filter_returns_original_bytes_unchanged_when_nothing_is_removed():
     """Accepting everything the server offers must be a byte-for-byte no-op,
     not a reserialize - avoids any reformatting risk on the PKI block when
-    there's nothing to actually filter."""
+    there's nothing to actually filter. (Not on Linux with an exit node: there
+    the exit entries gain install: false - see the test below.)"""
     filtered = filter_accepted_routes(
         RAW_CONFIG,
         accepted_subnet_routes=[
@@ -97,8 +98,34 @@ def test_filter_returns_original_bytes_unchanged_when_nothing_is_removed():
             {"route": "10.50.0.0/16", "via": "10.100.0.22"},
         ],
         accepted_exit_node={"via": "10.100.0.30"},
+        platform="win32",
     )
     assert filtered == RAW_CONFIG
+
+
+def test_filter_marks_exit_routes_install_false_on_linux_only():
+    """On Linux Nebula must not install the exit route itself (its own UDP would be
+    routed into the tunnel); client/exit_routing.py installs a policy-routed one."""
+    accepted = dict(accepted_subnet_routes=[], accepted_exit_node={"via": "10.100.0.30"})
+    linux = yaml.safe_load(filter_accepted_routes(RAW_CONFIG, platform="linux", **accepted))
+    exits = [r for r in linux["tun"]["unsafe_routes"] if r["route"] in ("0.0.0.0/0", "::/0")]
+    assert len(exits) == 2 and all(r["install"] is False for r in exits)
+
+    windows = yaml.safe_load(filter_accepted_routes(RAW_CONFIG, platform="win32", **accepted))
+    assert all("install" not in r for r in windows["tun"]["unsafe_routes"])
+
+    # Subnet routes are never touched.
+    subnet = yaml.safe_load(filter_accepted_routes(
+        RAW_CONFIG, platform="linux",
+        accepted_subnet_routes=[{"route": "192.168.1.0/24", "via": "10.100.0.17"}], accepted_exit_node=None,
+    ))
+    assert all("install" not in r for r in subnet["tun"]["unsafe_routes"])
+
+
+def test_fingerprint_changes_with_exit_allow_lan():
+    exit_node = {"via": "10.100.0.30"}
+    assert _route_selection_fingerprint([], exit_node, True) != _route_selection_fingerprint([], exit_node, False)
+    assert _route_selection_fingerprint([], exit_node) == _route_selection_fingerprint([], exit_node, True)
 
 
 def test_filter_rejecting_everything_yields_empty_unsafe_routes():

@@ -88,11 +88,15 @@ automatically *active*. `ncclient` writes everything it's authorized to consume 
   the exit node. Multiple subnet routes can be accepted at once as long as their
   CIDRs don't overlap - `accept` rejects an overlapping one with an explanation of
   which already-accepted route it conflicts with. At most one exit node is ever
-  accepted at a time.
+  accepted at a time. `routes exit-lan allow|block` (or `accept-exit-node
+  --block-lan`) chooses whether local-network traffic stays direct while an exit
+  node is in use - see [Using an exit node](#using-an-exit-node-full-tunnel).
 - **The Windows app** (`client/windows-app/`): the Status page's "Exit Node /
   Subnet Router" card lists the same available/accepted state interactively -
   checkboxes for subnet routes (disabled with a reason if accepting one would
-  overlap an already-accepted route) and a single-select list for the exit node.
+  overlap an already-accepted route), a single-select list for the exit node, and
+  an "Allow local network access" checkbox. The Linux desktop app has the same
+  switch under its exit-node picker.
 
 A locally accepted/rejected change is picked up within one poll cycle without
 needing to re-enroll or restart anything by hand (or immediately, if something
@@ -122,6 +126,54 @@ of the amber warning under Advanced → Subnet Router & Exit Node Config):
 None of this needs the admin to touch the host directly. `nft` (nftables) must be
 installed on the gateway for step 2 to work - `ncclient` logs a warning and skips it
 if `nft` isn't found, leaving the route inert.
+
+## Using an exit node (full tunnel)
+
+An accepted exit node sends **all** of the consumer's traffic through the gateway,
+except Nebula's own encrypted UDP. That exception matters: Nebula installs an exit
+route as a plain `default dev <tun>` route, which also catches Nebula's traffic to the
+gateway, the lighthouses and its peers. Unless they're on the consumer's own LAN, that
+traffic is routed into the tunnel it is meant to carry, and nothing works - not the
+gateway, not the peers, not the internet, and not any other Nebula network on the same
+host. `ncclient` 0.7.2 and later handle this for you:
+
+- **Linux:** the exit route is written with `install: false`, so Nebula keeps it
+  internally, and `ncclient` installs the default route itself in table 52042, with
+  policy rules (`ip rule`, priorities 32740-32742) that exempt the UDP ports of every
+  running Nebula on the host. An `unreachable` default sits under it as a kill switch:
+  while Nebula is down, internet traffic is dropped instead of leaving outside the
+  tunnel. Everything is removed when the exit node is rejected or `ncclient` stops.
+- **Windows:** Nebula installs the route as before, and `ncclient` adds `/32` routes
+  via the physical default gateway for every underlay address in the node's
+  `static_host_map` (lighthouses, relays, the exit gateway). **Give the exit node a
+  public endpoint** - a gateway address learned only through a lighthouse can't be
+  bypassed this way. Peers found by hole-punching are reached through the exit
+  gateway while it's active.
+- **Local network:** stays direct by default (printers, NAS, the router). With
+  **Allow local network access** off (`routes exit-lan block`), only the Nebula
+  overlays and DHCP renewals stay local; everything else, including a DNS resolver on
+  the LAN, goes through the exit node.
+- **IPv6** never leaks around the tunnel. If the exit gateway doesn't route `::/0`,
+  IPv6 is blocked while the exit node is active (an `unreachable` route on Linux, an
+  outbound firewall rule on Windows), so apps fall back to IPv4 through the tunnel.
+  On today's IPv4-only networks the gateway's certificate can't carry `::/0`, so
+  IPv6 sent into the tunnel is dropped there.
+- **Mobile apps** aren't affected: the OS VPN APIs exempt the app's own traffic.
+- **Hosts not running `ncclient`** (a bare `nebula` with a downloaded config) need the
+  same treatment by hand, or an exit gateway on their LAN. On Linux, use
+  `install: false` on the `0.0.0.0/0` entry plus:
+
+  ```
+  ip rule add pref 32740 ipproto udp sport 4242 lookup main
+  ip rule add pref 32741 lookup main suppress_prefixlength 0
+  ip rule add pref 32742 lookup 52042
+  ip route add default dev nebula1 table 52042
+  ```
+
+If the host enforces strict reverse-path filtering in nftables (NixOS's
+`networking.firewall.checkReversePath = true`, the default), and exit-node traffic
+doesn't come back, set it to `"loose"`. A strict `rp_filter=1` sysctl has been tested
+and works.
 
 ## What you have to do yourself (hosts not running `ncclient` on Linux)
 
@@ -175,6 +227,12 @@ Linux-only. On such a gateway node you need to:
    `iptables -t nat -A POSTROUTING ... -j MASQUERADE` rules.
 
 ## Troubleshooting
+
+**Accepting an exit node cuts the node off completely** (it can't even reach the
+gateway's Nebula IP) - the consumer runs `ncclient` older than 0.7.2, or a bare
+`nebula`, and the gateway isn't on its LAN: Nebula's own traffic is being routed into
+its own tunnel. Upgrade `ncclient`, or see [Using an exit node](#using-an-exit-node-full-tunnel)
+for the manual rules.
 
 **`nebula` fails to start with `Could not parse tun.unsafe_routes: entry N.via ... is
 not present`** - you're running a config from before Nebula Commander added the

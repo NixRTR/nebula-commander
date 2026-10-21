@@ -105,6 +105,10 @@ public static class ServiceApi
     public static Task<PipeClient.PipeResponse> RejectExitNodeAsync() =>
         PipeClient.SendAsync("reject_exit_node", timeoutMs: 30000);
 
+    public static Task<PipeClient.PipeResponse> SetExitAllowLanAsync(bool allowLan) =>
+        PipeClient.SendAsync("set_settings", new Dictionary<string, object?> { ["exit_allow_lan"] = allowLan },
+            timeoutMs: 30000);
+
     /// <summary>Service downloads, SHA256-verifies and installs the whole release
     /// (nebula.exe, nebula-cert.exe, dist\) itself - can take a while.</summary>
     public static Task<PipeClient.PipeResponse> UpdateNebulaAsync(string? tag) =>

@@ -161,6 +161,15 @@ class MainWindow(Adw.ApplicationWindow):
         self.exit_combo.set_model(Gtk.StringList.new([_NONE_EXIT_NODE]))
         self.exit_combo.connect("notify::selected", self._on_exit_node_changed)
         exit_group.add(self.exit_combo)
+        self.exit_lan_switch = Gtk.Switch(active=True, valign=Gtk.Align.CENTER)
+        self.exit_lan_switch.connect("notify::active", self._on_exit_lan_toggled)
+        exit_lan_row = Adw.ActionRow(
+            title="Allow local network access",
+            subtitle="Off: local-network traffic goes through the exit node too",
+        )
+        exit_lan_row.add_suffix(self.exit_lan_switch)
+        exit_lan_row.set_activatable_widget(self.exit_lan_switch)
+        exit_group.add(exit_lan_row)
 
         actions_group = Adw.PreferencesGroup()
         page.add(actions_group)
@@ -244,10 +253,12 @@ class MainWindow(Adw.ApplicationWindow):
         settings = dbus_client.get_settings()
         accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
         accepted_exit_node = settings.get("accepted_exit_node")
+        exit_allow_lan = settings.get("exit_allow_lan", True) is not False
         fingerprint = (
             json.dumps(available, sort_keys=True),
             json.dumps(accepted_subnet_routes, sort_keys=True),
             json.dumps(accepted_exit_node, sort_keys=True),
+            exit_allow_lan,
         )
         if not force and fingerprint == self._routes_fingerprint:
             return
@@ -287,6 +298,7 @@ class MainWindow(Adw.ApplicationWindow):
         except ValueError:
             selected_index = 0
         self.exit_combo.set_selected(selected_index)
+        self.exit_lan_switch.set_active(exit_allow_lan)
         self._suspend_exit_signal = False
 
     def _safe_call(self, fn, *args) -> bool:
@@ -317,6 +329,12 @@ class MainWindow(Adw.ApplicationWindow):
                 self._safe_call(dbus_client.reject_exit_node)
         else:
             self._safe_call(dbus_client.accept_exit_node, via)
+        self._refresh_routes_picker(dbus_client.get_available_routes(), force=True)
+
+    def _on_exit_lan_toggled(self, switch: Gtk.Switch, _pspec) -> None:
+        if self._suspend_exit_signal:
+            return
+        self._safe_call(dbus_client.set_settings, {"exit_allow_lan": switch.get_active()})
         self._refresh_routes_picker(dbus_client.get_available_routes(), force=True)
 
     # ---- Enrollment page ----
