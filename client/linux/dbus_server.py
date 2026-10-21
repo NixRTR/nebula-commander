@@ -102,7 +102,8 @@ def _h_is_enrolled(output_dir: str, msg) -> "tuple[str, tuple]":
 def _h_enroll(output_dir: str, msg) -> "tuple[str, tuple]":
     server, code = msg.body
     node_id = service_api.enroll(server, code)
-    return "s", (node_id or "",)
+    # The backend's node id is an int; the reply signature is "s".
+    return "s", ("" if node_id is None else str(node_id),)
 
 
 def _h_accept_route(output_dir: str, msg) -> "tuple[str, tuple]":
@@ -255,7 +256,16 @@ class _DBusServerThread(threading.Thread):
         except Exception as e:
             self._conn.send(jeepney.new_error(msg, f"{INTERFACE}.Error.Failed", "s", (str(e),)))
             return
-        self._conn.send(jeepney.new_method_return(msg, out_signature, body))
+        try:
+            reply = jeepney.new_method_return(msg, out_signature, body)
+        except Exception as e:
+            # A handler returning the wrong type (it happened: Enroll's node id was an
+            # int for an "s" reply) used to escape as an "unhandled dispatch error" with
+            # no reply at all - the caller sat out its timeout and showed an empty error
+            # although the call had worked.
+            self._log(f"D-Bus server: could not build the {member} reply: {e}")
+            reply = jeepney.new_error(msg, f"{INTERFACE}.Error.Failed", "s", (f"{member}: bad reply ({e})",))
+        self._conn.send(reply)
 
     def _check_authorized(self, sender: "str | None", action: str) -> bool:
         if not sender:

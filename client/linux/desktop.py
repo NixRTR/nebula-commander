@@ -289,9 +289,14 @@ class MainWindow(Adw.ApplicationWindow):
             self._route_rows.append(row)
 
         self._suspend_exit_signal = True
-        self._exit_node_vias = [None] + [r.get("via") for r in exit_nodes]
-        labels = [_NONE_EXIT_NODE] + [f"via {r.get('via')}" for r in exit_nodes]
-        self.exit_combo.set_model(Gtk.StringList.new(labels))
+        # One entry per gateway: an exit node offers 0.0.0.0/0 and ::/0 with the same via.
+        vias = [None] + list(dict.fromkeys(r.get("via") for r in exit_nodes))
+        if vias != self._exit_node_vias or self.exit_combo.get_model() is None:
+            # Only when the gateways change: replacing the model while its popover is
+            # open (right after a pick) left the popover stuck on screen, holding input.
+            self._exit_node_vias = vias
+            labels = [_NONE_EXIT_NODE] + [f"via {via}" for via in vias[1:]]
+            self.exit_combo.set_model(Gtk.StringList.new(labels))
         accepted_exit_via = (accepted_exit_node or {}).get("via")
         try:
             selected_index = self._exit_node_vias.index(accepted_exit_via)
