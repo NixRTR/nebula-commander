@@ -25,10 +25,14 @@ The unreachable default sits under the real one, so while Nebula's device is mis
 With exit_allow_lan off, 32741 only keeps the Nebula overlay subnets (and DHCP) local,
 so LAN traffic - including a LAN DNS resolver - goes through the exit node too.
 
-Windows has no policy routing: Nebula keeps installing the route, and this module adds
-/32 bypass routes via the physical default gateway for every underlay address in
-static_host_map (lighthouses, relays, the exit gateway - which is why an exit node
-needs a public endpoint for Windows consumers).
+Windows has no policy routing, so Nebula keeps installing the route and ncclient binds
+Nebula's socket to the physical uplink's IPv4 address instead (listen.host, see
+bind_to_uplink). Windows' strong host model sends a packet only out of the interface
+that owns its source address, so Nebula's UDP stays on the uplink while everything
+else - including other traffic to the gateway, lighthouses or the control server -
+goes through the tunnel. /32 bypass routes, the first approach, had to exempt those
+addresses entirely. The address is re-checked on every poll; when it changes (DHCP,
+another Wi-Fi) the config is rewritten and Nebula restarted.
 
 IPv6 fails closed: when the exit gateway doesn't route ::/0 (its cert can only carry
 ::/0 on a dual-stack network), IPv6 is blocked instead of leaving outside the tunnel -
@@ -44,11 +48,10 @@ import json
 import os
 import re
 import shutil
-import socket
 import subprocess  # nosec B404 - used with shell=False and validated/fixed args
 import sys
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 EXIT_V4 = "0.0.0.0/0"
@@ -79,7 +82,7 @@ class ExitPlan:
     tun_dev: str
     listen_port: int
     route_v6: bool  # the exit gateway routes ::/0 too
-    underlay_ips: tuple[str, ...] = field(default_factory=tuple)  # static_host_map, IPv4
+    listen_host: str = "0.0.0.0"
 
 
 def _which(name: str) -> str:
@@ -116,33 +119,7 @@ def _run(cmd: list[str], timeout: float = 10, input_text: Optional[str] = None) 
 
 # --- config -> plan ----------------------------------------------------------------
 
-def _resolve_ipv4(host: str) -> list[str]:
-    try:
-        return [str(ipaddress.IPv4Address(host))]
-    except ValueError:
-        pass
-    try:
-        infos = socket.getaddrinfo(host, None, socket.AF_INET, socket.SOCK_DGRAM)
-    except (socket.gaierror, UnicodeError, OSError):
-        return []
-    return sorted({info[4][0] for info in infos})
-
-
-def _underlay_ipv4s(static_host_map: object) -> tuple[str, ...]:
-    """IPv4 underlay addresses from static_host_map ("ip:port" / "host:port" / "[v6]:port")."""
-    ips: set[str] = set()
-    if not isinstance(static_host_map, dict):
-        return ()
-    for addrs in static_host_map.values():
-        for addr in addrs if isinstance(addrs, list) else [addrs]:
-            if not isinstance(addr, str) or addr.startswith("["):
-                continue  # IPv6 underlay: blocked or routed natively, never bypassed
-            host = addr.rsplit(":", 1)[0] if ":" in addr else addr
-            ips.update(_resolve_ipv4(host.strip()))
-    return tuple(sorted(ips, key=lambda ip: ipaddress.IPv4Address(ip)))
-
-
-def plan_from_config(config_bytes: bytes, resolve: bool = True) -> Optional[ExitPlan]:
+def plan_from_config(config_bytes: bytes) -> Optional[ExitPlan]:
     """ExitPlan for a written config.yaml, or None when it has no exit route."""
     import yaml
 
@@ -159,12 +136,27 @@ def plan_from_config(config_bytes: bytes, resolve: bool = True) -> Optional[Exit
     dev = tun.get("dev") or "nebula1"
     if not isinstance(dev, str) or not _IFNAME_RE.match(dev):
         return None
+    listen = parsed.get("listen") or {}
     try:
-        port = int((parsed.get("listen") or {}).get("port", 4242))
+        port = int(listen.get("port", 4242))
     except (TypeError, ValueError):
         port = 4242
-    underlay = _underlay_ipv4s(parsed.get("static_host_map")) if resolve else ()
-    return ExitPlan(tun_dev=dev, listen_port=port, route_v6=EXIT_V6 in routes, underlay_ips=underlay)
+    host = str(listen.get("host") or "0.0.0.0")
+    return ExitPlan(tun_dev=dev, listen_port=port, route_v6=EXIT_V6 in routes, listen_host=host)
+
+
+def with_listen_host(config_bytes: bytes, host: str) -> bytes:
+    """config_bytes with listen.host set to host (unchanged bytes if it already is)."""
+    import yaml
+
+    parsed = yaml.safe_load(config_bytes) or {}
+    if not isinstance(parsed, dict):
+        return config_bytes
+    listen = parsed.get("listen") or {}
+    if str(listen.get("host") or "0.0.0.0") == host:
+        return config_bytes
+    parsed["listen"] = {**listen, "host": host}
+    return yaml.dump(parsed, default_flow_style=False, sort_keys=False, allow_unicode=True).encode("utf-8")
 
 
 # --- Linux -------------------------------------------------------------------------
@@ -339,18 +331,23 @@ def _powershell(script: str, timeout: float = 60) -> "subprocess.CompletedProces
     return _run(["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script], timeout=timeout)
 
 
-def _windows_default_gateway(tun_dev: str) -> Optional[tuple[int, str]]:
-    """(ifIndex, next hop) of the best physical IPv4 default route, skipping Nebula's."""
+def _windows_uplink(tun_dev: str) -> Optional[tuple[int, str]]:
+    """(ifIndex, IPv4 address) of the interface carrying the best physical IPv4 default
+    route, skipping Nebula's own."""
     script = f"""
 $ErrorActionPreference = 'SilentlyContinue'
 $r = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' |
   Where-Object {{ $_.InterfaceAlias -ne '{tun_dev}' -and $_.NextHop -ne '0.0.0.0' }} |
   Sort-Object {{ $_.RouteMetric + (Get-NetIPInterface -InterfaceIndex $_.ifIndex -AddressFamily IPv4).InterfaceMetric }} |
   Select-Object -First 1
-if ($r) {{ "$($r.ifIndex) $($r.NextHop)" }}
+if ($r) {{
+  $a = Get-NetIPAddress -InterfaceIndex $r.ifIndex -AddressFamily IPv4 |
+    Where-Object {{ $_.AddressState -eq 'Preferred' }} | Select-Object -First 1
+  if ($a) {{ "$($r.ifIndex) $($a.IPAddress)" }}
+}}
 """
     r = _powershell(script)
-    if r is None or r.returncode != 0:
+    if r is None:
         return None
     parts = (r.stdout or "").strip().split()
     if len(parts) != 2:
@@ -361,10 +358,41 @@ if ($r) {{ "$($r.ifIndex) $($r.NextHop)" }}
         return None
 
 
+def windows_uplink_ip(tun_dev: str = "nebula1") -> Optional[str]:
+    """IPv4 address of the physical uplink, for listen.host (None if offline / not Windows)."""
+    if sys.platform != "win32":
+        return None
+    uplink = _windows_uplink(tun_dev)
+    return uplink[1] if uplink else None
+
+
+def bind_to_uplink(config_bytes: bytes, debug_log: Optional[Callable[[str], None]] = None) -> bytes:
+    """Windows with an exit route: config_bytes with listen.host = the uplink's address, so
+    Nebula's own UDP keeps leaving through the uplink (strong host model) while the exit
+    route carries everything else. Unchanged on other platforms, without an exit route,
+    or while no uplink is found (the next poll retries)."""
+    if sys.platform != "win32":
+        return config_bytes
+    try:
+        plan = plan_from_config(config_bytes)
+        if plan is None:
+            # No exit route (any more): back to the server's 0.0.0.0, so a binding left over
+            # from an exit node can't go stale when the address changes later.
+            return with_listen_host(config_bytes, "0.0.0.0")
+        ip = windows_uplink_ip(plan.tun_dev)
+        if not ip:
+            _log("Exit node: no physical IPv4 uplink found yet; Nebula not bound to it", debug_log)
+            return config_bytes
+        return with_listen_host(config_bytes, ip)
+    except Exception as e:  # never take down the poll loop
+        _log(f"Exit node: binding Nebula to the uplink failed: {type(e).__name__}: {e}", debug_log)
+        return config_bytes
+
+
 def windows_script(add: dict, remove: Optional[dict], tun_dev: str) -> str:
     """PowerShell that removes `remove`'s routes/rules and installs `add`'s (pure, for tests).
-    Both are state dicts: {"if_index", "gateway", "routes": [ip...], "lan": cidr|None,
-    "block_v6": bool}."""
+    Both are state dicts: {"if_index", "lan": cidr|None, "block_v6": bool}. A state from
+    the /32-bypass build may also carry "gateway" and "routes" - removed, never added."""
     lines = ["$ErrorActionPreference = 'SilentlyContinue'", "$ConfirmPreference = 'None'"]
     if remove:
         for ip in remove.get("routes") or []:
@@ -380,11 +408,6 @@ def windows_script(add: dict, remove: Optional[dict], tun_dev: str) -> str:
         if remove.get("block_v6"):
             lines.append(f"Remove-NetFirewallRule -DisplayName '{WINDOWS_V6_BLOCK_RULE}'")
     if add:
-        for ip in add.get("routes") or []:
-            lines.append(
-                f"New-NetRoute -DestinationPrefix '{ip}/32' -InterfaceIndex {int(add['if_index'])} "
-                f"-NextHop '{add['gateway']}' -RouteMetric 1 -PolicyStore ActiveStore | Out-Null"
-            )
         if add.get("lan"):
             lines.append(
                 f"New-NetRoute -DestinationPrefix '{add['lan']}' -InterfaceAlias '{tun_dev}' "
@@ -399,12 +422,14 @@ def windows_script(add: dict, remove: Optional[dict], tun_dev: str) -> str:
         # Judge by what's actually there: New-NetRoute on a route that already exists (the
         # per-poll re-assert) fails harmlessly, and powershell -Command exits 1 whenever
         # its last cmdlet failed, even under SilentlyContinue.
-        ips = ", ".join(f"'{ip}'" for ip in add.get("routes") or [])
         lines.append("$missing = 0")
-        lines.append(
-            f"foreach ($ip in @({ips})) {{ if (-not (Get-NetRoute -DestinationPrefix \"$ip/32\" "
-            f"-InterfaceIndex {int(add['if_index'])} -PolicyStore ActiveStore)) {{ $missing++ }} }}"
-        )
+        if add.get("lan"):
+            lines.append(
+                f"if (-not (Get-NetRoute -DestinationPrefix '{add['lan']}' -InterfaceAlias '{tun_dev}' "
+                f"-PolicyStore ActiveStore)) {{ $missing++ }}"
+            )
+        if add.get("block_v6"):
+            lines.append(f"if (-not (Get-NetFirewallRule -DisplayName '{WINDOWS_V6_BLOCK_RULE}')) {{ $missing++ }}")
         lines.append('"MISSING:$missing"')
     lines.append("exit 0")
     return "\n".join(lines) + "\n"
@@ -449,16 +474,19 @@ def _windows_save(state_dir: str, state: Optional[dict]) -> None:
 
 
 def _windows_apply(plan: ExitPlan, allow_lan: bool, state_dir: str, debug_log) -> bool:
-    gw = _windows_default_gateway(plan.tun_dev)
-    if gw is None:
-        _log("Exit node: no physical IPv4 default route found; bypass routes not applied", debug_log)
+    uplink = _windows_uplink(plan.tun_dev)
+    if uplink is None:
+        _log("Exit node: no physical IPv4 uplink found", debug_log)
         return False
-    if_index, gateway = gw
+    if_index, ip = uplink
+    if plan.listen_host != ip:
+        # The poll loop rebinds (bind_to_uplink) and restarts Nebula; until then Nebula's
+        # own UDP would follow the exit route into the tunnel.
+        _log(f"Exit node: Nebula is bound to {plan.listen_host}, not the uplink {ip} yet", debug_log)
+        return False
     desired = {
         "tun_dev": plan.tun_dev,
         "if_index": if_index,
-        "gateway": gateway,
-        "routes": list(plan.underlay_ips),
         "lan": None if allow_lan else _windows_lan_prefix(if_index),
         "block_v6": not plan.route_v6,
     }
@@ -468,12 +496,14 @@ def _windows_apply(plan: ExitPlan, allow_lan: bool, state_dir: str, debug_log) -
     r = _powershell(windows_script(desired, current if current != desired else None, plan.tun_dev))
     if r is None or "MISSING:0" not in (r.stdout or ""):
         found = re.search(r"MISSING:(\d+)", (r.stdout or "") if r else "")
-        detail = f"{found.group(1)} bypass route(s) missing" if found else ((r.stderr if r else "") or "not run").strip()
-        _log(f"Exit node: applying bypass routes failed: {detail}", debug_log)
+        detail = f"{found.group(1)} route/rule(s) missing" if found else ((r.stderr if r else "") or "not run").strip()
+        _log(f"Exit node: applying routing failed: {detail}", debug_log)
         return False
     if current != desired:
         _windows_save(state_dir, desired)
-        _log(f"Exit node: {len(plan.underlay_ips)} underlay address(es) bypass the tunnel via {gateway}", debug_log)
+        _log(f"Exit node: all traffic routed via {plan.tun_dev}, Nebula bound to the uplink {ip}"
+             f" ({'LAN allowed' if allow_lan else 'LAN blocked'}, IPv6 {'into the tunnel' if plan.route_v6 else 'blocked'})",
+             debug_log)
     return True
 
 
@@ -502,7 +532,7 @@ def apply(
     device, a laptop may have changed networks). Returns True when exit routing is in
     effect."""
     try:
-        plan = plan_from_config(config_bytes, resolve=sys.platform == "win32")
+        plan = plan_from_config(config_bytes)
         if plan is None:
             # Only undo what this process (or, on Windows, the state file) says is there:
             # stale rules from a crash are cleared by the remove() at poll-loop start.

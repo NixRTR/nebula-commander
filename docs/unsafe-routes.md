@@ -162,12 +162,13 @@ host. `ncclient` 0.7.2 and later handle this for you:
   running Nebula on the host. An `unreachable` default sits under it as a kill switch:
   while Nebula is down, internet traffic is dropped instead of leaving outside the
   tunnel. Everything is removed when the exit node is rejected or `ncclient` stops.
-- **Windows:** Nebula installs the route as before, and `ncclient` adds `/32` routes
-  via the physical default gateway for every underlay address in the node's
-  `static_host_map` (lighthouses, relays, the exit gateway). **Give the exit node a
-  public endpoint** - a gateway address learned only through a lighthouse can't be
-  bypassed this way. Peers found by hole-punching are reached through the exit
-  gateway while it's active.
+- **Windows:** Nebula installs the route as before, and `ncclient` binds Nebula's
+  socket to the physical uplink's IPv4 address (`listen.host`). Windows sends a packet
+  only out of the interface that owns its source address, so Nebula's own traffic
+  stays on the uplink while everything else - including other traffic to the exit
+  gateway, the lighthouses or the Nebula Commander server - goes through the exit
+  node. When the uplink's address changes (DHCP, another Wi-Fi), `ncclient` rebinds
+  and restarts Nebula on its next poll.
 - **Local network:** stays direct by default (printers, NAS, the router). With
   **Allow local network access** off (`routes exit-lan block`), only the Nebula
   overlays and DHCP renewals stay local; everything else, including a DNS resolver on

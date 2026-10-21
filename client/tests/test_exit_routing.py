@@ -37,13 +37,10 @@ def _ok(stdout=""):
 
 def test_plan_from_config():
     plan = er.plan_from_config(CONFIG)
-    assert plan == er.ExitPlan(
-        tun_dev="nebula1", listen_port=4242, route_v6=True, underlay_ips=("198.51.100.20", "203.0.113.10")
-    )
+    assert plan == er.ExitPlan(tun_dev="nebula1", listen_port=4242, route_v6=True, listen_host="0.0.0.0")
     assert er.plan_from_config(CONFIG_V4_ONLY).route_v6 is False
     assert er.plan_from_config(CONFIG_NO_EXIT) is None
     assert er.plan_from_config(b"not: [valid") is None
-    assert er.plan_from_config(CONFIG, resolve=False).underlay_ips == ()
 
 
 def test_plan_rejects_a_tun_dev_that_is_not_interface_shaped():
@@ -57,7 +54,7 @@ def _rules(cmds, fam):
 
 
 def test_linux_commands_allow_lan_full_tunnel():
-    cmds = er.linux_commands(er.plan_from_config(CONFIG, resolve=False), [4242], True, [], [])
+    cmds = er.linux_commands(er.plan_from_config(CONFIG), [4242], True, [], [])
     for fam in ("-4", "-6"):
         rules = _rules(cmds, fam)
         assert rules[0] == ["ip", fam, "rule", "add", "pref", "32740", "ipproto", "udp", "sport", "4242", "lookup", "main"]
@@ -73,7 +70,7 @@ def test_linux_commands_allow_lan_full_tunnel():
 
 
 def test_linux_commands_block_ipv6_when_gateway_has_no_v6_route():
-    cmds = er.linux_commands(er.plan_from_config(CONFIG_V4_ONLY, resolve=False), [4242], True, [], [])
+    cmds = er.linux_commands(er.plan_from_config(CONFIG_V4_ONLY), [4242], True, [], [])
     v6_routes = [c for c in cmds if c[1] == "-6" and c[2] == "route"]
     assert v6_routes == [["ip", "-6", "route", "replace", "unreachable", "default", "metric",
                           str(er.KILL_SWITCH_METRIC), "table", "52042"]]
@@ -81,7 +78,7 @@ def test_linux_commands_block_ipv6_when_gateway_has_no_v6_route():
 
 
 def test_linux_commands_strict_lan_keeps_only_overlay_and_dhcp_local():
-    cmds = er.linux_commands(er.plan_from_config(CONFIG, resolve=False), [4242], False, ["10.100.0.0/24"], [])
+    cmds = er.linux_commands(er.plan_from_config(CONFIG), [4242], False, ["10.100.0.0/24"], [])
     local_v4 = [c for c in _rules(cmds, "-4") if c[5] == "32741"]
     assert ["ip", "-4", "rule", "add", "pref", "32741", "to", "10.100.0.0/24", "lookup", "main"] in local_v4
     assert ["ip", "-4", "rule", "add", "pref", "32741", "ipproto", "udp", "dport", "67", "lookup", "main"] in local_v4
@@ -91,7 +88,7 @@ def test_linux_commands_strict_lan_keeps_only_overlay_and_dhcp_local():
 
 
 def test_linux_commands_without_ipv6_or_tun():
-    plan = er.plan_from_config(CONFIG, resolve=False)
+    plan = er.plan_from_config(CONFIG)
     assert not any(c[1] == "-6" for c in er.linux_commands(plan, [4242], True, [], [], ipv6=False))
     no_tun = er.linux_commands(plan, [4242], True, [], [], tun_present=False)
     assert not any("dev" in c for c in no_tun if c[2] == "route"), "only the kill switch until the device exists"
@@ -208,70 +205,80 @@ def test_linux_port_zero_without_known_port_does_not_install(linux_host, monkeyp
 
 
 # --- Windows ------------------------------------------------------------------------
+# Nebula is bound to the uplink's address (strong host model) instead of /32 bypass
+# routes, which had to exempt the lighthouses, the exit gateway and the control server
+# entirely: measured on Windows 11, `tracert cloud.nebulacdr.net` went around the exit.
 
-def test_windows_script_adds_bypass_routes_lan_and_v6_block():
-    state = {"if_index": 7, "gateway": "192.168.1.1", "routes": ["203.0.113.10"], "lan": "192.168.1.0/24", "block_v6": True}
-    script = er.windows_script(state, None, "nebula1")
-    assert "New-NetRoute -DestinationPrefix '203.0.113.10/32' -InterfaceIndex 7 -NextHop '192.168.1.1'" in script
-    assert "-PolicyStore ActiveStore" in script
-    assert "New-NetRoute -DestinationPrefix '192.168.1.0/24' -InterfaceAlias 'nebula1'" in script
-    assert f"New-NetFirewallRule -DisplayName '{er.WINDOWS_V6_BLOCK_RULE}'" in script
-    assert "Remove-" not in script
-
-
-def test_windows_script_removes_previous_state():
-    old = {"if_index": 3, "gateway": "10.0.0.1", "routes": ["203.0.113.10"], "lan": None, "block_v6": True}
-    script = er.windows_script({}, old, "nebula1")
-    assert "Remove-NetRoute -DestinationPrefix '203.0.113.10/32' -InterfaceIndex 3 -NextHop '10.0.0.1'" in script
-    assert f"Remove-NetFirewallRule -DisplayName '{er.WINDOWS_V6_BLOCK_RULE}'" in script
-    assert "New-" not in script
-
-
-def test_windows_apply_tracks_state_and_removes_exactly(monkeypatch, tmp_path):
+def _windows(monkeypatch, uplink=(7, "192.168.1.50"), stdout="MISSING:0"):
     scripts = []
     monkeypatch.setattr(er.sys, "platform", "win32")
-    monkeypatch.setattr(er, "_windows_default_gateway", lambda tun: (7, "192.168.1.1"))
-    monkeypatch.setattr(er, "_powershell", lambda s, **kw: scripts.append(s) or _ok("MISSING:0"))
-    monkeypatch.setattr(er, "_resolve_ipv4", lambda host: [host])
+    monkeypatch.setattr(er, "_windows_uplink", lambda tun: uplink)
+    monkeypatch.setattr(er, "_windows_lan_prefix", lambda idx: "192.168.1.0/24")
+    monkeypatch.setattr(er, "_powershell", lambda s, **kw: scripts.append(s) or _ok(stdout))
+    return scripts
 
-    assert er.apply(CONFIG_V4_ONLY, str(tmp_path)) is True
+
+def test_bind_to_uplink_sets_listen_host_only_with_an_exit_route(monkeypatch):
+    _windows(monkeypatch)
+    bound = er.bind_to_uplink(CONFIG)
+    assert er.plan_from_config(bound).listen_host == "192.168.1.50"
+    assert er.bind_to_uplink(bound) == bound, "already bound: unchanged bytes, no restart"
+    assert er.bind_to_uplink(CONFIG_NO_EXIT) == CONFIG_NO_EXIT
+    # Exit node rejected while bound: back to 0.0.0.0, so the binding can't go stale.
+    stale = er.with_listen_host(CONFIG_NO_EXIT + b"listen: {host: 0.0.0.0, port: 4242}\n", "192.168.1.50")
+    assert b"0.0.0.0" in er.bind_to_uplink(stale) and b"192.168.1.50" not in er.bind_to_uplink(stale)
+    monkeypatch.setattr(er, "_windows_uplink", lambda tun: None)
+    assert er.bind_to_uplink(CONFIG) == CONFIG, "offline: left alone, next poll retries"
+    monkeypatch.setattr(er.sys, "platform", "linux")
+    assert er.bind_to_uplink(CONFIG) == CONFIG
+
+
+def test_windows_apply_requires_nebula_bound_to_the_uplink(monkeypatch, tmp_path):
+    scripts = _windows(monkeypatch)
+    assert er.apply(CONFIG_V4_ONLY, str(tmp_path)) is False, "still bound to 0.0.0.0"
+    assert scripts == []
+    bound = er.with_listen_host(CONFIG_V4_ONLY, "192.168.1.50")
+    assert er.apply(bound, str(tmp_path)) is True
+    assert "New-NetRoute" not in scripts[-1], "no bypass routes any more"
+    assert f"New-NetFirewallRule -DisplayName '{er.WINDOWS_V6_BLOCK_RULE}'" in scripts[-1]
+    # The uplink address changed: not bound to the new one yet.
+    monkeypatch.setattr(er, "_windows_uplink", lambda tun: (9, "10.0.0.7"))
+    assert er.apply(bound, str(tmp_path)) is False
+
+
+def test_windows_lan_block_and_removal(monkeypatch, tmp_path):
+    scripts = _windows(monkeypatch)
+    bound = er.with_listen_host(CONFIG, "192.168.1.50")
+    assert er.apply(bound, str(tmp_path), allow_lan=False) is True
+    assert "New-NetRoute -DestinationPrefix '192.168.1.0/24' -InterfaceAlias 'nebula1'" in scripts[-1]
+    assert "New-NetFirewallRule" not in scripts[-1], "gateway routes ::/0: no IPv6 block"
     state = json.loads((tmp_path / er.WINDOWS_STATE_FILE).read_text())
-    assert state["routes"] == ["198.51.100.20", "203.0.113.10"] and state["block_v6"] is True
-    assert "198.51.100.20/32" in scripts[-1]
-
-    # Gateway changed (laptop moved networks): old routes removed, new ones added.
-    monkeypatch.setattr(er, "_windows_default_gateway", lambda tun: (9, "10.0.0.1"))
-    er.apply(CONFIG_V4_ONLY, str(tmp_path))
-    assert "Remove-NetRoute -DestinationPrefix '203.0.113.10/32' -InterfaceIndex 7 -NextHop '192.168.1.1'" in scripts[-1]
-    assert "-InterfaceIndex 9 -NextHop '10.0.0.1'" in scripts[-1]
-
+    assert state["lan"] == "192.168.1.0/24"
     er.apply(CONFIG_NO_EXIT, str(tmp_path))
-    assert "Remove-NetRoute" in scripts[-1] and "New-NetRoute" not in scripts[-1]
+    assert "Remove-NetRoute -DestinationPrefix '192.168.1.0/24'" in scripts[-1]
     assert not (tmp_path / er.WINDOWS_STATE_FILE).exists()
 
 
-def test_windows_route_v6_through_exit_skips_the_block(monkeypatch, tmp_path):
-    scripts = []
-    monkeypatch.setattr(er.sys, "platform", "win32")
-    monkeypatch.setattr(er, "_windows_default_gateway", lambda tun: (7, "192.168.1.1"))
-    monkeypatch.setattr(er, "_powershell", lambda s, **kw: scripts.append(s) or _ok("MISSING:0"))
-    monkeypatch.setattr(er, "_resolve_ipv4", lambda host: [host])
-    er.apply(CONFIG, str(tmp_path))
-    assert "New-NetFirewallRule" not in scripts[-1]
+def test_windows_removes_bypass_routes_left_by_the_previous_build(monkeypatch, tmp_path):
+    scripts = _windows(monkeypatch)
+    old = {"tun_dev": "nebula1", "if_index": 7, "gateway": "192.168.1.1",
+           "routes": ["203.0.113.10"], "lan": None, "block_v6": False}
+    (tmp_path / er.WINDOWS_STATE_FILE).write_text(json.dumps(old))
+    er.apply(er.with_listen_host(CONFIG, "192.168.1.50"), str(tmp_path))
+    assert "Remove-NetRoute -DestinationPrefix '203.0.113.10/32' -InterfaceIndex 7 -NextHop '192.168.1.1'" in scripts[-1]
+    assert "routes" not in json.loads((tmp_path / er.WINDOWS_STATE_FILE).read_text())
 
 
-def test_windows_success_is_judged_by_routes_present_not_exit_code(monkeypatch, tmp_path):
+def test_windows_success_is_judged_by_state_present_not_exit_code(monkeypatch, tmp_path):
     """Measured on Windows 11: re-asserting an existing route makes New-NetRoute fail, and
     powershell -Command then exits 1 - which used to be reported as a routing failure."""
-    monkeypatch.setattr(er.sys, "platform", "win32")
-    monkeypatch.setattr(er, "_windows_default_gateway", lambda tun: (7, "192.168.1.1"))
-    monkeypatch.setattr(er, "_resolve_ipv4", lambda host: [host])
-    monkeypatch.setattr(er, "_powershell", lambda s, **kw: subprocess.CompletedProcess([], 1, "MISSING:0\n", "exists"))
-    assert er.apply(CONFIG_V4_ONLY, str(tmp_path)) is True
-    monkeypatch.setattr(er, "_powershell", lambda s, **kw: subprocess.CompletedProcess([], 0, "MISSING:2\n", ""))
-    assert er.apply(CONFIG_V4_ONLY, str(tmp_path)) is False
-    script = er.windows_script({"if_index": 7, "gateway": "192.168.1.1", "routes": ["203.0.113.10"]}, None, "nebula1")
-    assert "Get-NetRoute -DestinationPrefix \"$ip/32\" -InterfaceIndex 7" in script and script.rstrip().endswith("exit 0")
+    _windows(monkeypatch)
+    bound = er.with_listen_host(CONFIG_V4_ONLY, "192.168.1.50")
+    monkeypatch.setattr(er, "_powershell", lambda s, **kw: subprocess.CompletedProcess([], 1, "MISSING:0", "exists"))
+    assert er.apply(bound, str(tmp_path)) is True
+    monkeypatch.setattr(er, "_powershell", lambda s, **kw: subprocess.CompletedProcess([], 0, "MISSING:1", ""))
+    assert er.apply(bound, str(tmp_path)) is False
+    assert er.windows_script({"if_index": 7, "block_v6": True}, None, "nebula1").rstrip().endswith("exit 0")
 
 
 def test_apply_never_raises(monkeypatch):

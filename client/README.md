@@ -133,8 +133,8 @@ already-accepted route it clashes with. At most one exit node is accepted at a
 time. A change takes effect within one poll cycle, no restart needed.
 
 An accepted exit node carries all of this device's traffic. `ncclient` keeps
-Nebula's own UDP out of the tunnel (policy routing on Linux, `/32` bypass routes on
-Windows), blocks IPv6 the gateway can't route instead of letting it leak, and on
+Nebula's own UDP out of the tunnel (policy routing on Linux, binding Nebula to the
+uplink's address on Windows), blocks IPv6 the gateway can't route instead of letting it leak, and on
 Linux drops internet traffic while Nebula is down rather than sending it around the
 tunnel. See "Using an exit node" in [../docs/unsafe-routes.md](../docs/unsafe-routes.md).
 

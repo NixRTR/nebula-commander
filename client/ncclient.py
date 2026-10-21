@@ -219,6 +219,8 @@ def filter_accepted_routes(
         parsed = yaml.safe_load(config_yaml_bytes) or {}
     except Exception:
         return config_yaml_bytes
+    if not isinstance(parsed, dict):
+        return config_yaml_bytes
     tun = parsed.get("tun") or {}
     entries = tun.get("unsafe_routes") or []
     if not entries:
@@ -358,6 +360,19 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
     nebula_abs = os.path.abspath(nebula_bin) if os.path.dirname(nebula_bin) else _which(nebula_bin)
 
     if sys.platform == "win32":
+        # Every start path - including "server unreachable, run the last config" - must
+        # bind Nebula to the uplink while an exit node is in use (and unbind it otherwise):
+        # unbound, its own UDP follows the exit route into the tunnel. See exit_routing.
+        try:
+            from client import exit_routing
+            with open(config, "rb") as f:
+                current = f.read()
+            bound = exit_routing.bind_to_uplink(current)
+            if bound != current:
+                with open(config, "wb") as f:
+                    f.write(bound)
+        except OSError as e:
+            print(f"Could not update Nebula's listen address: {e}", file=sys.stderr)
         # Nebula MUST run elevated (TAP device, etc.). Only start via Popen so the child
         # inherits our token; do not use ShellExecute runas (separate session, no handle).
         if not _windows_process_is_elevated():
@@ -902,6 +917,10 @@ def run_poll_loop(
     remove_split_horizon_dns()
     # Same for exit-node routing: a crash may have left the policy rules/bypass routes behind.
     exit_routing.remove(output_dir, dns_debug_log)
+    # Windows: a nebula.exe left running by a previous instance (an MSI upgrade can stop
+    # the service without its child) keeps the tunnel device and runs a stale config.
+    if sys.platform == "win32" and nebula_bin:
+        _stop_nebula(None)
     # The dns-client-config last applied, so unchanged polls can re-check it's still in effect.
     applied_dns_config: dict = {}
     exit_allow_lan = True
@@ -913,17 +932,51 @@ def run_poll_loop(
             if dns_debug_log:
                 dns_debug_log(f"ensure_split_horizon_dns result={ok}")
 
+    def _refilter_local_config(accepted_subnet_routes: list, accepted_exit_node: "dict | None") -> None:
+        """A local accept/reject applies to the config already on disk right away, without
+        waiting for the server: with an exit node in use the server is reached through it,
+        so rejecting a broken exit node must not depend on reaching the server. (Accepting
+        a new route still needs the server's config - the refetch that follows.)"""
+        nonlocal nebula_proc
+        path = _config_path(output_dir)
+        try:
+            with open(path, "rb") as f:
+                current = f.read()
+        except OSError:
+            return
+        try:
+            updated = exit_routing.bind_to_uplink(
+                filter_accepted_routes(current, accepted_subnet_routes, accepted_exit_node), dns_debug_log
+            )
+        except Exception as e:  # a damaged config.yaml must not stop the loop from starting
+            if dns_debug_log:
+                dns_debug_log(f"re-filtering config.yaml failed: {e}")
+            return
+        if updated == current:
+            return
+        try:
+            with open(path, "wb") as f:
+                f.write(updated)
+        except OSError as e:
+            if dns_debug_log:
+                dns_debug_log(f"re-filtering config.yaml failed: {e}")
+            return
+        if nebula_bin and nebula_proc is not None and nebula_proc.poll() is None:
+            _stop_nebula(nebula_proc)
+            nebula_proc = _start_nebula(nebula_bin, output_dir)
+            _ensure_exit()
+        # Not running yet (first pass): whichever path starts it uses the updated file.
+
     def _ensure_exit() -> None:
         """Make the host's exit-node routing match config.yaml on disk (see
         client/exit_routing.py). Cheap when nothing changed, so it runs on every poll:
         Nebula may have recreated its device, a laptop may have changed networks."""
-        nonlocal exit_routing_failed
+        nonlocal exit_routing_failed, nebula_proc
         try:
             with open(_config_path(output_dir), "rb") as f:
                 config_bytes = f.read()
         except OSError:
             return
-        pid = getattr(nebula_proc, "pid", None) if nebula_proc is not None and nebula_proc.poll() is None else None
         messages: list[str] = []
 
         def _exit_log(msg: str) -> None:
@@ -934,8 +987,24 @@ def run_poll_loop(
             else:
                 print(msg, file=sys.stderr)
 
+        # Windows: Nebula is bound to the uplink's address while an exit node is in use
+        # (exit_routing.bind_to_uplink). A new address (DHCP, another Wi-Fi) needs the
+        # config rewritten and Nebula restarted, or its own UDP follows the exit route.
+        rebound = exit_routing.bind_to_uplink(config_bytes, _exit_log)
+        if rebound != config_bytes:
+            try:
+                with open(_config_path(output_dir), "wb") as f:
+                    f.write(rebound)
+                config_bytes = rebound
+                if nebula_bin and nebula_proc is not None:
+                    _exit_log("Exit node: uplink address changed; restarting Nebula bound to the new one")
+                    _stop_nebula(nebula_proc)
+                    nebula_proc = _start_nebula(nebula_bin, output_dir)
+            except OSError as e:
+                _exit_log(f"Exit node: could not rewrite config for the new uplink address: {e}")
+        pid = getattr(nebula_proc, "pid", None) if nebula_proc is not None and nebula_proc.poll() is None else None
         ok = exit_routing.apply(config_bytes, output_dir, allow_lan=exit_allow_lan, nebula_pid=pid, debug_log=_exit_log)
-        wanted = exit_routing.plan_from_config(config_bytes, resolve=False) is not None
+        wanted = exit_routing.plan_from_config(config_bytes) is not None
         if status_callback and wanted and not ok and not exit_routing_failed:
             reason = messages[-1].removeprefix("Exit node: ") if messages else "see the log"
             status_callback("error", f"Exit node selected, but its routing could not be applied: {reason}")
@@ -1018,6 +1087,9 @@ def run_poll_loop(
                     accepted_subnet_routes, accepted_exit_node, exit_allow_lan
                 )
                 if route_selection_fingerprint != last_route_selection_fingerprint:
+                    # Also on the first pass: the Windows app's reject restarts this whole
+                    # loop, so "changed since last time" can't be the only trigger.
+                    _refilter_local_config(accepted_subnet_routes, accepted_exit_node)
                     last_route_selection_fingerprint = route_selection_fingerprint
                     last_etag = None
 
@@ -1111,7 +1183,9 @@ def run_poll_loop(
 
                 config_path = _config_path(output_dir)
                 with open(config_path, "wb") as f:
-                    f.write(filter_accepted_routes(r.content, accepted_subnet_routes, accepted_exit_node))
+                    f.write(exit_routing.bind_to_uplink(
+                        filter_accepted_routes(r.content, accepted_subnet_routes, accepted_exit_node), dns_debug_log
+                    ))
                 if not status_callback:
                     print(f"Wrote {config_path}")
                 if status_callback:
