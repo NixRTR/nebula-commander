@@ -32,6 +32,7 @@ class Network(Base):
     ca_key_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     cert_version: Mapped[int] = mapped_column(Integer, default=2)  # nebula cert format version for this network's CA
     cert_curve: Mapped[str] = mapped_column(String(16), default="25519")  # "25519" or "P256"
+    tun_dev: Mapped[Optional[str]] = mapped_column(String(15), nullable=True)  # Nebula tun.dev for every node; None = DEFAULT_TUN_DEV
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     nodes: Mapped[list["Node"]] = relationship(

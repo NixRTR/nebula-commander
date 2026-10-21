@@ -25,7 +25,7 @@ from ..services.audit import get_client_ip, log_audit
 from ..services.config_generator import get_dns_client_config
 from ..api.dns import get_dnsmasq_config_for_node
 from ..services.cert_store import read_cert_store_file
-from ..services.config_generator import generate_config_for_node
+from ..services.config_generator import client_supports_tun_dev, generate_config_for_node
 
 logger = logging.getLogger(__name__)
 
@@ -329,6 +329,8 @@ async def device_config(
     """
     Return Nebula YAML config for this device (inline PKI). Use Authorization: Bearer <device_token>.
     Send If-None-Match: <etag> to get 304 when config unchanged.
+    ncclient before 0.8.0 doesn't send X-Ncclient-Features: tun-dev and gets tun.dev
+    nebula1 whatever the network's device is.
     """
     result = await session.execute(select(Node).where(Node.id == node_id))
     node = result.scalar_one_or_none()
@@ -362,7 +364,10 @@ async def device_config(
     host_cert_content = read_cert_store_file(host_cert_path)
     host_key_content = read_cert_store_file(host_key_path)
     inline_pki = (ca_content, host_cert_content, host_key_content)
-    yaml_config = await generate_config_for_node(session, node_id, inline_pki=inline_pki)
+    features = request.headers.get("X-Ncclient-Features")
+    yaml_config = await generate_config_for_node(
+        session, node_id, inline_pki=inline_pki, per_network_tun_dev=client_supports_tun_dev(features)
+    )
     if yaml_config is None:
         raise HTTPException(status_code=404, detail="Node not found")
     etag = hashlib.sha256(yaml_config.encode("utf-8")).hexdigest()

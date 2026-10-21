@@ -19,6 +19,7 @@ export function Networks() {
     name: "",
     subnet_cidr: "10.100.0.0/24",
     cert_curve: "25519",
+    tun_dev: "",
   });
 
   const load = useCallback(() => {
@@ -41,7 +42,7 @@ export function Networks() {
     e.preventDefault();
     createNetwork(form)
       .then(() => {
-        setForm({ name: "", subnet_cidr: "10.100.0.0/24", cert_curve: "25519" });
+        setForm({ name: "", subnet_cidr: "10.100.0.0/24", cert_curve: "25519", tun_dev: "" });
         setShowForm(false);
         load();
       })
@@ -107,6 +108,21 @@ export function Networks() {
               </Select>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Applies to every node on this network. Cannot be changed after creation.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="tun_dev" value="Interface name (optional)" />
+              <TextInput
+                id="tun_dev"
+                type="text"
+                value={form.tun_dev ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, tun_dev: e.target.value }))}
+                placeholder="nc-3f9a2c41b7"
+                maxLength={15}
+              />
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                The tun device name on every node, up to 15 lowercase letters, digits, - or _. Leave blank to
+                generate one (nc- and 10 random characters). Each network needs its own, so a host can join several.
               </p>
             </div>
             <Button type="submit" color="purple">

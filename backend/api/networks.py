@@ -26,6 +26,12 @@ from ..models import (
     User,
 )
 from ..services.audit import get_client_ip, log_audit
+from ..services.config_generator import (
+    DEFAULT_TUN_DEV,
+    generate_tun_dev,
+    network_tun_dev,
+    validate_tun_dev,
+)
 from ..services.ip_allocator import IPAllocator
 
 logger = logging.getLogger(__name__)
@@ -37,6 +43,7 @@ class NetworkCreate(BaseModel):
     name: str
     subnet_cidr: str
     cert_curve: Literal["25519", "P256"] = "25519"
+    tun_dev: Optional[str] = None  # Generated from the name when omitted
 
 
 class NetworkResponse(BaseModel):
@@ -46,6 +53,7 @@ class NetworkResponse(BaseModel):
     ca_cert_path: Optional[str] = None
     cert_version: int = 2
     cert_curve: str = "25519"
+    tun_dev: str = DEFAULT_TUN_DEV
     created_at: str
     # Summary counts for the Networks list/detail cards. Node active/total is
     # deliberately not here - that's computed client-side from the node list so the
@@ -64,6 +72,31 @@ class NetworkListResponse(NetworkResponse):
     can_manage_nodes: Optional[bool] = None
     can_invite_users: Optional[bool] = None
     can_manage_firewall: Optional[bool] = None
+
+
+async def _taken_tun_devs(session: AsyncSession, exclude_network_id: Optional[int] = None) -> set[str]:
+    """tun devices other networks already use. DEFAULT_TUN_DEV isn't counted: every
+    network that predates per-network devices shares it, so it can't be unique."""
+    stmt = select(Network.tun_dev).where(Network.tun_dev.is_not(None))
+    if exclude_network_id is not None:
+        stmt = stmt.where(Network.id != exclude_network_id)
+    result = await session.execute(stmt)
+    return {dev for (dev,) in result.all() if dev != DEFAULT_TUN_DEV}
+
+
+async def _checked_tun_dev(session: AsyncSession, value: str, exclude_network_id: Optional[int] = None) -> str:
+    """Validate an admin-entered tun_dev and check no other network uses it."""
+    try:
+        dev = validate_tun_dev(value)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    if dev in await _taken_tun_devs(session, exclude_network_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Another network already uses interface name '{dev}'. A host in both networks "
+            "would run two nebulas on one device.",
+        )
+    return dev
 
 
 async def _get_network_counts(
@@ -95,6 +128,7 @@ async def _get_network_counts(
 class NetworkUpdate(BaseModel):
     """No network-level firewall (defined.net style: only per-group inbound rules)."""
     name: Optional[str] = None  # If set, must be unique across all networks
+    tun_dev: Optional[str] = None  # If set, must be unique across networks (except DEFAULT_TUN_DEV)
 
 
 @router.get("", response_model=list[NetworkListResponse])
@@ -131,6 +165,7 @@ async def list_networks(
                 ca_cert_path=None,  # Redacted for system admins
                 cert_version=n.cert_version,
                 cert_curve=n.cert_curve,
+                tun_dev=network_tun_dev(n),
                 created_at=n.created_at.isoformat() if n.created_at else "",
                 role="admin",
                 can_manage_nodes=True,
@@ -170,6 +205,7 @@ async def list_networks(
             ca_cert_path=n.ca_cert_path,
             cert_version=n.cert_version,
             cert_curve=n.cert_curve,
+            tun_dev=network_tun_dev(n),
             created_at=n.created_at.isoformat() if n.created_at else "",
             role=perms[n.id].role if n.id in perms else None,
             can_manage_nodes=perms[n.id].can_manage_nodes if n.id in perms else None,
@@ -215,7 +251,11 @@ async def create_network(
     # networks migrated in by the DB column's SQL-level DEFAULT); cert_curve is the one
     # user-facing choice, made once here and immutable afterward (nebula requires every
     # cert on a network to share its CA's curve).
-    network = Network(name=body.name, subnet_cidr=body.subnet_cidr, cert_curve=body.cert_curve)
+    if body.tun_dev is not None and body.tun_dev.strip():
+        tun_dev = await _checked_tun_dev(session, body.tun_dev)
+    else:
+        tun_dev = generate_tun_dev(await _taken_tun_devs(session))
+    network = Network(name=body.name, subnet_cidr=body.subnet_cidr, cert_curve=body.cert_curve, tun_dev=tun_dev)
     session.add(network)
     await session.flush()
     await session.refresh(network)
@@ -268,6 +308,7 @@ async def create_network(
         ca_cert_path=network.ca_cert_path,
         cert_version=network.cert_version,
         cert_curve=network.cert_curve,
+        tun_dev=network_tun_dev(network),
         created_at=network.created_at.isoformat() if network.created_at else "",
         # Known exactly from what was just created above - no query needed.
         group_count=0,
@@ -325,6 +366,7 @@ async def get_network(
         ca_cert_path=ca_cert_path,
         cert_version=network.cert_version,
         cert_curve=network.cert_curve,
+        tun_dev=network_tun_dev(network),
         created_at=network.created_at.isoformat() if network.created_at else "",
         **(await _get_network_counts(session, [network.id]))[network.id],
     )
@@ -363,9 +405,7 @@ async def update_network(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only network owners can update networks"
         )
-    # NOTE: When editable fields are added to NetworkUpdate,
-    # capture original values before mutation and populate this
-    # `changed` dict with old/new pairs for audit logging.
+    # Old/new pairs for every field that changes, for the audit log.
     changed: dict = {}
 
     if body.name is not None:
@@ -381,6 +421,15 @@ async def update_network(
                 )
             changed["name"] = (network.name, new_name)
             network.name = new_name
+            await session.flush()
+
+    # Renaming a network keeps its tun device: nodes only move to a new device when an
+    # owner changes this field on purpose.
+    if body.tun_dev is not None:
+        new_tun_dev = await _checked_tun_dev(session, body.tun_dev, exclude_network_id=network_id)
+        if new_tun_dev != network_tun_dev(network):
+            changed["tun_dev"] = (network_tun_dev(network), new_tun_dev)
+            network.tun_dev = new_tun_dev
             await session.flush()
 
     await session.refresh(network)
@@ -403,6 +452,7 @@ async def update_network(
         ca_cert_path=network.ca_cert_path,
         cert_version=network.cert_version,
         cert_curve=network.cert_curve,
+        tun_dev=network_tun_dev(network),
         created_at=network.created_at.isoformat() if network.created_at else "",
         **(await _get_network_counts(session, [network.id]))[network.id],
     )

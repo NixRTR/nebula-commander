@@ -4,7 +4,7 @@ Generate Nebula YAML config for a node from Node + Network + peer nodes.
 import ipaddress
 import logging
 import re
-import unicodedata
+import secrets
 from pathlib import Path
 from typing import Any, Optional
 
@@ -22,9 +22,36 @@ DEFAULT_PKI_CA = "/etc/nebula/ca.crt"
 DEFAULT_PKI_CERT = "/etc/nebula/host.crt"
 DEFAULT_PKI_KEY = "/etc/nebula/host.key"
 DEFAULT_LISTEN_PORT = 4242
+# Every network's tun device before devices were per-network. Networks that predate
+# Network.tun_dev keep it (the column's SQL default backfills them), so upgrading the
+# server renames nothing on existing nodes. ncclient before 0.8.0 always gets it too:
+# it finds its interface by a "nebula" substring.
 DEFAULT_TUN_DEV = "nebula1"
+# Generated names start with this, so they can't collide with an interface the OS,
+# a container runtime or another VPN creates, and ncclient can recognise them by name.
+TUN_DEV_PREFIX = "nc-"
+# Random hex characters after TUN_DEV_PREFIX in a generated name.
+TUN_DEV_HASH_LEN = 10
+# ncclient 0.8.0+ sends this feature in X-Ncclient-Features on GET /api/device/config.
+# Clients that don't get DEFAULT_TUN_DEV, whatever the network's device is.
+TUN_DEV_CLIENT_FEATURE = "tun-dev"
 # Linux IFNAMSIZ is 16 bytes including the NUL (dev_valid_name in net/core/dev.c).
 TUN_DEV_MAX_LEN = 15
+_TUN_DEV_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,14}$")
+# Interface names a host already uses or will create: loopback, kernel/udev NIC names,
+# container runtimes and other VPNs. An admin-entered tun_dev matching one would point
+# ncclient's DNS, routing and NetworkManager handling at that interface.
+_RESERVED_TUN_DEV_RE = re.compile(
+    r"""^(?:
+        lo
+      | (?:eth|wlan|wwan|usb|ib|bond|team|vlan|tun|tap|utun|wg|zt|tailscale|docker|virbr|lxcbr|vxlan|gre|sit)\d+
+      | (?:en|wl|ww|sl)(?:o\d|s\d|p\d|b\d|x[0-9a-f]{12})\w*
+      | br-[0-9a-f]+
+      | (?:veth|cali|lxc)[0-9a-f]\w*
+      | (?:cilium|flannel|cni|kube-)[\w-]*
+    )$""",
+    re.X,
+)
 
 
 async def get_dns_client_config(
@@ -277,19 +304,41 @@ def _collect_advertised_routes(node: Node, peer_nodes: list[Node]) -> list[dict[
     return entries
 
 
-def tun_dev_for_network(network_name: Optional[str]) -> str:
+def generate_tun_dev(taken: set[str]) -> str:
     """
-    Tun device name for a network: one per network, so a host can join several networks
-    without the second nebula failing to attach to the first one's device. Sanitized for
-    Linux, the strictest platform that honours a free-form name: lowercase ASCII, digits,
-    "_" and "-", at most 15 bytes. Network.name has no character validation, so anything
-    else becomes "-". Falls back to DEFAULT_TUN_DEV if nothing usable is left.
+    Tun device name for a new network: TUN_DEV_PREFIX + TUN_DEV_HASH_LEN random hex
+    characters, e.g. "nc-3f9a2c41b7". Random rather than derived from the network:
+    names and ids repeat across servers, and a host enrolled with two servers would
+    get one device for both. Drawn again if another network in `taken` has it.
     """
-    ascii_name = unicodedata.normalize("NFKD", network_name or "").encode("ascii", "ignore").decode("ascii")
-    dev = re.sub(r"[^a-z0-9_-]+", "-", ascii_name.lower())
-    dev = re.sub(r"-{2,}", "-", dev).strip("-")
-    dev = dev[:TUN_DEV_MAX_LEN].rstrip("-")
-    return dev or DEFAULT_TUN_DEV
+    while True:
+        dev = TUN_DEV_PREFIX + secrets.token_hex(TUN_DEV_HASH_LEN // 2)
+        if dev not in taken:
+            return dev
+
+
+def validate_tun_dev(value: str) -> str:
+    """Validate an admin-entered tun device name; returns it stripped. Raises ValueError
+    with a user-facing message."""
+    dev = value.strip()
+    if not _TUN_DEV_RE.match(dev):
+        raise ValueError(
+            f"Interface name must be 1-{TUN_DEV_MAX_LEN} lowercase letters, digits, '-' or '_', "
+            "starting with a letter or digit"
+        )
+    if _RESERVED_TUN_DEV_RE.match(dev):
+        raise ValueError(f"Interface name {dev!r} is reserved: hosts use it for another interface")
+    return dev
+
+
+def network_tun_dev(network: Network) -> str:
+    """The tun device a network's nodes use (DEFAULT_TUN_DEV for networks without one)."""
+    return network.tun_dev or DEFAULT_TUN_DEV
+
+
+def client_supports_tun_dev(features_header: Optional[str]) -> bool:
+    """Whether an X-Ncclient-Features header lists TUN_DEV_CLIENT_FEATURE."""
+    return TUN_DEV_CLIENT_FEATURE in {f.strip() for f in (features_header or "").split(",")}
 
 
 def _default_tun(dev: str, advertised_routes: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
@@ -493,6 +542,7 @@ def build_config(
     inline_pki: Optional[tuple[str, str, str]] = None,
     mobile_dns: Optional[dict[str, list[str]]] = None,
     blocklist: Optional[list[str]] = None,
+    per_network_tun_dev: bool = True,
 ) -> str:
     """
     Build Nebula YAML config for the given node.
@@ -503,6 +553,8 @@ def build_config(
     blocklist: fingerprints of certificates in this network that are revoked or
     superseded (services/revocation.py) - peers must reject them even though they're
     still within their validity period.
+    per_network_tun_dev: False for ncclient before 0.8.0, which gets DEFAULT_TUN_DEV
+    instead of the network's device (see TUN_DEV_CLIENT_FEATURE).
     """
     # Every peer with a (valid) public endpoint goes into static_host_map, not just
     # lighthouses and relays: a known address lets nodes reach each other directly
@@ -540,7 +592,10 @@ def build_config(
         "relay": _relay_section(node, other_relay_ips),
         "listen": _default_listen(DEFAULT_LISTEN_PORT if node.listen_port is None else node.listen_port),
         "punchy": _punchy_section(node),
-        "tun": _default_tun(tun_dev_for_network(network.name), _collect_advertised_routes(node, peer_nodes)),
+        "tun": _default_tun(
+            network_tun_dev(network) if per_network_tun_dev else DEFAULT_TUN_DEV,
+            _collect_advertised_routes(node, peer_nodes),
+        ),
         "logging": _logging_section(node),
         "firewall": _firewall_section(network, node, group_firewalls, peer_nodes),
     }
@@ -563,12 +618,13 @@ async def generate_config_for_node(
     node_id: int,
     inline_pki: Optional[tuple[str, str, str]] = None,
     mobile_dns: Optional[dict[str, list[str]]] = None,
+    per_network_tun_dev: bool = True,
 ) -> Optional[str]:
     """
     Load node + network + peers and return generated YAML config, or None if node not found.
     inline_pki: optional (ca_pem, cert_pem, key_pem) to embed in config (no file paths).
     mobile_dns: optional {"dns_resolvers": [...], "match_domains": [...]} for mobile nodes;
-    see build_config().
+    see build_config(). per_network_tun_dev: see build_config().
     """
     result = await session.execute(
         select(Node).where(Node.id == node_id)
@@ -599,5 +655,5 @@ async def generate_config_for_node(
 
     return build_config(
         node, network, peer_nodes, group_firewalls, inline_pki=inline_pki, mobile_dns=mobile_dns,
-        blocklist=await active_blocklist(session, network.id),
+        blocklist=await active_blocklist(session, network.id), per_network_tun_dev=per_network_tun_dev,
     )

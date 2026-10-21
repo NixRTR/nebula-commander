@@ -130,6 +130,9 @@ def _run_sqlite_migrations() -> None:
             # from the ORM-level default/explicit value on INSERT instead of this SQL default.
             ("cert_version", "ALTER TABLE networks ADD COLUMN cert_version INTEGER DEFAULT 1"),
             ("cert_curve", "ALTER TABLE networks ADD COLUMN cert_curve VARCHAR(16) DEFAULT '25519'"),
+            # DEFAULT 'nebula1' backfills existing networks to the device every node already
+            # uses, so the upgrade renames nothing; new networks get a generated name instead.
+            ("tun_dev", "ALTER TABLE networks ADD COLUMN tun_dev VARCHAR(15) DEFAULT 'nebula1'"),
         ]:
             if col not in network_columns:
                 cur.execute(sql)

@@ -13,6 +13,9 @@ export interface Network {
   ca_cert_path: string | null;
   cert_version: number;
   cert_curve: "25519" | "P256";
+  /** Nebula tun.dev on every node in this network. "nebula1" for networks created before
+   * names were per-network. */
+  tun_dev: string;
   created_at: string;
   role?: string;
   can_manage_nodes?: boolean;
@@ -29,10 +32,14 @@ export interface NetworkCreate {
   name: string;
   subnet_cidr: string;
   cert_curve?: "25519" | "P256";
+  /** Omit or leave blank to generate "nc-<name>". */
+  tun_dev?: string;
 }
 
 export interface NetworkUpdateData {
   // No network-level firewall; use Groups page for per-group inbound rules.
+  name?: string;
+  tun_dev?: string;
 }
 
 export interface GroupFirewallConfig {

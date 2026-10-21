@@ -37,7 +37,8 @@ EXIT_ROUTES = ("0.0.0.0/0", "::/0")
 _DOCKER_PREFIXES = ("docker", "br-", "veth", "virbr")
 _ETHERNET_PREFIXES = ("en", "eth")
 _WIFI_PREFIXES = ("wl",)
-_NEBULA_PREFIXES = ("nebula",)
+# "nebula1" is the legacy shared device; "nc-" is the prefix the server generates.
+_NEBULA_PREFIXES = ("nebula", "nc-")
 
 
 def _which(name: str) -> str:
@@ -61,6 +62,14 @@ def _log(msg: str, debug_log: Optional[Callable[[str], None]] = None) -> None:
 
 
 # --- Subnet discovery -------------------------------------------------------------
+
+def is_foreign_interface(ifname: str) -> bool:
+    """True if ifname exists on this host and isn't a tun device - e.g. a node config whose
+    tun.dev says "eth0". Nebula itself fails to start then (the kernel won't turn an
+    existing non-tun device into a tun), but ncclient must not point routing, DNS or
+    NetworkManager handling at that interface either."""
+    return os.path.isdir(f"/sys/class/net/{ifname}") and not os.path.exists(f"/sys/class/net/{ifname}/tun_flags")
+
 
 def _is_docker_owned(ifname: str) -> bool:
     if ifname.startswith(_DOCKER_PREFIXES):
@@ -250,6 +259,11 @@ def apply_routes(
     loop that also needs to keep talking to the backend and running Nebula.
     """
     if not unsafe_routes:
+        _delete_table()
+        return
+
+    if is_foreign_interface(tun_dev):
+        _log(f"Not applying subnet routing: tun device {tun_dev!r} is an existing non-tun interface", debug_log)
         _delete_table()
         return
 

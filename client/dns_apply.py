@@ -335,13 +335,18 @@ def _linux_resolv_conf_fallback_ok() -> bool:
     return True
 
 
+def _linux_is_tun(ifname: str) -> bool:
+    return os.path.exists(f"/sys/class/net/{ifname}/tun_flags")
+
+
 def _linux_nebula_interface(tun_dev: str | None = None) -> str | None:
     """Return the Nebula interface name if it exists. With tun_dev (from the node's config),
-    only that device counts - another ncclient's nebula on the same host must not match.
-    Without it (config from an older server), the first interface whose name contains
-    "nebula"."""
+    only that device counts - another ncclient's nebula on the same host must not match -
+    and only if it is a tun device, so a config naming e.g. eth0 never gets DNS applied
+    to the uplink. Without it (config from an older server), the first interface whose
+    name contains "nebula"."""
     if tun_dev:
-        return tun_dev if os.path.isdir(f"/sys/class/net/{tun_dev}") else None
+        return tun_dev if _linux_is_tun(tun_dev) else None
     r = _run(["ip", "-o", "link", "show"], timeout=5)
     if r is None or r.returncode != 0:
         return None
@@ -410,8 +415,11 @@ def _linux_nm_keep_off_nebula(tun_dev: str | None = None) -> None:
     is modified and saved as a real profile), it brings the link down and nebula starts
     logging "Failed to write to tun: input/output error". Marking it unmanaged also stops
     NetworkManager from overwriting the per-link DNS the resolved backend sets on it."""
-    specs = ["interface-name:nebula*"]
-    if tun_dev and not tun_dev.startswith("nebula"):
+    specs = ["interface-name:nebula*", "interface-name:nc-*"]
+    # Never for an existing non-tun interface: a config naming eth0 must not take the
+    # uplink away from NetworkManager.
+    is_foreign = tun_dev and os.path.isdir(f"/sys/class/net/{tun_dev}") and not _linux_is_tun(tun_dev)
+    if tun_dev and not tun_dev.startswith(("nebula", "nc-")) and not is_foreign:
         specs.append(f"interface-name:{tun_dev}")
     changed = _write_if_changed(
         LINUX_NM_UNMANAGED_CONF,

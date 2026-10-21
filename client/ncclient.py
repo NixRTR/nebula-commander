@@ -129,6 +129,11 @@ def _config_path(output_dir: str) -> str:
     return os.path.join(output_dir, "config.yaml")
 
 
+# Sent on GET /api/device/config. Without "tun-dev" the server sets tun.dev to nebula1,
+# because clients before 0.8.0 find their interface by a "nebula" substring.
+CONFIG_FEATURES = "tun-dev"
+
+
 def _tun_dev_from_config(content: bytes) -> str | None:
     """tun.dev from a Nebula config.yaml, or None if it's missing or unparsable."""
     import yaml
@@ -353,6 +358,17 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
     if not os.path.exists(config):
         return None
     config_abs = os.path.abspath(config)
+    if sys.platform.startswith("linux"):
+        from client import linux_routing
+        with open(config, "rb") as f:
+            tun_dev = _tun_dev_from_config(f.read())
+        if tun_dev and linux_routing.is_foreign_interface(tun_dev):
+            print(
+                f"Not starting Nebula: its config's tun.dev {tun_dev!r} is an existing non-tun interface "
+                "on this host. Change the network's interface name in Nebula Commander.",
+                file=sys.stderr,
+            )
+            return None
     # Resolve to an absolute path before spawning on every platform (not just Windows),
     # so we don't rely on Popen's own PATH search at spawn time.
     nebula_abs = os.path.abspath(nebula_bin) if os.path.dirname(nebula_bin) else _which(nebula_bin)
@@ -990,7 +1006,7 @@ def run_poll_loop(
                     last_route_selection_fingerprint = route_selection_fingerprint
                     last_etag = None
 
-                headers = {"Authorization": f"Bearer {token}"}
+                headers = {"Authorization": f"Bearer {token}", "X-Ncclient-Features": CONFIG_FEATURES}
                 if last_etag is not None:
                     headers["If-None-Match"] = last_etag
                 r = requests.get(url, headers=headers, timeout=30)
