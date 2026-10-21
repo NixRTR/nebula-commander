@@ -538,7 +538,7 @@ def build_config(
         "static_host_map": _default_static_host_map(hosts_with_endpoint) if hosts_with_endpoint else {},
         "lighthouse": _lighthouse_section(node, other_lighthouse_ips),
         "relay": _relay_section(node, other_relay_ips),
-        "listen": _default_listen(),
+        "listen": _default_listen(DEFAULT_LISTEN_PORT if node.listen_port is None else node.listen_port),
         "punchy": _punchy_section(node),
         "tun": _default_tun(tun_dev_for_network(network.name), _collect_advertised_routes(node, peer_nodes)),
         "logging": _logging_section(node),

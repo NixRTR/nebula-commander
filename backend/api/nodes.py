@@ -22,6 +22,7 @@ from ..models import AllocatedIP, Certificate, EnrollmentCode, Network, Node, Us
 from ..services.audit import get_client_ip, log_audit
 from ..services.cert_store import read_cert_store_file
 from ..services.config_generator import (
+    DEFAULT_LISTEN_PORT,
     generate_config_for_node,
     get_dns_client_config,
     normalize_advertise_addrs,
@@ -63,6 +64,7 @@ class NodeUpdate(BaseModel):
     is_lighthouse: Optional[bool] = None
     is_relay: Optional[bool] = None
     public_endpoint: Optional[str] = None
+    listen_port: Optional[int] = None  # 0 = kernel-chosen (not for lighthouses/relays)
     advertise_addrs: Optional[list[str]] = None
     lighthouse_options: Optional[dict[str, Any]] = None
     logging_options: Optional[dict[str, Any]] = None
@@ -80,6 +82,7 @@ class NodeResponse(BaseModel):
     is_lighthouse: bool = False
     is_relay: bool = False
     public_endpoint: Optional[str] = None
+    listen_port: int = DEFAULT_LISTEN_PORT
     advertise_addrs: list[str] = []
     lighthouse_options: Optional[dict[str, Any]] = None
     logging_options: Optional[dict[str, Any]] = None
@@ -142,6 +145,7 @@ async def list_nodes(
             is_lighthouse=n.is_lighthouse,
             is_relay=n.is_relay,
             public_endpoint=n.public_endpoint,
+            listen_port=DEFAULT_LISTEN_PORT if n.listen_port is None else n.listen_port,
             advertise_addrs=n.advertise_addrs or [],
             lighthouse_options=n.lighthouse_options,
             logging_options=n.logging_options,
@@ -331,6 +335,7 @@ async def get_node(
         is_lighthouse=node.is_lighthouse,
         is_relay=node.is_relay,
         public_endpoint=node.public_endpoint,
+        listen_port=DEFAULT_LISTEN_PORT if node.listen_port is None else node.listen_port,
         advertise_addrs=node.advertise_addrs or [],
         lighthouse_options=node.lighthouse_options,
         logging_options=node.logging_options,
@@ -371,6 +376,7 @@ async def update_node(
     original_is_lighthouse = node.is_lighthouse
     original_is_relay = node.is_relay
     original_public_endpoint = node.public_endpoint
+    original_listen_port = DEFAULT_LISTEN_PORT if node.listen_port is None else node.listen_port
     original_advertise_addrs = list(node.advertise_addrs or [])
     original_lighthouse_options = (
         node.lighthouse_options.copy()
@@ -416,6 +422,10 @@ async def update_node(
             )
         except ValueError as e:
             raise HTTPException(status_code=400, detail=str(e)) from e
+    if body.listen_port is not None:
+        if not 0 <= body.listen_port <= 65535:
+            raise HTTPException(status_code=400, detail="Listen port must be 0-65535")
+        node.listen_port = body.listen_port
     if body.advertise_addrs is not None:
         net_result = await session.execute(select(Network.subnet_cidr).where(Network.id == node.network_id))
         try:
@@ -490,6 +500,13 @@ async def update_node(
                 }
             )
         node.unsafe_routes = validated_routes
+    # Checked after every field is applied: becoming a lighthouse or relay with port 0 is
+    # as wrong as setting port 0 on one.
+    if node.listen_port == 0 and (node.is_lighthouse or node.is_relay):
+        raise HTTPException(
+            status_code=400,
+            detail="Lighthouses and relays need a fixed listen port: peers reach them at their public endpoint.",
+        )
 
     await session.flush()
 
@@ -513,6 +530,10 @@ async def update_node(
             "old": original_public_endpoint,
             "new": node.public_endpoint,
         }
+
+    new_listen_port = DEFAULT_LISTEN_PORT if node.listen_port is None else node.listen_port
+    if original_listen_port != new_listen_port:
+        changed["listen_port"] = {"old": original_listen_port, "new": new_listen_port}
 
     new_advertise_addrs = node.advertise_addrs or []
     if original_advertise_addrs != new_advertise_addrs:
