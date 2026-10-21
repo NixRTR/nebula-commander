@@ -231,7 +231,7 @@ def test_windows_apply_tracks_state_and_removes_exactly(monkeypatch, tmp_path):
     scripts = []
     monkeypatch.setattr(er.sys, "platform", "win32")
     monkeypatch.setattr(er, "_windows_default_gateway", lambda tun: (7, "192.168.1.1"))
-    monkeypatch.setattr(er, "_powershell", lambda s, **kw: scripts.append(s) or _ok())
+    monkeypatch.setattr(er, "_powershell", lambda s, **kw: scripts.append(s) or _ok("MISSING:0"))
     monkeypatch.setattr(er, "_resolve_ipv4", lambda host: [host])
 
     assert er.apply(CONFIG_V4_ONLY, str(tmp_path)) is True
@@ -254,10 +254,24 @@ def test_windows_route_v6_through_exit_skips_the_block(monkeypatch, tmp_path):
     scripts = []
     monkeypatch.setattr(er.sys, "platform", "win32")
     monkeypatch.setattr(er, "_windows_default_gateway", lambda tun: (7, "192.168.1.1"))
-    monkeypatch.setattr(er, "_powershell", lambda s, **kw: scripts.append(s) or _ok())
+    monkeypatch.setattr(er, "_powershell", lambda s, **kw: scripts.append(s) or _ok("MISSING:0"))
     monkeypatch.setattr(er, "_resolve_ipv4", lambda host: [host])
     er.apply(CONFIG, str(tmp_path))
     assert "New-NetFirewallRule" not in scripts[-1]
+
+
+def test_windows_success_is_judged_by_routes_present_not_exit_code(monkeypatch, tmp_path):
+    """Measured on Windows 11: re-asserting an existing route makes New-NetRoute fail, and
+    powershell -Command then exits 1 - which used to be reported as a routing failure."""
+    monkeypatch.setattr(er.sys, "platform", "win32")
+    monkeypatch.setattr(er, "_windows_default_gateway", lambda tun: (7, "192.168.1.1"))
+    monkeypatch.setattr(er, "_resolve_ipv4", lambda host: [host])
+    monkeypatch.setattr(er, "_powershell", lambda s, **kw: subprocess.CompletedProcess([], 1, "MISSING:0\n", "exists"))
+    assert er.apply(CONFIG_V4_ONLY, str(tmp_path)) is True
+    monkeypatch.setattr(er, "_powershell", lambda s, **kw: subprocess.CompletedProcess([], 0, "MISSING:2\n", ""))
+    assert er.apply(CONFIG_V4_ONLY, str(tmp_path)) is False
+    script = er.windows_script({"if_index": 7, "gateway": "192.168.1.1", "routes": ["203.0.113.10"]}, None, "nebula1")
+    assert "Get-NetRoute -DestinationPrefix \"$ip/32\" -InterfaceIndex 7" in script and script.rstrip().endswith("exit 0")
 
 
 def test_apply_never_raises(monkeypatch):

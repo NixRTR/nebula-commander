@@ -7,6 +7,13 @@ services:
     network_mode: host
     cap_add:
       - NET_ADMIN
+    # Subnet router / exit node: ncclient sets up NAT and Docker's DOCKER-USER rules on
+    # the host itself, but can't switch on IP forwarding from inside a container
+    # (/proc/sys is read-only). Either run this once on the host:
+    #   echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-nebula.conf && sudo sysctl --system
+    # or let ncclient do it by running the container privileged (gives it full root on
+    # the host):
+    # privileged: true
     restart: unless-stopped
     environment:
       # Base URL of your Nebula Commander backend (including scheme, no trailing slash).

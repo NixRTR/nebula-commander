@@ -396,6 +396,17 @@ def windows_script(add: dict, remove: Optional[dict], tun_dev: str) -> str:
                 f"New-NetFirewallRule -DisplayName '{WINDOWS_V6_BLOCK_RULE}' -Direction Outbound -Action Block "
                 f"-RemoteAddress '2000::/3' -Profile Any | Out-Null }}"
             )
+        # Judge by what's actually there: New-NetRoute on a route that already exists (the
+        # per-poll re-assert) fails harmlessly, and powershell -Command exits 1 whenever
+        # its last cmdlet failed, even under SilentlyContinue.
+        ips = ", ".join(f"'{ip}'" for ip in add.get("routes") or [])
+        lines.append("$missing = 0")
+        lines.append(
+            f"foreach ($ip in @({ips})) {{ if (-not (Get-NetRoute -DestinationPrefix \"$ip/32\" "
+            f"-InterfaceIndex {int(add['if_index'])} -PolicyStore ActiveStore)) {{ $missing++ }} }}"
+        )
+        lines.append('"MISSING:$missing"')
+    lines.append("exit 0")
     return "\n".join(lines) + "\n"
 
 
@@ -455,8 +466,10 @@ def _windows_apply(plan: ExitPlan, allow_lan: bool, state_dir: str, debug_log) -
     # Re-asserted on every call even when unchanged: ActiveStore routes vanish when an
     # interface goes down, and New-NetRoute on an existing route is a silent no-op.
     r = _powershell(windows_script(desired, current if current != desired else None, plan.tun_dev))
-    if r is None or r.returncode != 0:
-        _log(f"Exit node: applying bypass routes failed: {(r.stderr if r else 'not run') or ''}".strip(), debug_log)
+    if r is None or "MISSING:0" not in (r.stdout or ""):
+        found = re.search(r"MISSING:(\d+)", (r.stdout or "") if r else "")
+        detail = f"{found.group(1)} bypass route(s) missing" if found else ((r.stderr if r else "") or "not run").strip()
+        _log(f"Exit node: applying bypass routes failed: {detail}", debug_log)
         return False
     if current != desired:
         _windows_save(state_dir, desired)

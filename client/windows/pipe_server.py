@@ -89,6 +89,7 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         s = service_api.get_settings()
         return {k: s.get(k) for k in (
             "server", "interval", "accept_dns", "node_id", "accepted_subnet_routes", "accepted_exit_node",
+            "exit_allow_lan",
         )}
 
     def is_enrolled(_a):

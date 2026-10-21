@@ -24,6 +24,7 @@ to detect or fix that.
 import ipaddress
 import os
 import re
+import shlex
 import shutil
 import subprocess  # nosec B404 - used with shell=False and validated/fixed args
 import sys
@@ -139,21 +140,147 @@ def discover_available_subnets(own_tun_dev: Optional[str] = None) -> list[dict]:
 
 # --- Host routing (ip_forward + nftables) -----------------------------------------
 
-def _set_ip_forward(routes: list[dict]) -> None:
+def _set_ip_forward(routes: list[dict], debug_log: Optional[Callable[[str], None]] = None) -> None:
     """One-way enable only - never written back to 0. This runs on router-flavored
     hosts where forwarding may be wanted for other reasons; ncclient only ever adds
-    host config it doesn't already own, it doesn't revert state on the way out."""
-    try:
-        with open("/proc/sys/net/ipv4/ip_forward", "w", encoding="ascii") as f:
-            f.write("1\n")
-    except OSError:
-        pass
+    host config it doesn't already own, it doesn't revert state on the way out.
+
+    In a container (the Docker image runs with host networking) /proc/sys is mounted
+    read-only unless the container is privileged, so the write fails: say so, since the
+    gateway silently forwards nothing until the host enables it."""
+    paths = ["/proc/sys/net/ipv4/ip_forward"]
     if any(":" in (r.get("route") or "") for r in routes):
+        paths.append("/proc/sys/net/ipv6/conf/all/forwarding")
+    for path in paths:
         try:
-            with open("/proc/sys/net/ipv6/conf/all/forwarding", "w", encoding="ascii") as f:
+            with open(path, "w", encoding="ascii") as f:
                 f.write("1\n")
         except OSError:
             pass
+        try:
+            with open(path, "r", encoding="ascii") as f:
+                enabled = f.read().strip() == "1"
+        except OSError:
+            enabled = False
+        if not enabled:
+            key = path.removeprefix("/proc/sys/").replace("/", ".")
+            _log(
+                f"IP forwarding is off and ncclient couldn't turn it on ({key}): this gateway forwards "
+                f"nothing until it's enabled. In Docker, set `sysctl -w {key}=1` on the host (persist it in "
+                "/etc/sysctl.d/) or run the container privileged.",
+                debug_log,
+            )
+
+
+# --- Docker's FORWARD policy ------------------------------------------------------
+# Docker sets the iptables FORWARD policy to DROP. ncclient's own nftables table can
+# accept, but a drop in another table at the same hook still drops the packet, so on a
+# host running Docker the gateway forwarded nothing. Docker's documented place for
+# user rules is the DOCKER-USER chain; ncclient's rules there carry this comment so
+# they can be found and replaced without touching anything else.
+DOCKER_USER_COMMENT = "ncclient"
+
+
+def _docker_user_iptables() -> Optional[str]:
+    """The iptables binary that sees Docker's DOCKER-USER chain, or None (no Docker, or
+    Docker not managing iptables). The host may use the legacy backend while this
+    image's iptables defaults to nft, hence trying both."""
+    for name in ("iptables", "iptables-legacy"):
+        binary = shutil.which(name)
+        if not binary:
+            continue
+        try:
+            r = subprocess.run(  # nosec B603 - fixed argv, shell=False
+                [binary, "-w", "-n", "-L", "DOCKER-USER"],
+                capture_output=True, timeout=10, text=True, env=_env_for_system_binaries(),
+            )
+        except (subprocess.SubprocessError, OSError):
+            continue
+        if r.returncode == 0:
+            return binary
+    return None
+
+
+def docker_user_rules(unsafe_routes: list[dict], tun_dev: str, uplink: Optional[str]) -> list[list[str]]:
+    """iptables -I DOCKER-USER rule specs (without the binary) mirroring the nftables
+    forward rules _build_nft_script installs (pure, for tests)."""
+    tag = ["-m", "comment", "--comment", DOCKER_USER_COMMENT, "-j", "ACCEPT"]
+    rules: list[list[str]] = []
+    exit_done = False
+    for r in unsafe_routes:
+        route = (r.get("route") or "").strip()
+        if not route:
+            continue
+        if route in EXIT_ROUTES:
+            if exit_done or not uplink:
+                continue
+            exit_done = True
+            rules.append(["-i", tun_dev, "-o", uplink, *tag])
+            rules.append(["-i", uplink, "-o", tun_dev, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", *tag])
+            continue
+        try:
+            net = ipaddress.ip_network(route, strict=False)
+        except ValueError:
+            continue
+        if net.version != 4:
+            continue  # ip6tables' DOCKER-USER only exists with Docker's ipv6 enabled; not handled
+        rules.append(["-i", tun_dev, "-d", str(net), *tag])
+        rules.append(["-s", str(net), "-o", tun_dev, *tag])
+    return rules
+
+
+def _remove_docker_user_rules(binary: str) -> None:
+    try:
+        r = subprocess.run(  # nosec B603 - fixed argv, shell=False
+            [binary, "-w", "-S", "DOCKER-USER"],
+            capture_output=True, timeout=10, text=True, env=_env_for_system_binaries(),
+        )
+    except (subprocess.SubprocessError, OSError):
+        return
+    for line in (r.stdout or "").splitlines():
+        try:
+            parts = shlex.split(line)
+        except ValueError:
+            continue
+        if parts[:2] != ["-A", "DOCKER-USER"] or ["--comment", DOCKER_USER_COMMENT] not in [
+            parts[i:i + 2] for i in range(len(parts) - 1)
+        ]:
+            continue
+        spec = parts[2:]
+        subprocess.run(  # nosec B603 - argv from iptables' own -S output of our own rules, shell=False
+            [binary, "-w", "-D", "DOCKER-USER", *spec],
+            capture_output=True, timeout=10, env=_env_for_system_binaries(),
+        )
+
+
+def _docker_forward_rules(
+    unsafe_routes: list[dict], tun_dev: str, debug_log: Optional[Callable[[str], None]]
+) -> None:
+    """Replace ncclient's DOCKER-USER rules with ones for unsafe_routes (none = remove).
+    A no-op on hosts without Docker's chain. Never raises."""
+    try:
+        _apply_docker_user_rules(unsafe_routes, tun_dev, debug_log)
+    except (subprocess.SubprocessError, OSError) as e:
+        _log(f"Docker FORWARD rules not updated: {e}", debug_log)
+
+
+def _apply_docker_user_rules(
+    unsafe_routes: list[dict], tun_dev: str, debug_log: Optional[Callable[[str], None]]
+) -> None:
+    binary = _docker_user_iptables()
+    if not binary:
+        return
+    _remove_docker_user_rules(binary)
+    if not unsafe_routes:
+        return
+    uplink = _default_route_iface() if any((r.get("route") or "") in EXIT_ROUTES for r in unsafe_routes) else None
+    for spec in docker_user_rules(unsafe_routes, tun_dev, uplink):
+        r = subprocess.run(  # nosec B603 - fixed argv; CIDRs validated, tun_dev/uplink from config/ip(8)
+            [binary, "-w", "-I", "DOCKER-USER", *spec],
+            capture_output=True, timeout=10, text=True, env=_env_for_system_binaries(),
+        )
+        if r.returncode != 0:
+            _log(f"Docker FORWARD rule failed ({' '.join(spec)}): {(r.stderr or '').strip()}", debug_log)
 
 
 def _default_route_iface() -> Optional[str]:
@@ -248,6 +375,7 @@ def apply_routes(
     """
     if not unsafe_routes:
         _delete_table()
+        _docker_forward_rules([], tun_dev, debug_log)
         return
 
     if not shutil.which("nft"):
@@ -258,7 +386,8 @@ def apply_routes(
         )
         return
 
-    _set_ip_forward(unsafe_routes)
+    _set_ip_forward(unsafe_routes, debug_log)
+    _docker_forward_rules(unsafe_routes, tun_dev, debug_log)
 
     script = _build_nft_script(unsafe_routes, tun_dev, debug_log)
     _delete_table()

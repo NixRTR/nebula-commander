@@ -72,6 +72,10 @@ const DOCKER_COMPOSE_SNIPPET = `services:
     network_mode: host
     cap_add:
       - NET_ADMIN
+    # Subnet router / exit node: enable IP forwarding on the host once
+    # (sysctl net.ipv4.ip_forward=1, persisted in /etc/sysctl.d/), or let
+    # ncclient do it by running the container privileged:
+    # privileged: true
     restart: unless-stopped
     environment:
       NEBULA_COMMANDER_SERVER: "https://<YOUR_SERVER>"

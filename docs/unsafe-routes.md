@@ -9,8 +9,7 @@ way `tailscale up --advertise-exit-node` does). Both build on Nebula's own
 This doc covers how it's configured from both sides — the gateway that advertises a
 route, and the other nodes that actually use it — what happens automatically for
 nodes running `ncclient` on Linux, and — the part that's easy to miss — what you
-have to do yourself for everything else (Windows, macOS, Docker-deployed `ncclient`,
-or bare `nebula`).
+have to do yourself for everything else (Windows, macOS, or bare `nebula`).
 
 ## Two sides of the same setting
 
@@ -127,6 +126,26 @@ None of this needs the admin to touch the host directly. `nft` (nftables) must b
 installed on the gateway for step 2 to work - `ncclient` logs a warning and skips it
 if `nft` isn't found, leaving the route inert.
 
+**Hosts running Docker** (whether `ncclient` itself runs in Docker or not): Docker sets
+the iptables `FORWARD` policy to drop, which ncclient's own nftables table can't
+override. When Docker's `DOCKER-USER` chain exists, `ncclient` also inserts matching
+accept rules there (tagged with the comment `ncclient`, replaced on every change and
+removed with the routes).
+
+**`ncclient` in Docker** (the image and the suggested compose file use
+`network_mode: host`): the gateway automation runs against the host's network stack,
+so it works the same as above, with one exception. A container can't switch on IP
+forwarding (`/proc/sys` is read-only), so either enable it on the host once:
+
+```
+echo 'net.ipv4.ip_forward=1' | sudo tee /etc/sysctl.d/99-nebula.conf
+sudo sysctl --system
+```
+
+or run the container with `privileged: true`, which lets `ncclient` do it (and gives
+the container full root on the host). Until then `ncclient` logs that forwarding is
+off.
+
 ## Using an exit node (full tunnel)
 
 An accepted exit node sends **all** of the consumer's traffic through the gateway,
@@ -177,9 +196,9 @@ and works.
 
 ## What you have to do yourself (hosts not running `ncclient` on Linux)
 
-This includes Windows nodes, macOS, a Docker-deployed `ncclient` (it runs in its own
-network namespace, so it can't reach the host's routing table at all), or any host
-running the bare `nebula` binary directly. Nebula Commander still generates the
+This includes Windows nodes, macOS, a Docker-deployed `ncclient` that isn't on host
+networking (it runs in its own network namespace, so it can't reach the host's routing
+table at all), or any host running the bare `nebula` binary directly. Nebula Commander still generates the
 correct config for these nodes - `ncclient`'s automation is the only piece that's
 Linux-only. On such a gateway node you need to:
 

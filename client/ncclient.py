@@ -924,10 +924,23 @@ def run_poll_loop(
         except OSError:
             return
         pid = getattr(nebula_proc, "pid", None) if nebula_proc is not None and nebula_proc.poll() is None else None
-        ok = exit_routing.apply(config_bytes, output_dir, allow_lan=exit_allow_lan, nebula_pid=pid, debug_log=dns_debug_log)
+        messages: list[str] = []
+
+        def _exit_log(msg: str) -> None:
+            # Kept for the status message: the Windows service has no log to point at.
+            messages.append(msg)
+            if dns_debug_log:
+                dns_debug_log(msg)
+            else:
+                print(msg, file=sys.stderr)
+
+        ok = exit_routing.apply(config_bytes, output_dir, allow_lan=exit_allow_lan, nebula_pid=pid, debug_log=_exit_log)
         wanted = exit_routing.plan_from_config(config_bytes, resolve=False) is not None
-        if wanted and not ok and not exit_routing_failed and status_callback:
-            status_callback("error", "Exit node selected, but its routing could not be applied - see the log")
+        if status_callback and wanted and not ok and not exit_routing_failed:
+            reason = messages[-1].removeprefix("Exit node: ") if messages else "see the log"
+            status_callback("error", f"Exit node selected, but its routing could not be applied: {reason}")
+        elif status_callback and wanted and ok and exit_routing_failed:
+            status_callback("connected", "Exit node routing applied")
         exit_routing_failed = wanted and not ok
 
     def _start_from_last_config(proc: "subprocess.Popen | None", reason: str) -> "subprocess.Popen | None":
