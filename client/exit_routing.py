@@ -23,7 +23,10 @@ The unreachable default sits under the real one, so while Nebula's device is mis
 (starting, crashed) internet traffic is dropped rather than leaking around the tunnel.
 
 With exit_allow_lan off, 32741 only keeps the Nebula overlay subnets (and DHCP) local,
-so LAN traffic - including a LAN DNS resolver - goes through the exit node too.
+so LAN traffic - including a LAN DNS resolver - goes through the exit node too. Replies
+to connections coming in from the LAN still go out directly: they're sent from the
+host's own address (32741 `from <addr>`), which new outgoing connections never are when
+they're routed.
 
 Windows has no policy routing, so Nebula keeps installing the route and ncclient binds
 Nebula's socket to the physical uplink's IPv4 address instead (listen.host, see
@@ -169,15 +172,18 @@ def linux_commands(
     overlay_v6: list[str],
     ipv6: bool = True,
     tun_present: bool = True,
+    local_v4: tuple[str, ...] = (),
+    local_v6: tuple[str, ...] = (),
 ) -> list[list[str]]:
     """The ip(8) argv lists that install the exit routing for plan (pure, for tests).
     ports: the UDP ports of every Nebula on the host - another network's nebula must not
     be routed into this exit tunnel either. ipv6=False (IPv6 disabled on the host) leaves
     out every -6 command; tun_present=False (Nebula's device not up yet) installs only
-    the kill switch."""
+    the kill switch. local_v4/local_v6: the host's own non-tunnel addresses, for the
+    LAN-blocked mode's reply rule."""
     cmds: list[list[str]] = []
-    families = [("-4", overlay_v4)] + ([("-6", overlay_v6)] if ipv6 else [])
-    for fam, overlay in families:
+    families = [("-4", overlay_v4, local_v4)] + ([("-6", overlay_v6, local_v6)] if ipv6 else [])
+    for fam, overlay, own_addrs in families:
         # Nebula's own UDP keeps the normal routes - first, so nothing below can catch it.
         for port in ports:
             cmds.append(["ip", fam, "rule", "add", "pref", str(RULE_PREF_NEBULA),
@@ -192,6 +198,14 @@ def linux_commands(
             for cidr in local:
                 cmds.append(["ip", fam, "rule", "add", "pref", str(RULE_PREF_LOCAL),
                              "to", cidr, "lookup", "main"])
+            # Replies to connections that came in from the LAN (SSH, a file share, a web
+            # UI) are sent from the address the connection arrived on; a new outgoing
+            # connection has no source address yet when routed, so this doesn't let it
+            # around the exit node. Without it, blocking LAN access cut off every inbound
+            # connection from the LAN (measured: SSH into a Debian VM dropped).
+            for addr in own_addrs:
+                cmds.append(["ip", fam, "rule", "add", "pref", str(RULE_PREF_LOCAL),
+                             "from", addr, "lookup", "main"])
             if fam == "-4":
                 cmds.append(["ip", fam, "rule", "add", "pref", str(RULE_PREF_LOCAL),
                              "ipproto", "udp", "dport", "67", "lookup", "main"])  # DHCP renewals
@@ -199,7 +213,7 @@ def linux_commands(
     # Kill switch: an unreachable default under the real one, so while Nebula's device is
     # missing (starting, crashed) traffic is dropped instead of leaving outside the tunnel.
     # It's also the whole IPv6 table when the gateway can't route ::/0 (fails closed).
-    for fam in [f for f, _ in families]:
+    for fam in [f for f, _, _ in families]:
         cmds.append(["ip", fam, "route", "replace", "unreachable", "default",
                      "metric", str(KILL_SWITCH_METRIC), "table", str(ROUTE_TABLE)])
     if tun_present:
@@ -260,6 +274,32 @@ def _linux_tun_networks() -> tuple[list[str], list[str]]:
     return sorted(v4), sorted(v6)
 
 
+def _linux_own_addresses() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """The host's own addresses outside every tunnel (IPv4, global IPv6): the sources of
+    its replies to LAN clients. Loopback and tun devices (Nebula, other VPNs) excluded."""
+    r = _run(["ip", "-o", "addr", "show"])
+    if r is None or r.returncode != 0:
+        return (), ()
+    v4: set[str] = set()
+    v6: set[str] = set()
+    for line in (r.stdout or "").splitlines():
+        m = re.match(r"\d+:\s+(\S+?)(?:@\S+)?\s+(inet6?)\s+(\S+)", line)
+        if not m:
+            continue
+        ifname, family, cidr = m.groups()
+        if ifname == "lo" or os.path.exists(f"/sys/class/net/{ifname}/tun_flags"):
+            continue
+        try:
+            addr = ipaddress.ip_interface(cidr).ip
+        except ValueError:
+            continue
+        if addr.version == 4:
+            v4.add(str(addr))
+        elif not (addr.is_link_local or addr.is_loopback):
+            v6.add(str(addr))
+    return tuple(sorted(v4)), tuple(sorted(v6))
+
+
 _linux_applied: Optional[tuple] = None
 
 
@@ -303,12 +343,15 @@ def _linux_apply(plan: ExitPlan, allow_lan: bool, nebula_pid: Optional[int], deb
         _linux_remove()
         return False
     overlay_v4, overlay_v6 = ([], []) if allow_lan else _linux_tun_networks()
+    local_v4, local_v6 = ((), ()) if allow_lan else _linux_own_addresses()
     ipv6 = _linux_ipv6_enabled()
-    key = (plan.tun_dev, tuple(ports), plan.route_v6, allow_lan, tuple(overlay_v4), tuple(overlay_v6), ipv6, tun_present)
+    key = (plan.tun_dev, tuple(ports), plan.route_v6, allow_lan, tuple(overlay_v4), tuple(overlay_v6), ipv6, tun_present,
+           local_v4, local_v6)
     if key == _linux_applied and _linux_present(plan, tun_present):
         return True
     _linux_remove()
-    for cmd in linux_commands(plan, ports, allow_lan, overlay_v4, overlay_v6, ipv6=ipv6, tun_present=tun_present):
+    for cmd in linux_commands(plan, ports, allow_lan, overlay_v4, overlay_v6, ipv6=ipv6, tun_present=tun_present,
+                              local_v4=local_v4, local_v6=local_v6):
         r = _run(cmd)
         if r is None or r.returncode != 0:
             # Any failure - IPv6 included, since a missing v6 block would leak - undoes the

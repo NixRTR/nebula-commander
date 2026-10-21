@@ -87,6 +87,32 @@ def test_linux_commands_strict_lan_keeps_only_overlay_and_dhcp_local():
     assert {c[7] for c in local_v6} == {"fe80::/10", "ff00::/8"}
 
 
+def test_linux_commands_strict_lan_keeps_replies_to_inbound_connections_local():
+    """LAN blocked used to cut every inbound LAN connection (SSH into a Debian VM dropped):
+    replies leave from the address the connection came in on, so that source stays local."""
+    cmds = er.linux_commands(er.plan_from_config(CONFIG), [4242], False, [], [],
+                             local_v4=("192.168.3.55",), local_v6=("2001:db8:1::55",))
+    assert ["ip", "-4", "rule", "add", "pref", "32741", "from", "192.168.3.55", "lookup", "main"] in cmds
+    assert ["ip", "-6", "rule", "add", "pref", "32741", "from", "2001:db8:1::55", "lookup", "main"] in cmds
+    allowed = er.linux_commands(er.plan_from_config(CONFIG), [4242], True, [], [], local_v4=("192.168.3.55",))
+    assert not any("from" in c for c in allowed), "LAN allowed: suppress_prefixlength already covers it"
+
+
+def test_own_addresses_skip_loopback_tunnels_and_link_local(monkeypatch):
+    out = (
+        "1: lo    inet 127.0.0.1/8 scope host lo\n"
+        "2: enp0s3    inet 192.168.3.55/24 brd 192.168.3.255 scope global dynamic enp0s3\n"
+        "2: enp0s3    inet6 2001:db8:1::55/64 scope global dynamic\n"
+        "2: enp0s3    inet6 fe80::a00:27ff:fe00:1/64 scope link\n"
+        "3: docker0    inet 172.17.0.1/16 scope global docker0\n"
+        "5: nebula1    inet 10.100.0.31/24 scope global nebula1\n"
+        "6: veth1@if5    inet 10.9.0.1/24 scope global veth1\n"
+    )
+    monkeypatch.setattr(er, "_run", lambda cmd, **kw: _ok(out))
+    monkeypatch.setattr(er.os.path, "exists", lambda p: p == "/sys/class/net/nebula1/tun_flags")
+    assert er._linux_own_addresses() == (("10.9.0.1", "172.17.0.1", "192.168.3.55"), ("2001:db8:1::55",))
+
+
 def test_linux_commands_without_ipv6_or_tun():
     plan = er.plan_from_config(CONFIG)
     assert not any(c[1] == "-6" for c in er.linux_commands(plan, [4242], True, [], [], ipv6=False))
