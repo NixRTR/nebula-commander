@@ -852,8 +852,12 @@ def run_poll_loop(
     base = _server_url(server)
 
     def _sleep() -> None:
+        from client.service_api import take_poll_now
+
         elapsed = 0
         while elapsed < interval and not stop_event.is_set():
+            if take_poll_now():  # a change from the desktop app (D-Bus) applies now
+                return
             stop_event.wait(timeout=1)
             elapsed += 1
 

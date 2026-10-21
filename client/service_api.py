@@ -58,6 +58,23 @@ __all__ = [
 
 _lock = threading.Lock()
 
+# Set by in-process callers (the Linux D-Bus server) after a route/settings change so
+# run_poll_loop applies it now instead of on its next poll; the Windows service restarts
+# its poll loop for the same purpose.
+_poll_now = threading.Event()
+
+
+def request_poll_now() -> None:
+    _poll_now.set()
+
+
+def take_poll_now() -> bool:
+    """True (once) if a poll was requested since the last call."""
+    if _poll_now.is_set():
+        _poll_now.clear()
+        return True
+    return False
+
 # Keys a caller (CLI flag or D-Bus SetSettings) may set directly.
 # accepted_subnet_routes/accepted_exit_node/node_id are only ever mutated by
 # this module's own accept/reject/enroll functions, never by a raw

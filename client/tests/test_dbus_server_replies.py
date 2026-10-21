@@ -27,6 +27,19 @@ def test_enroll_reply_is_a_string_that_jeepney_can_send(monkeypatch):
     jeepney.new_method_return(call, signature, body)  # raised TypeError before the fix
 
 
+def test_route_and_setting_changes_wake_the_poll_loop():
+    """Picking an exit node in the desktop app took up to a full poll interval (60 s) to
+    apply; these calls now wake run_poll_loop's sleep."""
+    from client import service_api
+
+    assert {"AcceptExitNode", "RejectExitNode", "AcceptRoute", "RejectRoute", "SetSettings"} <= dbus_server._APPLY_NOW
+    assert "GetStatus" not in dbus_server._APPLY_NOW
+    service_api.take_poll_now()  # clear
+    service_api.request_poll_now()
+    assert service_api.take_poll_now() is True
+    assert service_api.take_poll_now() is False, "one wake-up per request"
+
+
 def test_enroll_without_node_id_replies_empty(monkeypatch):
     monkeypatch.setattr(dbus_server.service_api, "enroll", lambda server, code: None)
     assert dbus_server._h_enroll("/tmp", _Msg(("s", "c"))) == ("s", ("",))

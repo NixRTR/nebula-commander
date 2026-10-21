@@ -153,6 +153,9 @@ _ADMIN_REQUIRED = (
 )
 
 # member name -> (handler, required polkit action)
+# Changes the poll loop (same process) should apply right away, not on its next poll.
+_APPLY_NOW = frozenset({"SetSettings", "AcceptRoute", "RejectRoute", "AcceptExitNode", "RejectExitNode"})
+
 _METHODS = {
     "GetStatus": (_h_get_status, ACTION_READ),
     "GetAvailableRoutes": (_h_get_available_routes, ACTION_READ),
@@ -256,6 +259,8 @@ class _DBusServerThread(threading.Thread):
         except Exception as e:
             self._conn.send(jeepney.new_error(msg, f"{INTERFACE}.Error.Failed", "s", (str(e),)))
             return
+        if member in _APPLY_NOW:
+            service_api.request_poll_now()
         try:
             reply = jeepney.new_method_return(msg, out_signature, body)
         except Exception as e:
