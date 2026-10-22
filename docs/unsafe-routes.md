@@ -172,7 +172,9 @@ host. `ncclient` 0.7.2 and later handle this for you:
 - **Local network:** stays direct by default (printers, NAS, the router). With
   **Allow local network access** off (`routes exit-lan block`), only the Nebula
   overlays and DHCP renewals stay local; everything else, including a DNS resolver on
-  the LAN, goes through the exit node.
+  the LAN, goes through the exit node. Connections coming *in* from the LAN (SSH,
+  file shares, web UIs on this machine) keep working: replies leave the way the
+  connection came in.
 - **IPv6** never leaks around the tunnel. If the exit gateway doesn't route `::/0`,
   IPv6 is blocked while the exit node is active (an `unreachable` route on Linux, an
   outbound firewall rule on Windows), so apps fall back to IPv4 through the tunnel.
