@@ -116,6 +116,8 @@
                     <TextBlock Text="Exit node (pick one):" Style="{StaticResource MutedTextStyle}" Margin="0,8,0,0" />
                     <StackPanel x:Name="ExitNodePanel" Spacing="4" />
                     <TextBlock x:Name="NoExitNodesText" Text="None offered" Style="{StaticResource MutedTextStyle}" Visibility="Collapsed" />
+                    <CheckBox x:Name="ExitAllowLanCheckBox" Content="Allow local network access while using an exit node"
+                              Visibility="Collapsed" Checked="ExitAllowLanCheckBox_Toggled" Unchecked="ExitAllowLanCheckBox_Toggled" />
 
                     <InfoBar x:Name="RoutesResultBar" IsOpen="False" IsClosable="False" Margin="0,8,0,0" />
                 </StackPanel>

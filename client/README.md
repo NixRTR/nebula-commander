@@ -122,7 +122,8 @@ uses it. This is cross-platform (Linux and Windows, since both run through the s
 ncclient routes list                              # what's offered vs. accepted
 ncclient routes accept 192.168.1.0/24              # add --via IP if offered by multiple gateways
 ncclient routes reject 192.168.1.0/24
-ncclient routes accept-exit-node --via 10.100.0.30
+ncclient routes accept-exit-node --via 10.100.0.30   # --block-lan: LAN through it too
+ncclient routes exit-lan allow|block                 # local network direct (default) or via the exit node
 ncclient routes reject-exit-node
 ```
 
@@ -130,6 +131,12 @@ Multiple subnet routes can be accepted at once as long as their CIDRs don't
 overlap - `accept` rejects a conflicting one with an explanation of which
 already-accepted route it clashes with. At most one exit node is accepted at a
 time. A change takes effect within one poll cycle, no restart needed.
+
+An accepted exit node carries all of this device's traffic. `ncclient` keeps
+Nebula's own UDP out of the tunnel (policy routing on Linux, binding Nebula to the
+uplink's address on Windows), blocks IPv6 the gateway can't route instead of letting it leak, and on
+Linux drops internet traffic while Nebula is down rather than sending it around the
+tunnel. See "Using an exit node" in [../docs/unsafe-routes.md](../docs/unsafe-routes.md).
 
 **On Linux**, when a node is set up as a *gateway* (advertising a subnet or acting
 as an exit node itself, not consuming one), `ncclient` also automatically enables

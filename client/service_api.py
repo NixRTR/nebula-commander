@@ -58,6 +58,23 @@ __all__ = [
 
 _lock = threading.Lock()
 
+# Set by in-process callers (the Linux D-Bus server) after a route/settings change so
+# run_poll_loop applies it now instead of on its next poll; the Windows service restarts
+# its poll loop for the same purpose.
+_poll_now = threading.Event()
+
+
+def request_poll_now() -> None:
+    _poll_now.set()
+
+
+def take_poll_now() -> bool:
+    """True (once) if a poll was requested since the last call."""
+    if _poll_now.is_set():
+        _poll_now.clear()
+        return True
+    return False
+
 # Keys a caller (CLI flag or D-Bus SetSettings) may set directly.
 # accepted_subnet_routes/accepted_exit_node/node_id are only ever mutated by
 # this module's own accept/reject/enroll functions, never by a raw
@@ -70,7 +87,8 @@ _lock = threading.Lock()
 # service now only ever runs its own verified install (see
 # client/windows/nebula_install.py), and Linux never read it from
 # settings.json in the first place.
-_SETTABLE_KEYS = ("server", "interval", "accept_dns")
+_SETTABLE_KEYS = ("server", "interval", "accept_dns", "exit_allow_lan")
+_BOOL_KEYS = ("accept_dns", "exit_allow_lan")
 
 
 class ServiceApiError(Exception):
@@ -143,10 +161,15 @@ def get_settings() -> dict:
 
 
 def set_settings(partial: dict) -> None:
-    """Merge server/interval/accept_dns into settings.json.
+    """Merge server/interval/accept_dns/exit_allow_lan into settings.json.
     Silently ignores any other key (route selection/node_id have their own
-    dedicated functions below - never settable via a raw partial update)."""
+    dedicated functions below - never settable via a raw partial update).
+    exit_allow_lan: while an exit node is in use, keep local-network traffic
+    direct (default) - see client/exit_routing.py."""
     updates = {k: v for k, v in partial.items() if k in _SETTABLE_KEYS}
+    for k in _BOOL_KEYS:
+        if k in updates and not isinstance(updates[k], bool):
+            raise ServiceApiError(f"{k} must be true or false.")
     with _lock:
         save_settings({**load_settings(), **updates})
 

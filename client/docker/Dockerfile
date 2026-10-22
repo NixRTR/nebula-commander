@@ -23,6 +23,9 @@ RUN cd /app/client/binaries && python build.py
 # -----------------------------------------------------------------------------
 FROM debian:stable-slim
 
+# nftables/iproute2/iptables: the gateway automation (client/linux_routing.py - NAT,
+# forwarding, Docker's DOCKER-USER chain) and exit-node routing (client/exit_routing.py)
+# run against the host's network stack (network_mode: host) and need these tools.
 RUN apt-get update && apt-get install -y \
     dnsmasq \
     curl \
@@ -30,6 +33,9 @@ RUN apt-get update && apt-get install -y \
     procps \
     xz-utils \
     iputils-ping \
+    nftables \
+    iproute2 \
+    iptables \
     && rm -rf /var/lib/apt/lists/*
 
 # Install s6-overlay v3

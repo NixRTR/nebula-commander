@@ -246,6 +246,22 @@ public sealed partial class StatusPage : Page
                 ExitNodePanel.Children.Add(radio);
             }
         }
+        ExitAllowLanCheckBox.Visibility = exitGateways.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ExitAllowLanCheckBox.IsChecked = settings.ExitAllowLan != false;
+    }
+
+    private async void ExitAllowLanCheckBox_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (_rebuildingRoutes)
+        {
+            return;
+        }
+        var allowLan = ExitAllowLanCheckBox.IsChecked == true;
+        var result = await ServiceApi.SetExitAllowLanAsync(allowLan);
+        HandleRouteResult(result, allowLan
+            ? "Local-network traffic stays direct while using an exit node."
+            : "Local-network traffic now goes through the exit node too.");
+        await RebuildRoutesPickerAsync();
     }
 
     private async void SubnetRouteCheckbox_Toggled(object sender, RoutedEventArgs e)

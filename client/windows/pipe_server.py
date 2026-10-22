@@ -22,7 +22,7 @@ import json
 import threading
 from typing import Any, Callable
 
-from client import service_api
+from client import connectivity, service_api
 from client.windows import nebula_install
 from client.windows import pipe_protocol as proto
 from client.windows.shared_paths import load_status, shared_root
@@ -89,6 +89,7 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         s = service_api.get_settings()
         return {k: s.get(k) for k in (
             "server", "interval", "accept_dns", "node_id", "accepted_subnet_routes", "accepted_exit_node",
+            "exit_allow_lan",
         )}
 
     def is_enrolled(_a):
@@ -107,6 +108,8 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
             partial["interval"] = max(10, min(3600, _arg(a, "interval", int)))
         if "accept_dns" in a:
             partial["accept_dns"] = _arg(a, "accept_dns", bool)
+        if "exit_allow_lan" in a:
+            partial["exit_allow_lan"] = _arg(a, "exit_allow_lan", bool)
         service_api.set_settings(partial)
         hooks.restart_poll()
         return None
@@ -169,6 +172,7 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         proto.CMD_GET_NEBULA_VERSION: (lambda _a: nebula_install.installed_version(), READ),
         proto.CMD_GET_LATEST_NEBULA_TAG: (lambda _a: nebula_install.latest_tag(), READ),
         proto.CMD_GET_UPDATE_STATUS: (lambda _a: service_api.get_update_status(), READ),
+        proto.CMD_GET_CONNECTIVITY: (lambda _a: connectivity.get_connectivity(out_dir), READ),
         proto.CMD_SET_SETTINGS: (set_settings, MANAGE),
         proto.CMD_ENROLL: (enroll, MANAGE),
         proto.CMD_ACCEPT_ROUTE: (accept_route, MANAGE),

@@ -202,6 +202,7 @@ def filter_accepted_routes(
     config_yaml_bytes: bytes,
     accepted_subnet_routes: list[dict] | None,
     accepted_exit_node: dict | None,
+    platform: str = sys.platform,
 ) -> bytes:
     """
     Rewrite config.yaml's tun.unsafe_routes down to just what's been locally
@@ -213,9 +214,14 @@ def filter_accepted_routes(
     locally too, even though the network already has DNS configured
     server-side).
 
+    On Linux an accepted exit route is written with `install: false`: Nebula
+    then keeps it internally only, and client/exit_routing.py installs the
+    full-tunnel default itself, policy-routed around Nebula's own UDP - the
+    plain installed route would send that UDP into the tunnel too.
+
     Returns the input completely unchanged (byte-for-byte) if nothing was
-    actually removed, to avoid any reformatting risk on the PKI block (cert/
-    key text) when there's nothing to filter.
+    actually removed or changed, to avoid any reformatting risk on the PKI
+    block (cert/key text) when there's nothing to filter.
     """
     import yaml
 
@@ -227,6 +233,8 @@ def filter_accepted_routes(
     try:
         parsed = yaml.safe_load(config_yaml_bytes) or {}
     except Exception:
+        return config_yaml_bytes
+    if not isinstance(parsed, dict):
         return config_yaml_bytes
     tun = parsed.get("tun") or {}
     entries = tun.get("unsafe_routes") or []
@@ -241,7 +249,7 @@ def filter_accepted_routes(
         via_ip = _via_ip(e.get("via"))
         if _route_kind(route) == "exit":
             if accepted_exit_via and via_ip == accepted_exit_via:
-                kept.append(e)
+                kept.append({**e, "install": False} if platform.startswith("linux") else e)
         elif (route, via_ip) in accepted_subnet_keys:
             kept.append(e)
 
@@ -260,13 +268,17 @@ def filter_accepted_routes(
 from client.service_api import validate_new_subnet_route  # noqa: E402
 
 
-def _route_selection_fingerprint(accepted_subnet_routes: list[dict] | None, accepted_exit_node: dict | None):
+def _route_selection_fingerprint(
+    accepted_subnet_routes: list[dict] | None,
+    accepted_exit_node: dict | None,
+    exit_allow_lan: bool = True,
+):
     """Hashable snapshot of the current local route selection, used by
     run_poll_loop to notice a purely local accept/reject change (nothing
     server-side changed) and force a refetch+reapply."""
     subnet_key = tuple(sorted((r.get("route"), r.get("via")) for r in (accepted_subnet_routes or [])))
     exit_key = (accepted_exit_node or {}).get("via")
-    return (subnet_key, exit_key)
+    return (subnet_key, exit_key, bool(exit_allow_lan))
 
 
 def _write_available_routes(path: str, routes: list[dict]) -> None:
@@ -374,6 +386,19 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
     nebula_abs = os.path.abspath(nebula_bin) if os.path.dirname(nebula_bin) else _which(nebula_bin)
 
     if sys.platform == "win32":
+        # Every start path - including "server unreachable, run the last config" - must
+        # bind Nebula to the uplink while an exit node is in use (and unbind it otherwise):
+        # unbound, its own UDP follows the exit route into the tunnel. See exit_routing.
+        try:
+            from client import exit_routing
+            with open(config, "rb") as f:
+                current = f.read()
+            bound = exit_routing.bind_to_uplink(current)
+            if bound != current:
+                with open(config, "wb") as f:
+                    f.write(bound)
+        except OSError as e:
+            print(f"Could not update Nebula's listen address: {e}", file=sys.stderr)
         # Nebula MUST run elevated (TAP device, etc.). Only start via Popen so the child
         # inherits our token; do not use ShellExecute runas (separate session, no handle).
         if not _windows_process_is_elevated():
@@ -848,12 +873,17 @@ def run_poll_loop(
     from client.token_store import get_token
     from client.config import load_settings
     from client.dns_apply import apply_split_horizon_dns, ensure_split_horizon_dns, remove_split_horizon_dns
+    from client import exit_routing
 
     base = _server_url(server)
 
     def _sleep() -> None:
+        from client.service_api import take_poll_now
+
         elapsed = 0
         while elapsed < interval and not stop_event.is_set():
+            if take_poll_now():  # a change from the desktop app (D-Bus) applies now
+                return
             stop_event.wait(timeout=1)
             elapsed += 1
 
@@ -923,14 +953,102 @@ def run_poll_loop(
     if dns_debug_log:
         dns_debug_log(f"accept_dns={accept_dns}, removing any existing split-horizon on start")
     remove_split_horizon_dns(current_tun_dev)
+    # Same for exit-node routing: a crash may have left the policy rules/bypass routes behind.
+    exit_routing.remove(output_dir, dns_debug_log)
+    # Windows: a nebula.exe left running by a previous instance (an MSI upgrade can stop
+    # the service without its child) keeps the tunnel device and runs a stale config.
+    if sys.platform == "win32" and nebula_bin:
+        _stop_nebula(None)
     # The dns-client-config last applied, so unchanged polls can re-check it's still in effect.
     applied_dns_config: dict = {}
+    exit_allow_lan = True
+    exit_routing_failed = False
 
     def _ensure_dns() -> None:
         if accept_dns and applied_dns_config:
             ok = ensure_split_horizon_dns(applied_dns_config, current_tun_dev)
             if dns_debug_log:
                 dns_debug_log(f"ensure_split_horizon_dns result={ok}")
+
+    def _refilter_local_config(accepted_subnet_routes: list, accepted_exit_node: "dict | None") -> None:
+        """A local accept/reject applies to the config already on disk right away, without
+        waiting for the server: with an exit node in use the server is reached through it,
+        so rejecting a broken exit node must not depend on reaching the server. (Accepting
+        a new route still needs the server's config - the refetch that follows.)"""
+        nonlocal nebula_proc
+        path = _config_path(output_dir)
+        try:
+            with open(path, "rb") as f:
+                current = f.read()
+        except OSError:
+            return
+        try:
+            updated = exit_routing.bind_to_uplink(
+                filter_accepted_routes(current, accepted_subnet_routes, accepted_exit_node), dns_debug_log
+            )
+        except Exception as e:  # a damaged config.yaml must not stop the loop from starting
+            if dns_debug_log:
+                dns_debug_log(f"re-filtering config.yaml failed: {e}")
+            return
+        if updated == current:
+            return
+        try:
+            with open(path, "wb") as f:
+                f.write(updated)
+        except OSError as e:
+            if dns_debug_log:
+                dns_debug_log(f"re-filtering config.yaml failed: {e}")
+            return
+        if nebula_bin and nebula_proc is not None and nebula_proc.poll() is None:
+            _stop_nebula(nebula_proc)
+            nebula_proc = _start_nebula(nebula_bin, output_dir)
+            _ensure_exit()
+        # Not running yet (first pass): whichever path starts it uses the updated file.
+
+    def _ensure_exit() -> None:
+        """Make the host's exit-node routing match config.yaml on disk (see
+        client/exit_routing.py). Cheap when nothing changed, so it runs on every poll:
+        Nebula may have recreated its device, a laptop may have changed networks."""
+        nonlocal exit_routing_failed, nebula_proc
+        try:
+            with open(_config_path(output_dir), "rb") as f:
+                config_bytes = f.read()
+        except OSError:
+            return
+        messages: list[str] = []
+
+        def _exit_log(msg: str) -> None:
+            # Kept for the status message: the Windows service has no log to point at.
+            messages.append(msg)
+            if dns_debug_log:
+                dns_debug_log(msg)
+            else:
+                print(msg, file=sys.stderr)
+
+        # Windows: Nebula is bound to the uplink's address while an exit node is in use
+        # (exit_routing.bind_to_uplink). A new address (DHCP, another Wi-Fi) needs the
+        # config rewritten and Nebula restarted, or its own UDP follows the exit route.
+        rebound = exit_routing.bind_to_uplink(config_bytes, _exit_log)
+        if rebound != config_bytes:
+            try:
+                with open(_config_path(output_dir), "wb") as f:
+                    f.write(rebound)
+                config_bytes = rebound
+                if nebula_bin and nebula_proc is not None:
+                    _exit_log("Exit node: uplink address changed; restarting Nebula bound to the new one")
+                    _stop_nebula(nebula_proc)
+                    nebula_proc = _start_nebula(nebula_bin, output_dir)
+            except OSError as e:
+                _exit_log(f"Exit node: could not rewrite config for the new uplink address: {e}")
+        pid = getattr(nebula_proc, "pid", None) if nebula_proc is not None and nebula_proc.poll() is None else None
+        ok = exit_routing.apply(config_bytes, output_dir, allow_lan=exit_allow_lan, nebula_pid=pid, debug_log=_exit_log)
+        wanted = exit_routing.plan_from_config(config_bytes) is not None
+        if status_callback and wanted and not ok and not exit_routing_failed:
+            reason = messages[-1].removeprefix("Exit node: ") if messages else "see the log"
+            status_callback("error", f"Exit node selected, but its routing could not be applied: {reason}")
+        elif status_callback and wanted and ok and exit_routing_failed:
+            status_callback("connected", "Exit node routing applied")
+        exit_routing_failed = wanted and not ok
 
     def _start_from_last_config(proc: "subprocess.Popen | None", reason: str) -> "subprocess.Popen | None":
         """The server couldn't be reached (or answered with a non-auth error): if Nebula
@@ -969,6 +1087,7 @@ def run_poll_loop(
                     dns_debug_log(f"could not remove {path}: {e}")
         applied_dns_config.clear()
         remove_split_horizon_dns(current_tun_dev)
+        exit_routing.remove(output_dir, dns_debug_log)
         if sys.platform.startswith("linux") and last_advertised_routes:
             try:
                 from client import linux_routing
@@ -1001,8 +1120,14 @@ def run_poll_loop(
                 current_settings = load_settings()
                 accepted_subnet_routes = current_settings.get("accepted_subnet_routes") or []
                 accepted_exit_node = current_settings.get("accepted_exit_node")
-                route_selection_fingerprint = _route_selection_fingerprint(accepted_subnet_routes, accepted_exit_node)
+                exit_allow_lan = current_settings.get("exit_allow_lan", True) is not False
+                route_selection_fingerprint = _route_selection_fingerprint(
+                    accepted_subnet_routes, accepted_exit_node, exit_allow_lan
+                )
                 if route_selection_fingerprint != last_route_selection_fingerprint:
+                    # Also on the first pass: the Windows app's reject restarts this whole
+                    # loop, so "changed since last time" can't be the only trigger.
+                    _refilter_local_config(accepted_subnet_routes, accepted_exit_node)
                     last_route_selection_fingerprint = route_selection_fingerprint
                     last_etag = None
 
@@ -1063,6 +1188,7 @@ def run_poll_loop(
                 if r.status_code == 304:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
                         nebula_proc = _start_nebula(nebula_bin, output_dir)
+                    _ensure_exit()
                     _ensure_dns()
                     _sleep()
                     continue
@@ -1073,6 +1199,7 @@ def run_poll_loop(
                     else:
                         print(msg, file=sys.stderr)
                     nebula_proc = _start_from_last_config(nebula_proc, f"Server returned {r.status_code}")
+                    _ensure_exit()
                     _sleep()
                     continue
                 etag_raw = r.headers.get("ETag")
@@ -1080,6 +1207,7 @@ def run_poll_loop(
                 if last_etag is not None and config_id == last_etag:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
                         nebula_proc = _start_nebula(nebula_bin, output_dir)
+                    _ensure_exit()
                     _ensure_dns()
                     _sleep()
                     continue
@@ -1097,7 +1225,9 @@ def run_poll_loop(
 
                 config_path = _config_path(output_dir)
                 with open(config_path, "wb") as f:
-                    f.write(filter_accepted_routes(r.content, accepted_subnet_routes, accepted_exit_node))
+                    f.write(exit_routing.bind_to_uplink(
+                        filter_accepted_routes(r.content, accepted_subnet_routes, accepted_exit_node), dns_debug_log
+                    ))
                 if not status_callback:
                     print(f"Wrote {config_path}")
                 if status_callback:
@@ -1107,11 +1237,16 @@ def run_poll_loop(
                     # advertised routes never appear in its own tun.unsafe_routes (see
                     # _fetch_advertised_routes above for why) and are fetched separately.
                     current_tun_dev = _tun_dev_from_config(r.content) or current_tun_dev
+                # Windows bypass routes go in before Nebula starts so its first handshakes
+                # already use them; on Linux this installs the kill switch, and the call
+                # after the start adds the route once the device exists.
+                _ensure_exit()
                 if nebula_bin:
                     _stop_nebula(nebula_proc)
                     nebula_proc = _start_nebula(nebula_bin, output_dir)
                 if restart_service:
                     _restart_systemd_service(restart_service)
+                _ensure_exit()
 
                 # Fetch split-horizon DNS client config and optionally apply
                 dns_path = _dns_client_config_path(output_dir)
@@ -1165,6 +1300,7 @@ def run_poll_loop(
                 else:
                     print(f"Request error: {e}", file=sys.stderr)
                 nebula_proc = _start_from_last_config(nebula_proc, "Server unreachable")
+                _ensure_exit()
             except Exception as e:
                 # Anything else (a bug anywhere in this loop body, e.g. in route
                 # filtering) must never silently kill this thread. Python's default
@@ -1185,6 +1321,7 @@ def run_poll_loop(
             _sleep()
     finally:
         _stop_nebula(nebula_proc)
+        exit_routing.remove(output_dir, dns_debug_log)
         if accept_dns:
             if dns_debug_log:
                 dns_debug_log("removing split-horizon on exit")
@@ -1303,6 +1440,9 @@ def cmd_routes_list(output_dir: str) -> None:
             via == accepted_exit_via if kind == "exit" else (route, via) in accepted_subnet_keys
         )
         print(f"{'yes' if accepted else 'no':<10} {kind:<8} {route:<20} {via}")
+    if any(r.get("kind") == "exit" for r in available):
+        allow_lan = settings.get("exit_allow_lan", True) is not False
+        print(f"\nLocal network while using an exit node: {'direct (allowed)' if allow_lan else 'through the exit node (blocked)'}")
 
 
 def cmd_routes_accept(output_dir: str, cidr: str, via: str | None) -> None:
@@ -1329,16 +1469,30 @@ def cmd_routes_reject(output_dir: str, cidr: str) -> None:
     print(f"Rejected {cidr}.")
 
 
-def cmd_routes_accept_exit_node(output_dir: str, via: str) -> None:
-    from client.service_api import RouteError, accept_exit_node
+def cmd_routes_accept_exit_node(output_dir: str, via: str, block_lan: bool = False) -> None:
+    from client.service_api import RouteError, accept_exit_node, set_settings
 
     try:
         accept_exit_node(output_dir, via)
     except RouteError as e:
         print(e.message, file=sys.stderr)
         sys.exit(1)
+    if block_lan:
+        set_settings({"exit_allow_lan": False})
     _notify_service_poll_now()
-    print(f"Accepted exit node via {via}.")
+    print(f"Accepted exit node via {via}." + (" Local-network traffic goes through it too." if block_lan else ""))
+
+
+def cmd_routes_exit_lan(allow: bool) -> None:
+    from client.service_api import set_settings
+
+    set_settings({"exit_allow_lan": allow})
+    _notify_service_poll_now()
+    print(
+        "Local-network access stays direct while an exit node is in use."
+        if allow
+        else "Local-network traffic goes through the exit node too."
+    )
 
 
 def cmd_routes_reject_exit_node(output_dir: str) -> None:
@@ -1514,8 +1668,17 @@ def main() -> None:
 
     p_routes_accept_exit = routes_sub.add_parser("accept-exit-node", help="Accept an exit node (routes all traffic)")
     p_routes_accept_exit.add_argument("--via", required=True, help="The exit node gateway's Nebula IP")
+    p_routes_accept_exit.add_argument(
+        "--block-lan", action="store_true",
+        help="Also send local-network traffic through the exit node (same as 'routes exit-lan block')",
+    )
 
     routes_sub.add_parser("reject-exit-node", help="Stop using the accepted exit node")
+
+    p_routes_exit_lan = routes_sub.add_parser(
+        "exit-lan", help="While an exit node is in use, allow (default) or block direct local-network access"
+    )
+    p_routes_exit_lan.add_argument("mode", choices=("allow", "block"))
 
     p_au = sub.add_parser(
         "auto-update",
@@ -1573,9 +1736,11 @@ def main() -> None:
         elif args.routes_cmd == "reject":
             cmd_routes_reject(output_dir, args.cidr)
         elif args.routes_cmd == "accept-exit-node":
-            cmd_routes_accept_exit_node(output_dir, args.via)
+            cmd_routes_accept_exit_node(output_dir, args.via, block_lan=args.block_lan)
         elif args.routes_cmd == "reject-exit-node":
             cmd_routes_reject_exit_node(output_dir)
+        elif args.routes_cmd == "exit-lan":
+            cmd_routes_exit_lan(args.mode == "allow")
     elif args.cmd == "auto-update":
         cmd_auto_update(args)
 if __name__ == "__main__":

@@ -104,10 +104,11 @@ def test_routes_are_not_applied_to_a_non_tun_interface(monkeypatch, sysfs):
     calls = []
     monkeypatch.setattr(linux_routing, "_delete_table", lambda: calls.append("delete"))
     monkeypatch.setattr(linux_routing, "_set_ip_forward", lambda r: calls.append("forward"))
+    monkeypatch.setattr(linux_routing, "_docker_forward_rules", lambda routes, dev, log: calls.append(("docker", routes)))
 
     linux_routing.apply_routes([{"route": "192.168.1.0/24"}], "eth0", debug_log=lambda m: None)
 
-    assert calls == ["delete"]
+    assert calls == ["delete", ("docker", [])]
 
 
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux-only guard")

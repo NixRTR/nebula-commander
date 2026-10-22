@@ -46,6 +46,11 @@ public sealed class NebulaSettings
 
     [JsonPropertyName("accepted_exit_node")]
     public ExitNodeRef? AcceptedExitNode { get; set; }
+
+    /// <summary>While an exit node is in use, keep local-network traffic direct
+    /// (absent = true).</summary>
+    [JsonPropertyName("exit_allow_lan")]
+    public bool? ExitAllowLan { get; set; }
 }
 
 /// <summary>One entry from available-routes.json - everything this node is
