@@ -104,7 +104,12 @@ With `--accept-dns`, ncclient applies split-horizon DNS so the Nebula domain (e.
 3. **A standalone dnsmasq service** – snippet under `/etc/dnsmasq.d/`.
 4. **/etc/resolv.conf** – append nameserver and search domain (last resort; not true split-horizon; the first nameserver often gets all queries).
 
-When NetworkManager is running, ncclient also marks the Nebula interface unmanaged (`/etc/NetworkManager/conf.d/91-nebula-commander-unmanaged.conf`) so NetworkManager never takes over the tun device, and it deletes stale `nebula*` tun profiles older versions left in `/etc/NetworkManager/system-connections/`. Every poll it checks the DNS is still in effect and re-applies it if a resolver restart or a recreated interface undid it. Everything is removed again when ncclient stops or DNS is turned off.
+When NetworkManager is running, ncclient also marks every `nebula*` and `nc-*` interface unmanaged (`/etc/NetworkManager/conf.d/91-nebula-commander-unmanaged.conf`) so NetworkManager never takes over a tun device, and it deletes stale `nebula*` tun profiles older versions left in `/etc/NetworkManager/system-connections/`. Every poll it checks the DNS is still in effect and re-applies it if a resolver restart or a recreated interface undid it. ncclient removes its DNS settings again when it stops or DNS is turned off. The unmanaged drop-in stays until the package is uninstalled, because removing it while another ncclient runs would let NetworkManager take that instance's tun device.
+
+**Several networks on one host:** run one ncclient per network. Each network has its own tun device, and the dnsmasq snippets are per device (`nebula-commander-<tun device>.conf`), so instances don't overwrite each other. NetworkManager's dnsmasq-mode drop-in (`90-nebula-commander-dns.conf`) is removed when the last instance's snippet goes. Two limits apply:
+
+- Every ncclient on the host must be 0.8.0 or newer. Older versions remove the shared NetworkManager drop-ins on start and take the other instances' tunnels down.
+- The `/etc/resolv.conf` fallback has a single block, so only one instance can use it.
 
 If nothing works, ncclient reports why and what to install. For proper split-horizon, use a system with systemd-resolved or dnsmasq. Manual apply/remove scripts (for when ncclient itself isn't run with enough privilege to self-apply): `client/contrib/dns-apply-linux.sh` and `client/contrib/dns-apply-windows.ps1`. **Note:** the Linux fallback script only covers the systemd-resolved, dnsmasq, and resolv.conf backends (not NetworkManager) - on those setups, run `ncclient --accept-dns` directly instead.
 

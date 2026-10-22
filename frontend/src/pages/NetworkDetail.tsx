@@ -6,6 +6,7 @@ import { RequireNetworkOwner } from '../components/permissions/RequireNetworkOwn
 import { apiClient, listNodes, updateNetwork } from '../api/client';
 import { isNodeActive } from '../utils/nodeStatus';
 import type { Node } from '../types/nodes';
+import { TUN_DEV_PREFIX, TUN_DEV_SUFFIX_MAX_LEN } from '../types/networks';
 import { GroupAccessDiagram } from '../components/GroupAccessDiagram';
 import { startReauthFlow } from './ReauthComplete';
 
@@ -69,7 +70,7 @@ export const NetworkDetail: React.FC = () => {
   }>({ open: false, typedName: "", redirecting: false });
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  // Interface name (tun_dev): null while not editing
+  // Interface name (tun_dev) suffix after TUN_DEV_PREFIX: null while not editing
   const [tunDevDraft, setTunDevDraft] = useState<string | null>(null);
   const [tunDevError, setTunDevError] = useState<string | null>(null);
   const [tunDevSaving, setTunDevSaving] = useState(false);
@@ -79,7 +80,7 @@ export const NetworkDetail: React.FC = () => {
     setTunDevSaving(true);
     setTunDevError(null);
     try {
-      const updated = await updateNetwork(Number(networkId), { tun_dev: tunDevDraft });
+      const updated = await updateNetwork(Number(networkId), { tun_dev: TUN_DEV_PREFIX + tunDevDraft.trim() });
       setNetwork((n) => (n ? { ...n, tun_dev: updated.tun_dev } : n));
       setTunDevDraft(null);
     } catch (e) {
@@ -238,7 +239,10 @@ export const NetworkDetail: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => {
-                    setTunDevDraft(network.tun_dev);
+                    // Legacy "nebula1" networks start blank: they can only move to an nc- name.
+                    setTunDevDraft(
+                      network.tun_dev.startsWith(TUN_DEV_PREFIX) ? network.tun_dev.slice(TUN_DEV_PREFIX.length) : ""
+                    );
                     setTunDevError(null);
                   }}
                   className="text-purple-600 hover:underline dark:text-purple-400"
@@ -254,12 +258,13 @@ export const NetworkDetail: React.FC = () => {
                 <div className="flex gap-2">
                   <TextInput
                     id="tun_dev"
+                    addon={TUN_DEV_PREFIX}
                     value={tunDevDraft}
                     onChange={(e) => setTunDevDraft(e.target.value)}
-                    maxLength={15}
+                    maxLength={TUN_DEV_SUFFIX_MAX_LEN}
                     className="flex-1 font-mono"
                   />
-                  <Button size="sm" color="purple" onClick={saveTunDev} disabled={tunDevSaving}>
+                  <Button size="sm" color="purple" onClick={saveTunDev} disabled={tunDevSaving || !tunDevDraft.trim()}>
                     Save
                   </Button>
                   <Button size="sm" color="gray" onClick={() => setTunDevDraft(null)} disabled={tunDevSaving}>
@@ -268,8 +273,9 @@ export const NetworkDetail: React.FC = () => {
                 </div>
                 <p className="text-sm text-gray-500 dark:text-gray-400">
                   Every node in this network restarts Nebula on the new device. Host firewall rules or scripts
-                  that match the old name stop applying. Nodes running ncclient older than 0.8.0 always use
-                  nebula1.
+                  that match the old name stop applying. Up to {TUN_DEV_SUFFIX_MAX_LEN} lowercase letters, digits or
+                  -. Nodes running ncclient older than 0.8.0 always use nebula1.
+                  {network.tun_dev === "nebula1" && " Once moved to an nc- name, the network can't go back to nebula1."}
                 </p>
                 {tunDevError && <p className="text-sm text-red-600 dark:text-red-400">{tunDevError}</p>}
               </div>

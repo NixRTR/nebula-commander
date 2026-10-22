@@ -43,7 +43,7 @@ class NetworkCreate(BaseModel):
     name: str
     subnet_cidr: str
     cert_curve: Literal["25519", "P256"] = "25519"
-    tun_dev: Optional[str] = None  # Generated from the name when omitted
+    tun_dev: Optional[str] = None  # Generated when omitted
 
 
 class NetworkResponse(BaseModel):
@@ -128,7 +128,7 @@ async def _get_network_counts(
 class NetworkUpdate(BaseModel):
     """No network-level firewall (defined.net style: only per-group inbound rules)."""
     name: Optional[str] = None  # If set, must be unique across all networks
-    tun_dev: Optional[str] = None  # If set, must be unique across networks (except DEFAULT_TUN_DEV)
+    tun_dev: Optional[str] = None  # If set, must be "nc-..." and unique across networks
 
 
 @router.get("", response_model=list[NetworkListResponse])
@@ -425,7 +425,9 @@ async def update_network(
 
     # Renaming a network keeps its tun device: nodes only move to a new device when an
     # owner changes this field on purpose.
-    if body.tun_dev is not None:
+    # Sending the current value back is a no-op, so a legacy network's DEFAULT_TUN_DEV
+    # isn't rejected by validation it can't pass.
+    if body.tun_dev is not None and body.tun_dev.strip() != network_tun_dev(network):
         new_tun_dev = await _checked_tun_dev(session, body.tun_dev, exclude_network_id=network_id)
         if new_tun_dev != network_tun_dev(network):
             changed["tun_dev"] = (network_tun_dev(network), new_tun_dev)

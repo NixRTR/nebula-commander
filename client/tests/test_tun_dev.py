@@ -71,25 +71,9 @@ def nm_conf(monkeypatch):
     return lambda: written[dns_apply.LINUX_NM_UNMANAGED_CONF]
 
 
-@pytest.mark.parametrize(
-    ("dev", "specs"),
-    [
-        ("nc-home-lab", "interface-name:nebula*;interface-name:nc-*"),
-        ("nebula1", "interface-name:nebula*;interface-name:nc-*"),
-        ("home-lab", "interface-name:nebula*;interface-name:nc-*;interface-name:home-lab"),
-        (None, "interface-name:nebula*;interface-name:nc-*"),
-    ],
-)
-def test_nm_unmanaged_conf_covers_the_tun_dev(sysfs, nm_conf, dev, specs):
-    sysfs({})
-    dns_apply._linux_nm_keep_off_nebula(dev)
-    assert f"unmanaged-devices={specs}\n" in nm_conf()
-
-
-def test_nm_unmanaged_conf_never_lists_a_non_tun_interface(sysfs, nm_conf):
-    sysfs({"eth0": False})
-    dns_apply._linux_nm_keep_off_nebula("eth0")
-    assert "interface-name:eth0" not in nm_conf()
+def test_nm_unmanaged_conf_is_the_same_for_every_instance(nm_conf):
+    dns_apply._linux_nm_keep_off_nebula()
+    assert "unmanaged-devices=interface-name:nebula*;interface-name:nc-*\n" in nm_conf()
 
 
 def test_foreign_interface(sysfs):
@@ -102,7 +86,7 @@ def test_foreign_interface(sysfs):
 def test_routes_are_not_applied_to_a_non_tun_interface(monkeypatch, sysfs):
     sysfs({"eth0": False})
     calls = []
-    monkeypatch.setattr(linux_routing, "_delete_table", lambda: calls.append("delete"))
+    monkeypatch.setattr(linux_routing, "_delete_table", lambda dev: calls.append("delete"))
     monkeypatch.setattr(linux_routing, "_set_ip_forward", lambda r: calls.append("forward"))
     monkeypatch.setattr(linux_routing, "_docker_forward_rules", lambda routes, dev, log: calls.append(("docker", routes)))
 

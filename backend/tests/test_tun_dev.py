@@ -6,8 +6,9 @@ network: two nebulas asking for the same device name fail with EBUSY on Linux.
 - Networks that predate the column keep "nebula1", so upgrading renames nothing.
 - ncclient before 0.8.0 always gets "nebula1": only clients that send
   X-Ncclient-Features: tun-dev get the network's device.
-- An admin-entered name is checked for shape, for names hosts already use (eth0,
-  wlp2s0, docker0, ...) and for uniqueness, through POST/PATCH /api/networks.
+- An admin-entered name must be "nc-" plus up to 12 of [a-z0-9-], and unique, through
+  POST/PATCH /api/networks. The prefix keeps it clear of names hosts already use (eth0,
+  wlp2s0, docker0, ...). nebula1 can't be chosen: only legacy networks have it.
 """
 import re
 
@@ -16,6 +17,7 @@ import pytest_asyncio
 import yaml
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.api import networks as networks_api
@@ -50,25 +52,18 @@ def test_generated_name_is_drawn_again_when_taken(monkeypatch):
     assert generate_tun_dev({"nc-aaaaaaaaaa"}) == "nc-bbbbbbbbbb"
 
 
-@pytest.mark.parametrize(
-    "dev",
-    ["lo", "eth0", "eth1", "enp3s0", "eno1", "ens33", "enx0123456789ab", "wlan0", "wlp2s0",
-     "wwp0s20u4", "docker0", "br-0123456789ab", "veth1a2b3c", "virbr0", "wg0", "tun0",
-     "tap1", "tailscale0", "cali1234abcd", "cilium_host", "flannel-1", "kube-ipvs0"],
-)
-def test_interface_names_hosts_use_are_reserved(dev):
-    with pytest.raises(ValueError, match="reserved"):
-        validate_tun_dev(dev)
-
-
-@pytest.mark.parametrize("dev", ["nebula1", "nc-home", "home-lab", "engineering", "branch", "ens-office", "wireguard"])
-def test_ordinary_names_are_allowed(dev):
+@pytest.mark.parametrize("dev", ["nc-home", "nc-home-lab", "nc-1", "nc-" + "a" * 12])
+def test_nc_names_are_allowed(dev):
     assert validate_tun_dev(f"  {dev} ") == dev
 
 
-@pytest.mark.parametrize("dev", ["", "Home", "a" * 16, "-x", "_x", "a b", "a/b", "a:b", "a.b"])
-def test_malformed_names_are_rejected(dev):
-    with pytest.raises(ValueError, match="lowercase"):
+@pytest.mark.parametrize(
+    "dev",
+    ["", "nc-", "nebula1", "home-lab", "eth0", "wlp2s0", "docker0", "nc-Home", "nc-home_lab",
+     "nc-" + "a" * 13, "nc-a b", "nc-a/b", "nc-a.b", "NC-home"],
+)
+def test_other_names_are_rejected(dev):
+    with pytest.raises(ValueError, match="must be nc-"):
         validate_tun_dev(dev)
 
 
@@ -138,16 +133,17 @@ async def test_create_generates_a_unique_device(api):
 
 
 @pytest.mark.asyncio
-async def test_create_accepts_a_chosen_device_and_rejects_reserved_or_taken_ones(api):
-    r = await _create(api, "home", "10.1.0.0/24", tun_dev="home-lab")
+async def test_create_accepts_a_chosen_device_and_rejects_invalid_or_taken_ones(api):
+    r = await _create(api, "home", "10.1.0.0/24", tun_dev="nc-home-lab")
     assert r.status_code == 200, r.text
-    assert r.json()["tun_dev"] == "home-lab"
+    assert r.json()["tun_dev"] == "nc-home-lab"
 
-    r = await _create(api, "office", "10.2.0.0/24", tun_dev="eth0")
-    assert r.status_code == 400 and "reserved" in r.json()["detail"]
+    for dev in ("eth0", "home-lab", DEFAULT_TUN_DEV):
+        r = await _create(api, "office", "10.2.0.0/24", tun_dev=dev)
+        assert r.status_code == 400 and "must be nc-" in r.json()["detail"], (dev, r.text)
 
-    r = await _create(api, "office", "10.2.0.0/24", tun_dev="home-lab")
-    assert r.status_code == 409 and "home-lab" in r.json()["detail"]
+    r = await _create(api, "office", "10.2.0.0/24", tun_dev="nc-home-lab")
+    assert r.status_code == 409 and "nc-home-lab" in r.json()["detail"]
 
 
 @pytest.mark.asyncio
@@ -158,26 +154,35 @@ async def test_patch_changes_the_device_and_renaming_keeps_it(api):
     r = await api.patch(f"/api/networks/{net['id']}", json={"name": "house"})
     assert r.status_code == 200 and r.json()["tun_dev"] == net["tun_dev"]
 
-    r = await api.patch(f"/api/networks/{net['id']}", json={"tun_dev": "house"})
-    assert r.status_code == 200 and r.json()["tun_dev"] == "house"
+    r = await api.patch(f"/api/networks/{net['id']}", json={"tun_dev": "nc-house"})
+    assert r.status_code == 200 and r.json()["tun_dev"] == "nc-house"
 
-    r = await api.patch(f"/api/networks/{other['id']}", json={"tun_dev": "house"})
+    r = await api.patch(f"/api/networks/{other['id']}", json={"tun_dev": "nc-house"})
     assert r.status_code == 409, r.text
-    r = await api.patch(f"/api/networks/{other['id']}", json={"tun_dev": "wlp2s0"})
+    r = await api.patch(f"/api/networks/{other['id']}", json={"tun_dev": "house"})
     assert r.status_code == 400, r.text
     assert (await api.get(f"/api/networks/{other['id']}")).json()["tun_dev"] == other["tun_dev"]
 
 
 @pytest.mark.asyncio
-async def test_legacy_networks_may_share_nebula1(api):
+async def test_legacy_networks_share_nebula1_and_can_only_move_off_it(api):
+    # Created through the API so the owner has permissions, then set back to what the
+    # migration gives networks that predate per-network devices.
+    old_a = (await _create(api, "old-a", "10.1.0.0/24")).json()
+    old_b = (await _create(api, "old-b", "10.2.0.0/24")).json()
     async with api.sessions() as s:
-        s.add_all([
-            Network(name="old-a", subnet_cidr="10.1.0.0/24", tun_dev=DEFAULT_TUN_DEV),
-            Network(name="old-b", subnet_cidr="10.2.0.0/24", tun_dev=DEFAULT_TUN_DEV),
-        ])
+        await s.execute(update(Network).values(tun_dev=DEFAULT_TUN_DEV))
         await s.commit()
 
-    # nebula1 isn't a "taken" name, so a third network can be set to it too.
-    new = (await _create(api, "new", "10.3.0.0/24")).json()
-    r = await api.patch(f"/api/networks/{new['id']}", json={"tun_dev": DEFAULT_TUN_DEV})
-    assert r.status_code == 200, r.text
+    # Sending the current value back is a no-op.
+    r = await api.patch(f"/api/networks/{old_a['id']}", json={"tun_dev": DEFAULT_TUN_DEV})
+    assert r.status_code == 200 and r.json()["tun_dev"] == DEFAULT_TUN_DEV, r.text
+
+    r = await api.patch(f"/api/networks/{old_a['id']}", json={"tun_dev": "nc-old-a"})
+    assert r.status_code == 200 and r.json()["tun_dev"] == "nc-old-a", r.text
+
+    # Moving back, or another network onto nebula1, is rejected.
+    for net in (old_a, (await _create(api, "new", "10.3.0.0/24")).json()):
+        r = await api.patch(f"/api/networks/{net['id']}", json={"tun_dev": DEFAULT_TUN_DEV})
+        assert r.status_code == 400, r.text
+    assert (await api.get(f"/api/networks/{old_b['id']}")).json()["tun_dev"] == DEFAULT_TUN_DEV

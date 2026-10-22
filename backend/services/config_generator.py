@@ -27,8 +27,9 @@ DEFAULT_LISTEN_PORT = 4242
 # server renames nothing on existing nodes. ncclient before 0.8.0 always gets it too:
 # it finds its interface by a "nebula" substring.
 DEFAULT_TUN_DEV = "nebula1"
-# Generated names start with this, so they can't collide with an interface the OS,
-# a container runtime or another VPN creates, and ncclient can recognise them by name.
+# Every name other than DEFAULT_TUN_DEV starts with this, generated or admin-chosen, so
+# none can collide with an interface the OS, a container runtime or another VPN creates,
+# and ncclient can recognise its interfaces by name (NetworkManager keeps off "nc-*").
 TUN_DEV_PREFIX = "nc-"
 # Random hex characters after TUN_DEV_PREFIX in a generated name.
 TUN_DEV_HASH_LEN = 10
@@ -37,21 +38,10 @@ TUN_DEV_HASH_LEN = 10
 TUN_DEV_CLIENT_FEATURE = "tun-dev"
 # Linux IFNAMSIZ is 16 bytes including the NUL (dev_valid_name in net/core/dev.c).
 TUN_DEV_MAX_LEN = 15
-_TUN_DEV_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,14}$")
-# Interface names a host already uses or will create: loopback, kernel/udev NIC names,
-# container runtimes and other VPNs. An admin-entered tun_dev matching one would point
-# ncclient's DNS, routing and NetworkManager handling at that interface.
-_RESERVED_TUN_DEV_RE = re.compile(
-    r"""^(?:
-        lo
-      | (?:eth|wlan|wwan|usb|ib|bond|team|vlan|tun|tap|utun|wg|zt|tailscale|docker|virbr|lxcbr|vxlan|gre|sit)\d+
-      | (?:en|wl|ww|sl)(?:o\d|s\d|p\d|b\d|x[0-9a-f]{12})\w*
-      | br-[0-9a-f]+
-      | (?:veth|cali|lxc)[0-9a-f]\w*
-      | (?:cilium|flannel|cni|kube-)[\w-]*
-    )$""",
-    re.X,
-)
+TUN_DEV_SUFFIX_MAX_LEN = TUN_DEV_MAX_LEN - len(TUN_DEV_PREFIX)
+# No "_" in the suffix: ncclient names its nft table after the device with "-" mapped to
+# "_", and without "_" in the suffix no two devices map to the same table.
+_TUN_DEV_RE = re.compile(rf"^{TUN_DEV_PREFIX}[a-z0-9-]{{1,{TUN_DEV_SUFFIX_MAX_LEN}}}$")
 
 
 async def get_dns_client_config(
@@ -319,15 +309,14 @@ def generate_tun_dev(taken: set[str]) -> str:
 
 def validate_tun_dev(value: str) -> str:
     """Validate an admin-entered tun device name; returns it stripped. Raises ValueError
-    with a user-facing message."""
+    with a user-facing message. DEFAULT_TUN_DEV isn't accepted: only networks that
+    predate per-network devices have it, and clients before 0.8.0 get it anyway."""
     dev = value.strip()
     if not _TUN_DEV_RE.match(dev):
         raise ValueError(
-            f"Interface name must be 1-{TUN_DEV_MAX_LEN} lowercase letters, digits, '-' or '_', "
-            "starting with a letter or digit"
+            f"Interface name must be {TUN_DEV_PREFIX} followed by 1-{TUN_DEV_SUFFIX_MAX_LEN} "
+            "lowercase letters, digits or '-'"
         )
-    if _RESERVED_TUN_DEV_RE.match(dev):
-        raise ValueError(f"Interface name {dev!r} is reserved: hosts use it for another interface")
     return dev
 
 

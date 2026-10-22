@@ -32,9 +32,15 @@ export interface NetworkCreate {
   name: string;
   subnet_cidr: string;
   cert_curve?: "25519" | "P256";
-  /** Omit or leave blank to generate "nc-<name>". */
+  /** TUN_DEV_PREFIX + suffix. Omit or leave blank to generate "nc-<10 random hex>". */
   tun_dev?: string;
 }
+
+/** Every interface name except the legacy "nebula1" starts with this. The forms show it
+ * as a fixed addon and the admin types only the suffix. */
+export const TUN_DEV_PREFIX = "nc-";
+/** Linux IFNAMSIZ allows 15 characters, so the suffix gets 15 - "nc-".length. */
+export const TUN_DEV_SUFFIX_MAX_LEN = 12;
 
 export interface NetworkUpdateData {
   // No network-level firewall; use Groups page for per-group inbound rules.

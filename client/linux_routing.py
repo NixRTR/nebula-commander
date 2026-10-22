@@ -17,7 +17,7 @@ it is never touched on Windows.
 Caveat worth knowing if this ever runs on a NixRTR router host: nftables has no "any
 table accepts, so it passes" rule - if another table's chain at the same hook (e.g. a
 router firewall's own `forward` chain, such as nixos-router/modules/router.nix) has a
-drop policy or an explicit drop, this module's accept rules in NFT_TABLE do not override
+drop policy or an explicit drop, this module's accept rules in its nft_table() do not override
 it. The two would need to be reconciled manually in that scenario; nothing here attempts
 to detect or fix that.
 """
@@ -32,7 +32,11 @@ from typing import Callable, Optional
 
 _SYSTEM_LIBRARY_ENV_STRIP = ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LIBPATH")
 
+# One table per tun device (nft_table), so ncclient instances for different networks on
+# one host don't delete each other's rules. ncclient before 0.8.0 used this name alone; the
+# instance on LEGACY_TUN_DEV removes that table.
 NFT_TABLE = "ncclient_routing"
+LEGACY_TUN_DEV = "nebula1"
 EXIT_ROUTES = ("0.0.0.0/0", "::/0")
 
 _DOCKER_PREFIXES = ("docker", "br-", "veth", "virbr")
@@ -70,6 +74,17 @@ def is_foreign_interface(ifname: str) -> bool:
     existing non-tun device into a tun), but ncclient must not point routing, DNS or
     NetworkManager handling at that interface either."""
     return os.path.isdir(f"/sys/class/net/{ifname}") and not os.path.exists(f"/sys/class/net/{ifname}/tun_flags")
+
+
+def nft_table(tun_dev: str) -> str:
+    """This device's nftables table, e.g. "ncclient_routing_nc_home". Server-issued names
+    are "nebula1" or "nc-" plus [a-z0-9-], so mapping "-" to "_" can't make two equal."""
+    return f"{NFT_TABLE}_{re.sub(r'[^A-Za-z0-9_]', '_', tun_dev)}"
+
+
+def docker_user_comment(tun_dev: str) -> str:
+    """Comment on this device's DOCKER-USER rules, e.g. "ncclient:nc-home"."""
+    return f"{DOCKER_USER_COMMENT}:{tun_dev}"
 
 
 def _is_docker_owned(ifname: str) -> bool:
@@ -188,8 +203,9 @@ def _set_ip_forward(routes: list[dict], debug_log: Optional[Callable[[str], None
 # Docker sets the iptables FORWARD policy to DROP. ncclient's own nftables table can
 # accept, but a drop in another table at the same hook still drops the packet, so on a
 # host running Docker the gateway forwarded nothing. Docker's documented place for
-# user rules is the DOCKER-USER chain; ncclient's rules there carry this comment so
-# they can be found and replaced without touching anything else.
+# user rules is the DOCKER-USER chain; ncclient's rules there carry a per-device comment
+# (docker_user_comment) so each instance finds and replaces only its own. ncclient before
+# 0.8.0 used this comment alone; the instance on LEGACY_TUN_DEV removes those rules.
 DOCKER_USER_COMMENT = "ncclient"
 
 
@@ -216,7 +232,7 @@ def _docker_user_iptables() -> Optional[str]:
 def docker_user_rules(unsafe_routes: list[dict], tun_dev: str, uplink: Optional[str]) -> list[list[str]]:
     """iptables -I DOCKER-USER rule specs (without the binary) mirroring the nftables
     forward rules _build_nft_script installs (pure, for tests)."""
-    tag = ["-m", "comment", "--comment", DOCKER_USER_COMMENT, "-j", "ACCEPT"]
+    tag = ["-m", "comment", "--comment", docker_user_comment(tun_dev), "-j", "ACCEPT"]
     rules: list[list[str]] = []
     exit_done = False
     for r in unsafe_routes:
@@ -241,7 +257,10 @@ def docker_user_rules(unsafe_routes: list[dict], tun_dev: str, uplink: Optional[
     return rules
 
 
-def _remove_docker_user_rules(binary: str) -> None:
+def _remove_docker_user_rules(binary: str, tun_dev: str) -> None:
+    comments = {docker_user_comment(tun_dev)}
+    if tun_dev == LEGACY_TUN_DEV:
+        comments.add(DOCKER_USER_COMMENT)
     try:
         r = subprocess.run(  # nosec B603 - fixed argv, shell=False
             [binary, "-w", "-S", "DOCKER-USER"],
@@ -254,9 +273,9 @@ def _remove_docker_user_rules(binary: str) -> None:
             parts = shlex.split(line)
         except ValueError:
             continue
-        if parts[:2] != ["-A", "DOCKER-USER"] or ["--comment", DOCKER_USER_COMMENT] not in [
-            parts[i:i + 2] for i in range(len(parts) - 1)
-        ]:
+        if parts[:2] != ["-A", "DOCKER-USER"] or not any(
+            parts[i] == "--comment" and parts[i + 1] in comments for i in range(len(parts) - 1)
+        ):
             continue
         spec = parts[2:]
         subprocess.run(  # nosec B603 - argv from iptables' own -S output of our own rules, shell=False
@@ -282,7 +301,7 @@ def _apply_docker_user_rules(
     binary = _docker_user_iptables()
     if not binary:
         return
-    _remove_docker_user_rules(binary)
+    _remove_docker_user_rules(binary, tun_dev)
     if not unsafe_routes:
         return
     uplink = _default_route_iface() if any((r.get("route") or "") in EXIT_ROUTES for r in unsafe_routes) else None
@@ -312,13 +331,16 @@ def _default_route_iface() -> Optional[str]:
         return None
 
 
-def _delete_table() -> None:
-    subprocess.run(  # nosec B603 - fixed argv, shell=False
-        [_which("nft"), "delete", "table", "inet", NFT_TABLE],
-        capture_output=True,
-        timeout=10,
-        env=_env_for_system_binaries(),
-    )
+def _delete_table(tun_dev: str) -> None:
+    """Delete this device's table (and, on LEGACY_TUN_DEV, the pre-0.8.0 shared one)."""
+    tables = [nft_table(tun_dev)] + ([NFT_TABLE] if tun_dev == LEGACY_TUN_DEV else [])
+    for table in tables:
+        subprocess.run(  # nosec B603 - fixed argv, table name sanitised by nft_table, shell=False
+            [_which("nft"), "delete", "table", "inet", table],
+            capture_output=True,
+            timeout=10,
+            env=_env_for_system_binaries(),
+        )
 
 
 def _build_nft_script(unsafe_routes: list[dict], tun_dev: str, debug_log: Optional[Callable[[str], None]]) -> str:
@@ -355,7 +377,7 @@ def _build_nft_script(unsafe_routes: list[dict], tun_dev: str, debug_log: Option
         subnet_rules.append(f'    iifname "{tun_dev}" {family} daddr {net} accept')
         subnet_rules.append(f'    {family} saddr {net} oifname "{tun_dev}" accept')
 
-    lines = [f"table inet {NFT_TABLE} {{"]
+    lines = [f"table inet {nft_table(tun_dev)} {{"]
     lines.append("    chain forward {")
     lines.append("        type filter hook forward priority filter; policy accept;")
     lines.extend(subnet_rules)
@@ -376,8 +398,8 @@ def apply_routes(
 ) -> None:
     """
     Idempotent: given this node's full current unsafe_routes list and its tun device
-    name, make them actually work on Linux - enable IP forwarding and (re)install a
-    dedicated `inet ncclient_routing` nftables table for forwarding + NAT. The table is
+    name, make them actually work on Linux - enable IP forwarding and (re)install the
+    device's own `inet ncclient_routing_<dev>` nftables table for forwarding + NAT. The table is
     deleted and recreated from scratch on every call rather than diffed, which is simple
     and avoids drift; call it once per config change (see ncclient.run_poll_loop).
 
@@ -386,13 +408,13 @@ def apply_routes(
     loop that also needs to keep talking to the backend and running Nebula.
     """
     if not unsafe_routes:
-        _delete_table()
+        _delete_table(tun_dev)
         _docker_forward_rules([], tun_dev, debug_log)
         return
 
     if is_foreign_interface(tun_dev):
         _log(f"Not applying subnet routing: tun device {tun_dev!r} is an existing non-tun interface", debug_log)
-        _delete_table()
+        _delete_table(tun_dev)
         _docker_forward_rules([], tun_dev, debug_log)
         return
 
@@ -408,7 +430,7 @@ def apply_routes(
     _docker_forward_rules(unsafe_routes, tun_dev, debug_log)
 
     script = _build_nft_script(unsafe_routes, tun_dev, debug_log)
-    _delete_table()
+    _delete_table(tun_dev)
     try:
         r = subprocess.run(  # nosec B603 - fixed argv, script body is CIDR/interface-derived only, shell=False
             [_which("nft"), "-f", "-"],
