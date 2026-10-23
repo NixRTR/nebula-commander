@@ -40,7 +40,14 @@ __all__ = [
     "get_update_status",
     "set_auto_update",
     "check_for_updates_now",
+    "list_networks",
+    "enroll_network",
+    "remove_network",
 ]
+
+# Every per-network function below takes network=<id from list_networks()>. Without it
+# (None) the call is the pre-0.8.0 one, which the service answers for its first network -
+# that's also what keeps this app working against an older service.
 
 BUS_NAME = "org.beardedtek.NebulaCommander1"
 OBJECT_PATH = "/org/beardedtek/NebulaCommander1"
@@ -80,33 +87,61 @@ def _call(method: str, signature: str = "", body: tuple = (), timeout: float = 1
         conn.close()
 
 
-def get_status() -> dict:
+def list_networks() -> "list[dict] | None":
+    """Every enrolled network (id, name, server, tun_dev, overlay_ip, status, exit_node),
+    [] when not enrolled, or None when the service can't be reached or predates 0.8.0
+    (one network only - use the calls without network then)."""
+    try:
+        (payload,) = _call("ListNetworks")
+    except DBusServiceError:
+        return None
+    return json.loads(payload)
+
+
+def enroll_network(server: str, code: str) -> dict:
+    """Enroll in another network. Returns {"id", "node_id", "name", "hostname"}."""
+    (payload,) = _call("EnrollNetwork", "ss", (server, code), timeout=35)
+    return json.loads(payload)
+
+
+def remove_network(network: str) -> None:
+    _call("RemoveNetwork", "s", (network,))
+
+
+def _n(method: str, network: "str | None", signature: str = "", body: tuple = (), **kw) -> tuple:
+    """Call method, or its *ForNetwork variant with the network id prepended."""
+    if network is None:
+        return _call(method, signature, body, **kw)
+    return _call(f"{method}ForNetwork", "s" + signature, (network, *body), **kw)
+
+
+def get_status(network: "str | None" = None) -> dict:
     """Returns the placeholder {"state": "unknown", ...} shape (matching
     client/status_store.py's own convention) if the service can't be
     reached at all, rather than raising - status display should always
     have something to show."""
     try:
-        state, message, updated_at = _call("GetStatus")
+        state, message, updated_at = _n("GetStatus", network)
     except DBusServiceError:
         return {"state": "unknown", "message": "Service not reachable", "updated_at": None}
     return {"state": state, "message": message, "updated_at": updated_at or None}
 
 
-def get_available_routes() -> list:
+def get_available_routes(network: "str | None" = None) -> list:
     try:
-        (payload,) = _call("GetAvailableRoutes")
+        (payload,) = _n("GetAvailableRoutes", network)
     except DBusServiceError:
         return []
     return json.loads(payload)
 
 
-def get_settings() -> dict:
+def get_settings(network: "str | None" = None) -> dict:
     """Returns {} if the service can't be reached (matching the old
     load_settings()'s always-succeeds behavior on a missing/unreadable
     file) - callers (desktop.py's settings page, routes picker) never had
     to handle a read failure before and shouldn't have to now either."""
     try:
-        (payload,) = _call("GetSettings")
+        (payload,) = _n("GetSettings", network)
     except DBusServiceError:
         return {}
     return json.loads(payload)
@@ -146,24 +181,25 @@ def enroll(server: str, code: str) -> str:
     return node_id
 
 
-def accept_route(cidr: str, via: "str | None") -> None:
-    _call("AcceptRoute", "ss", (cidr, via or ""))
+def accept_route(cidr: str, via: "str | None", network: "str | None" = None) -> None:
+    _n("AcceptRoute", network, "ss", (cidr, via or ""))
 
 
-def reject_route(cidr: str) -> None:
-    _call("RejectRoute", "s", (cidr,))
+def reject_route(cidr: str, network: "str | None" = None) -> None:
+    _n("RejectRoute", network, "s", (cidr,))
 
 
-def accept_exit_node(via: str) -> None:
-    _call("AcceptExitNode", "s", (via,))
+def accept_exit_node(via: str, network: "str | None" = None) -> None:
+    """A host has one exit node: one in use in another network is replaced."""
+    _n("AcceptExitNode", network, "s", (via,))
 
 
-def reject_exit_node() -> None:
-    _call("RejectExitNode")
+def reject_exit_node(network: "str | None" = None) -> None:
+    _n("RejectExitNode", network)
 
 
-def get_config_yaml() -> str:
-    (content,) = _call("GetConfigYaml")
+def get_config_yaml(network: "str | None" = None) -> str:
+    (content,) = _n("GetConfigYaml", network)
     return content
 
 

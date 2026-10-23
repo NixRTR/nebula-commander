@@ -42,6 +42,13 @@ real state changes come from client/linux/notify.py; this window handles
 everything needing real interaction - enroll, settings, the route
 accept/reject picker.
 
+One device can be enrolled in several networks (0.8.0+). The Networks page lists
+them (one row each: name, server, overlay IP, state, exit node in use) with the
+service controls; picking one opens its detail - status, subnet routes, exit node,
+config - with Remove. "Add network" enrolls in another one. A host has one exit
+node, so picking one in a network replaces another network's. Against a service from
+before 0.8.0 (no ListNetworks) the app shows its single network as before.
+
 Run from repo root: python -m client.linux.desktop
 """
 from __future__ import annotations
@@ -96,6 +103,13 @@ class MainWindow(Adw.ApplicationWindow):
         super().__init__(application=app, title="Nebula Commander", default_width=680, default_height=620)
 
         self._prev_combo: tuple[str, str] | None = None
+        # Network shown in the detail view: an id from list_networks(), or None for a
+        # pre-0.8.0 service (its only network, through the calls without a network).
+        self.current_network: "str | None" = None
+        self._networks: list[dict] = []
+        self._networks_fingerprint: object = None
+        self._network_rows: list[Gtk.Widget] = []
+        self._prev_network_states: dict = {}
         self._prev_route_keys: set[tuple] = set()
         self._routes_fingerprint: object = None
         self._route_rows: list[Adw.ActionRow] = []
@@ -116,26 +130,24 @@ class MainWindow(Adw.ApplicationWindow):
         self.toast_overlay.set_child(outer)
         self.set_content(self.toast_overlay)
 
-        status_page = self._build_status_page()
+        # Networks tab: the list, and one network's detail in place of it.
+        self.networks_stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.networks_stack.add_named(self._build_networks_page(), "list")
+        self.networks_stack.add_named(self._build_status_page(), "detail")
         enroll_page = self._build_enroll_page()
         settings_page = self._build_settings_page()
 
-        self.view_stack.add_titled(status_page, "status", "Status").set_icon_name("network-vpn-symbolic")
-        self.view_stack.add_titled(enroll_page, "enroll", "Enrollment").set_icon_name("dialog-password-symbolic")
+        self.view_stack.add_titled(self.networks_stack, "status", "Networks").set_icon_name("network-vpn-symbolic")
+        self.view_stack.add_titled(enroll_page, "enroll", "Add network").set_icon_name("list-add-symbolic")
         self.view_stack.add_titled(settings_page, "settings", "Settings").set_icon_name("preferences-system-symbolic")
 
         GLib.timeout_add(POLL_MS, self._poll_tick)
         self._poll_tick()
 
-    # ---- Status page ----
+    # ---- Networks page ----
 
-    def _build_status_page(self) -> Gtk.Widget:
+    def _build_networks_page(self) -> Gtk.Widget:
         page = Adw.PreferencesPage()
-
-        conn_group = Adw.PreferencesGroup(title="Connection")
-        page.add(conn_group)
-        self.status_row = Adw.ActionRow(title="Unknown")
-        conn_group.add(self.status_row)
 
         svc_group = Adw.PreferencesGroup(title="Service")
         page.add(svc_group)
@@ -151,6 +163,121 @@ class MainWindow(Adw.ApplicationWindow):
             btn_box.append(b)
         self.service_row.add_suffix(btn_box)
         svc_group.add(self.service_row)
+
+        self.networks_group = Adw.PreferencesGroup(
+            title="Networks",
+            description="Each network this device is enrolled in. Open one for its routes and exit node.",
+        )
+        add_btn = Gtk.Button(label="Add network", valign=Gtk.Align.CENTER, css_classes=["flat"])
+        add_btn.connect("clicked", lambda b: self.view_stack.set_visible_child_name("enroll"))
+        self.networks_group.set_header_suffix(add_btn)
+        page.add(self.networks_group)
+        return page
+
+    def _refresh_networks(self, svc_state: str) -> None:
+        """Rebuild the network rows when anything shown on them changed."""
+        networks = dbus_client.list_networks() if svc_state == service_control.ServiceState.RUNNING else None
+        if networks is None:
+            # Stopped, unreachable, or a pre-0.8.0 service: one row for "this device".
+            status = dbus_client.get_status() if svc_state == service_control.ServiceState.RUNNING else {}
+            networks = [{"id": None, "name": "This device", "server": "", "overlay_ip": "", "exit_node": None,
+                         "status": status}] if status.get("state") not in (None, "unknown") else []
+        self._networks = networks
+        fingerprint = json.dumps(networks, sort_keys=True, default=str)
+        if fingerprint == self._networks_fingerprint:
+            return
+        self._networks_fingerprint = fingerprint
+        for row in self._network_rows:
+            self.networks_group.remove(row)
+        self._network_rows.clear()
+        if not networks:
+            row = Adw.ActionRow(title="Not enrolled in any network", subtitle="Use Add network with a code from Nebula Commander")
+            self.networks_group.add(row)
+            self._network_rows.append(row)
+        for n in networks:
+            state = ((n.get("status") or {}).get("state") or "unknown").capitalize()
+            details = [x for x in (n.get("overlay_ip"), n.get("server")) if x]
+            if n.get("exit_node"):
+                details.append(f"exit node via {n['exit_node']}")
+            row = Adw.ActionRow(title=n.get("name") or n.get("id") or "Network", subtitle=" - ".join(details),
+                                activatable=True)
+            row.add_suffix(Gtk.Label(label=state, css_classes=["dim-label"]))
+            row.add_suffix(Gtk.Image(icon_name="go-next-symbolic"))
+            row.connect("activated", lambda _r, nid=n.get("id"): self._open_network(nid))
+            self.networks_group.add(row)
+            self._network_rows.append(row)
+        if self.networks_stack.get_visible_child_name() == "detail" and self.current_network not in [n.get("id") for n in networks]:
+            self._show_network_list()  # the open network was removed (here or elsewhere)
+
+    def _open_network(self, network: "str | None") -> None:
+        self.current_network = network
+        self._routes_fingerprint = None
+        self._exit_node_vias = [None]
+        self._prev_route_keys = set()
+        n = next((x for x in self._networks if x.get("id") == network), {})
+        self.detail_title_row.set_title(n.get("name") or network or "This device")
+        self.detail_title_row.set_subtitle(" - ".join(x for x in (n.get("server"), n.get("tun_dev")) if x))
+        self.remove_network_btn.set_visible(network is not None)
+        self.networks_stack.set_visible_child_name("detail")
+        self._refresh_detail()
+
+    def _show_network_list(self) -> None:
+        self.networks_stack.set_visible_child_name("list")
+
+    def _on_remove_network(self, _button: Gtk.Button) -> None:
+        network = self.current_network
+        if network is None:
+            return
+        name = self.detail_title_row.get_title()
+        dialog = Adw.MessageDialog(
+            heading=f"Leave {name}?", transient_for=self, modal=True,
+            body="Nebula stops for this network and the device forgets its token. "
+                 "Joining again needs a new enrollment code.",
+        )
+        dialog.add_response("cancel", "Cancel")
+        dialog.add_response("remove", "Leave network")
+        dialog.set_response_appearance("remove", Adw.ResponseAppearance.DESTRUCTIVE)
+        dialog.set_default_response("cancel")
+        dialog.set_close_response("cancel")
+
+        def on_response(_d, response: str) -> None:
+            if response != "remove":
+                return
+            try:
+                dbus_client.remove_network(network)
+            except dbus_client.DBusServiceError as e:
+                self._show_error("Leave network", e.message)
+                return
+            self._toast(f"Left {name}.")
+            self._networks_fingerprint = None
+            self._show_network_list()
+            self._refresh_networks(service_control.get_state())
+
+        dialog.connect("response", on_response)
+        dialog.present()
+
+    # ---- Network detail page ----
+
+    def _build_status_page(self) -> Gtk.Widget:
+        page = Adw.PreferencesPage()
+
+        title_group = Adw.PreferencesGroup()
+        page.add(title_group)
+        self.detail_title_row = Adw.ActionRow(title="Network")
+        back_btn = Gtk.Button(icon_name="go-previous-symbolic", valign=Gtk.Align.CENTER, tooltip_text="All networks",
+                              css_classes=["flat"])
+        back_btn.connect("clicked", lambda b: self._show_network_list())
+        self.detail_title_row.add_prefix(back_btn)
+        self.remove_network_btn = Gtk.Button(label="Leave network", valign=Gtk.Align.CENTER,
+                                             css_classes=["destructive-action"])
+        self.remove_network_btn.connect("clicked", self._on_remove_network)
+        self.detail_title_row.add_suffix(self.remove_network_btn)
+        title_group.add(self.detail_title_row)
+
+        conn_group = Adw.PreferencesGroup(title="Connection")
+        page.add(conn_group)
+        self.status_row = Adw.ActionRow(title="Unknown")
+        conn_group.add(self.status_row)
 
         self.routes_group = Adw.PreferencesGroup(title="Subnet routes offered to this node")
         page.add(self.routes_group)
@@ -194,7 +321,7 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_view_config(self, _button: Gtk.Button) -> None:
         try:
-            content = dbus_client.get_config_yaml()
+            content = dbus_client.get_config_yaml(self.current_network)
         except dbus_client.DBusServiceError as e:
             self._show_error("View Config", e.message)
             return
@@ -223,7 +350,7 @@ class MainWindow(Adw.ApplicationWindow):
         elif svc_state != service_control.ServiceState.RUNNING:
             status = {"state": "idle", "message": "Service stopped"}
         else:
-            status = dbus_client.get_status()
+            status = dbus_client.get_status(self.current_network)
         state = (status.get("state") or "idle").capitalize()
         self.status_row.set_title(state)
         self.status_row.set_subtitle(status.get("message") or "Nebula Commander")
@@ -231,11 +358,19 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _maybe_notify(self, svc_state: str, status: dict) -> None:
         combo = (svc_state, status.get("state") or "idle")
-        if self._prev_combo is not None and combo != self._prev_combo:
-            state = status.get("state") or "idle"
-            urgency = "critical" if state == "error" or svc_state == service_control.ServiceState.NOT_INSTALLED else "normal"
-            notify.notify("Nebula Commander", status.get("message") or f"Status: {state}", urgency=urgency)
+        if self._prev_combo is not None and combo != self._prev_combo and svc_state != service_control.ServiceState.RUNNING:
+            urgency = "critical" if svc_state == service_control.ServiceState.NOT_INSTALLED else "normal"
+            notify.notify("Nebula Commander", status.get("message") or "Service stopped", urgency=urgency)
         self._prev_combo = combo
+        # One notification per network whose state changed (errors, reconnects).
+        for n in self._networks:
+            st = n.get("status") or {}
+            key, state = n.get("id"), st.get("state") or "idle"
+            prev = self._prev_network_states.get(key)
+            if prev is not None and prev != state:
+                urgency = "critical" if state == "error" else "normal"
+                notify.notify(n.get("name") or "Nebula Commander", st.get("message") or f"Status: {state}", urgency=urgency)
+            self._prev_network_states[key] = state
 
     def _maybe_notify_new_routes(self, available: list[dict]) -> None:
         keys = {(r.get("route"), r.get("via"), r.get("kind")) for r in available}
@@ -250,15 +385,17 @@ class MainWindow(Adw.ApplicationWindow):
         self._prev_route_keys = keys
 
     def _refresh_routes_picker(self, available: list[dict], force: bool = False) -> None:
-        settings = dbus_client.get_settings()
+        settings = dbus_client.get_settings(self.current_network)
         accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
         accepted_exit_node = settings.get("accepted_exit_node")
         exit_allow_lan = settings.get("exit_allow_lan", True) is not False
+        host_exit_active = bool(settings.get("host_exit_active"))
         fingerprint = (
             json.dumps(available, sort_keys=True),
             json.dumps(accepted_subnet_routes, sort_keys=True),
             json.dumps(accepted_exit_node, sort_keys=True),
             exit_allow_lan,
+            host_exit_active,
         )
         if not force and fingerprint == self._routes_fingerprint:
             return
@@ -303,6 +440,10 @@ class MainWindow(Adw.ApplicationWindow):
         except ValueError:
             selected_index = 0
         self.exit_combo.set_selected(selected_index)
+        self.exit_combo.set_subtitle(
+            "Another network's exit node is in use - picking one here replaces it"
+            if host_exit_active and not accepted_exit_via else ""
+        )
         self.exit_lan_switch.set_active(exit_allow_lan)
         self._suspend_exit_signal = False
 
@@ -319,10 +460,10 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _on_subnet_toggle(self, switch: Gtk.Switch, _pspec, route: str, via: str) -> None:
         if switch.get_active():
-            self._safe_call(dbus_client.accept_route, route, via)
+            self._safe_call(dbus_client.accept_route, route, via, self.current_network)
         else:
-            self._safe_call(dbus_client.reject_route, route)
-        self._refresh_routes_picker(dbus_client.get_available_routes(), force=True)
+            self._safe_call(dbus_client.reject_route, route, self.current_network)
+        self._refresh_routes_picker(dbus_client.get_available_routes(self.current_network), force=True)
 
     def _on_exit_node_changed(self, combo: Adw.ComboRow, _pspec) -> None:
         if self._suspend_exit_signal:
@@ -330,17 +471,17 @@ class MainWindow(Adw.ApplicationWindow):
         idx = combo.get_selected()
         via = self._exit_node_vias[idx] if 0 <= idx < len(self._exit_node_vias) else None
         if via is None:
-            if dbus_client.get_settings().get("accepted_exit_node"):
-                self._safe_call(dbus_client.reject_exit_node)
+            if dbus_client.get_settings(self.current_network).get("accepted_exit_node"):
+                self._safe_call(dbus_client.reject_exit_node, self.current_network)
         else:
-            self._safe_call(dbus_client.accept_exit_node, via)
-        self._refresh_routes_picker(dbus_client.get_available_routes(), force=True)
+            self._safe_call(dbus_client.accept_exit_node, via, self.current_network)
+        self._refresh_routes_picker(dbus_client.get_available_routes(self.current_network), force=True)
 
     def _on_exit_lan_toggled(self, switch: Gtk.Switch, _pspec) -> None:
         if self._suspend_exit_signal:
             return
         self._safe_call(dbus_client.set_settings, {"exit_allow_lan": switch.get_active()})
-        self._refresh_routes_picker(dbus_client.get_available_routes(), force=True)
+        self._refresh_routes_picker(dbus_client.get_available_routes(self.current_network), force=True)
 
     # ---- Enrollment page ----
 
@@ -352,7 +493,11 @@ class MainWindow(Adw.ApplicationWindow):
         self.enroll_info_row = Adw.ActionRow()
         info_group.add(self.enroll_info_row)
 
-        group = Adw.PreferencesGroup(title="Enroll this device")
+        group = Adw.PreferencesGroup(
+            title="Add a network",
+            description="Enter the server and the one-time code from that network's Nebula Commander "
+                        "(Nodes > Get Enrollment Code). A device can be in several networks, on different servers.",
+        )
         page.add(group)
         self.enroll_server_row = Adw.EntryRow(title="Server URL", text="https://")
         group.add(self.enroll_server_row)
@@ -369,10 +514,14 @@ class MainWindow(Adw.ApplicationWindow):
         return page
 
     def _refresh_enroll_info(self) -> None:
-        enrolled, server = dbus_client.is_enrolled()
-        if enrolled:
-            self.enroll_info_row.set_title("Already enrolled")
-            self.enroll_info_row.set_subtitle(f"Server: {server or '?'}")
+        networks = dbus_client.list_networks()
+        if networks is None:
+            enrolled, server = dbus_client.is_enrolled()
+            networks = [{"name": server}] if enrolled else []
+        if networks:
+            names = ", ".join(n.get("name") or n.get("server") or n.get("id") or "?" for n in networks)
+            self.enroll_info_row.set_title(f"Enrolled in {len(networks)} network{'s' if len(networks) != 1 else ''}")
+            self.enroll_info_row.set_subtitle(names)
         else:
             self.enroll_info_row.set_title("Not enrolled yet")
             self.enroll_info_row.set_subtitle("")
@@ -384,13 +533,22 @@ class MainWindow(Adw.ApplicationWindow):
             self._show_error("Enroll", "Enter both server URL and enrollment code.")
             return
         try:
-            dbus_client.enroll(server, code)
+            if dbus_client.list_networks() is None:  # service from before 0.8.0
+                dbus_client.enroll(server, code)
+                new_id, label = None, server
+            else:
+                e = dbus_client.enroll_network(server, code)
+                new_id, label = e.get("id"), e.get("name") or server
         except dbus_client.DBusServiceError as e:
             self._show_error("Enroll", e.message)
             return
-        self._toast("Enrolled successfully.")
+        self._toast(f"Enrolled in {label}.")
+        self.enroll_code_row.set_text("")
         self._refresh_enroll_info()
+        self._networks_fingerprint = None
+        self._refresh_networks(service_control.get_state())
         self.view_stack.set_visible_child_name("status")
+        self._open_network(new_id)
 
     # ---- Settings page ----
 
@@ -398,10 +556,9 @@ class MainWindow(Adw.ApplicationWindow):
         page = Adw.PreferencesPage()
         settings = dbus_client.get_settings()
 
-        group = Adw.PreferencesGroup(title="Connection")
+        # No server here: each network keeps the server it was enrolled with.
+        group = Adw.PreferencesGroup(title="Connection", description="These apply to every network.")
         page.add(group)
-        self.settings_server_row = Adw.EntryRow(title="Server URL", text=settings.get("server") or "https://")
-        group.add(self.settings_server_row)
 
         interval_adj = Gtk.Adjustment(value=int(settings.get("interval") or 60), lower=10, upper=3600, step_increment=10)
         self.settings_interval_spin = Gtk.SpinButton(adjustment=interval_adj, valign=Gtk.Align.CENTER)
@@ -596,15 +753,10 @@ class MainWindow(Adw.ApplicationWindow):
             autostart.disable_autostart()
 
     def _on_save_settings(self, _button: Gtk.Button) -> None:
-        server = self.settings_server_row.get_text().strip()
-        if not server:
-            self._show_error("Settings", "Enter server URL.")
-            return
         interval = max(10, min(3600, self.settings_interval_spin.get_value_as_int()))
         try:
             dbus_client.set_settings(
                 {
-                    "server": server,
                     "interval": interval,
                     "accept_dns": self.settings_accept_dns_switch.get_active(),
                 }
@@ -642,12 +794,18 @@ class MainWindow(Adw.ApplicationWindow):
 
     # ---- Poll loop ----
 
-    def _poll_tick(self) -> bool:
-        svc_state, status = self._refresh_status_labels()
-        self._maybe_notify(svc_state, status)
-        available = dbus_client.get_available_routes()
+    def _refresh_detail(self) -> None:
+        self._refresh_status_labels()
+        available = dbus_client.get_available_routes(self.current_network)
         self._maybe_notify_new_routes(available)
         self._refresh_routes_picker(available)
+
+    def _poll_tick(self) -> bool:
+        svc_state, status = self._refresh_status_labels()
+        self._refresh_networks(svc_state)
+        self._maybe_notify(svc_state, status)
+        if self.networks_stack.get_visible_child_name() == "detail":
+            self._refresh_detail()
         # Update status changes rarely; once a minute is plenty.
         self._update_ticks += 1
         if self._update_ticks * POLL_MS >= 60_000:

@@ -31,6 +31,7 @@ a = Analysis(
         'client.windows.nebula_install',
         'client.windows.harden',
         'client.service_api',
+        'client.supervisor',
         'client.status_store',
         'yaml',
         'ntsecuritycon',
