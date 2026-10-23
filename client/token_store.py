@@ -206,5 +206,5 @@ def delete_token(enrollment_id: str | None = None) -> None:
     try:
         import keyring
         keyring.delete_password(_SERVICE, _keyring_key(enrollment_id))
-    except Exception:
-        pass  # not there, or no usable keyring
+    except Exception:  # nosec B110 - nothing to delete, or no usable keyring: both fine here
+        pass
