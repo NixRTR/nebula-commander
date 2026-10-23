@@ -33,6 +33,18 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
     if [ -n "$dnsmasq_changed" ] && [ -d /run/systemd/system ]; then
         systemctl try-restart dnsmasq 2>/dev/null || true
     fi
+    # Subnet router / exit gateway rules (client/linux_routing.py): one nftables
+    # table per tun device, plus DOCKER-USER rules tagged "ncclient[:<dev>]".
+    if command -v nft >/dev/null 2>&1; then
+        for t in $(nft list tables 2>/dev/null | awk '$2 == "inet" && $3 ~ /^ncclient_routing/ {print $3}'); do
+            nft delete table inet "$t" 2>/dev/null || true
+        done
+    fi
+    for ipt in iptables iptables-legacy; do
+        command -v "$ipt" >/dev/null 2>&1 || continue
+        "$ipt" -w -S DOCKER-USER 2>/dev/null | grep -E -- '--comment "?ncclient' | sed 's/^-A /-D /' |
+            while read -r rule; do eval "\"$ipt\" -w $rule" 2>/dev/null || true; done
+    done
 fi
 
 if [ "$1" = "purge" ]; then

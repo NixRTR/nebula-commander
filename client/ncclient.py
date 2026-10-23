@@ -950,9 +950,13 @@ def run_poll_loop(
     # accept_dns is off, since turning it off (e.g. the desktop app's toggle, which restarts
     # the service without --accept-dns) must undo what an earlier run applied. Only touches
     # ncclient's own rules/files, and is a no-op without the privilege to change DNS.
-    if dns_debug_log:
-        dns_debug_log(f"accept_dns={accept_dns}, removing any existing split-horizon on start")
-    remove_split_horizon_dns(current_tun_dev)
+    # On Linux the files and rules are per tun device; without a config on disk this
+    # instance never applied any, and guessing a device (nebula1) would remove another
+    # instance's DNS.
+    if current_tun_dev or not sys.platform.startswith("linux"):
+        if dns_debug_log:
+            dns_debug_log(f"accept_dns={accept_dns}, removing any existing split-horizon on start")
+        remove_split_horizon_dns(current_tun_dev)
     # Same for exit-node routing: a crash may have left the policy rules/bypass routes behind.
     exit_routing.remove(output_dir, dns_debug_log)
     # Windows: a nebula.exe left running by a previous instance (an MSI upgrade can stop
@@ -1066,6 +1070,23 @@ def run_poll_loop(
         if started is not None and status_callback:
             status_callback("error", f"{reason} - running on the last known config")
         return started
+
+    def _retire_tun_dev(old: str) -> None:
+        """The network's device was renamed: remove what this instance set up for the old
+        name (DNS file/link config, nft table, DOCKER-USER rules). Nothing else does -
+        the new device's apply only touches the new name."""
+        nonlocal last_routes_tun_dev
+        if dns_debug_log:
+            dns_debug_log(f"tun device renamed from {old!r}; removing its DNS and routing")
+        remove_split_horizon_dns(old)
+        if sys.platform.startswith("linux"):
+            try:
+                from client import linux_routing
+                linux_routing.apply_routes([], old, debug_log=dns_debug_log)
+            except Exception as e:
+                if dns_debug_log:
+                    dns_debug_log(f"removing routing for {old!r} failed: {e}")
+        last_routes_tun_dev = None  # re-apply advertised routes on the new device next poll
 
     def _tear_down_revoked() -> None:
         """The server rejected this device's token (revoked, deleted, or re-enrolled
@@ -1236,7 +1257,10 @@ def run_poll_loop(
                     # Only tun.dev is read from the node's own config here - its own
                     # advertised routes never appear in its own tun.unsafe_routes (see
                     # _fetch_advertised_routes above for why) and are fetched separately.
-                    current_tun_dev = _tun_dev_from_config(r.content) or current_tun_dev
+                    new_tun_dev = _tun_dev_from_config(r.content) or current_tun_dev
+                    if current_tun_dev and new_tun_dev != current_tun_dev:
+                        _retire_tun_dev(current_tun_dev)
+                    current_tun_dev = new_tun_dev
                 # Windows bypass routes go in before Nebula starts so its first handshakes
                 # already use them; on Linux this installs the kill switch, and the call
                 # after the start adds the route once the device exists.
@@ -1322,6 +1346,15 @@ def run_poll_loop(
     finally:
         _stop_nebula(nebula_proc)
         exit_routing.remove(output_dir, dns_debug_log)
+        # Forward/NAT rules for a Nebula that is no longer running are dead weight; the
+        # next start re-applies them on its first poll.
+        if sys.platform.startswith("linux") and last_advertised_routes:
+            try:
+                from client import linux_routing
+                linux_routing.apply_routes([], last_routes_tun_dev or current_tun_dev or "nebula1", debug_log=dns_debug_log)
+            except Exception as e:
+                if dns_debug_log:
+                    dns_debug_log(f"removing advertised routes on exit failed: {e}")
         if accept_dns:
             if dns_debug_log:
                 dns_debug_log("removing split-horizon on exit")
