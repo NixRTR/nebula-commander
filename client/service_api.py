@@ -447,6 +447,15 @@ def _update_enrollment(settings: dict, enrollment_id: str, **fields) -> None:
             e.update(fields)
 
 
+def set_enrollment_details(enrollment_id: str, name: str, hostname: str) -> None:
+    """Store a network's name/hostname learned after enrollment (a network enrolled
+    before the server returned them, see ncclient._fill_enrollment_details)."""
+    with _lock:
+        settings = load_settings()
+        _update_enrollment(settings, enrollment_id, name=name, hostname=hostname)
+        save_settings(settings)
+
+
 def accept_route(
     output_dir: str, cidr: str, via: "str | None", network: "str | None" = None, first_if_many: bool = False
 ) -> "tuple[str, str]":

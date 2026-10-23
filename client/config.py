@@ -124,6 +124,7 @@ def enrollment_view(settings: dict, enrollment_id: str) -> dict:
     e = find_enrollment(settings, enrollment_id) or {}
     view["server"] = e.get("server")
     view["node_id"] = e.get("node_id")
+    view["name"] = e.get("name") or ""
     view["accepted_subnet_routes"] = e.get("accepted_subnet_routes") or []
     exit_node = settings.get("exit_node") if isinstance(settings.get("exit_node"), dict) else None
     view["accepted_exit_node"] = (

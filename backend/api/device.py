@@ -300,6 +300,33 @@ async def device_advertised_routes(
     return AdvertisedRoutesResponse(routes=[r for r in routes if r])
 
 
+class DeviceInfoResponse(BaseModel):
+    node_id: int
+    hostname: str
+    network_id: int
+    network_name: str
+
+
+@router.get("/info", response_model=DeviceInfoResponse)
+async def device_info(
+    node_id: int = Depends(require_device_token),
+    session: AsyncSession = Depends(get_session),
+):
+    """Which node and network this device token belongs to - lets ncclient 0.8.0+ name
+    a network it was enrolled in before enroll returned the name (one client, several
+    networks)."""
+    node = await session.get(Node, node_id)
+    if not node:
+        raise HTTPException(status_code=404, detail="Node not found")
+    network = await session.get(Network, node.network_id)
+    return DeviceInfoResponse(
+        node_id=node.id,
+        hostname=node.hostname,
+        network_id=node.network_id,
+        network_name=network.name if network else "",
+    )
+
+
 @router.get("/dnsmasq.conf")
 async def device_dnsmasq_config(
     request: Request,

@@ -848,6 +848,26 @@ def _fetch_lighthouse_peers(
     return []
 
 
+def _fill_enrollment_details(base: str, token: str, enrollment_id: str, debug_log=None) -> bool:
+    """Name a network enrolled before the server's enroll reply carried the network's
+    name (it's what the apps and `networks list` show). True once done or not possible
+    (an older server without /api/device/info) - either way, don't ask again."""
+    try:
+        r = requests.get(f"{base}/api/device/info", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+        if r.status_code == 404:
+            return True
+        if not r.ok:
+            return False
+        data = r.json()
+        from client.service_api import set_enrollment_details
+        set_enrollment_details(enrollment_id, str(data.get("network_name") or ""), str(data.get("hostname") or ""))
+        return True
+    except Exception as e:
+        if debug_log:
+            debug_log(f"fetching device info failed: {e}")
+        return False
+
+
 def _fetch_advertised_routes(
     base: str,
     token: str,
@@ -1020,6 +1040,7 @@ def run_poll_loop(
     last_advertised_routes: list[str] | None = None  # this node's own advertised routes, for change detection (Linux routing only)
     last_routes_tun_dev: str | None = None  # the tun device last_advertised_routes was applied to (its nft rules match it by name)
     last_route_selection_fingerprint = None  # locally accepted subnet routes/exit node - see _route_selection_fingerprint
+    details_known = False  # this network's name is in settings (see _fill_enrollment_details)
 
     # Clean slate on start: remove any split-horizon from a previous crash - and also when
     # accept_dns is off, since turning it off (e.g. the desktop app's toggle, which restarts
@@ -1257,6 +1278,10 @@ def run_poll_loop(
                         file=sys.stderr,
                     )
                     sys.exit(1)
+                if r.ok and enrollment_id and not details_known:
+                    details_known = bool(load_settings().get("name")) or _fill_enrollment_details(
+                        base, token, enrollment_id, dns_debug_log
+                    )
                 if r.ok and node_id:
                     _maybe_check_for_updates(dns_debug_log)
                     peer_reachability = None
