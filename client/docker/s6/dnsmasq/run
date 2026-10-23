@@ -12,7 +12,26 @@ if [ -z "${SERVER}" ]; then
   exit 1
 fi
 
-CONFIG_YAML="${OUTPUT_DIR%/}/config.yaml"
+# ncclient 0.8.0+ writes each network's config to <output>/networks/<id>/config.yaml and
+# keeps its token in tokens/<id> next to TOKEN_FILE. A container runs one network: use
+# the first one found, falling back to the pre-0.8.0 paths.
+config_yaml_path() {
+  local f
+  for f in "${OUTPUT_DIR%/}"/networks/*/config.yaml; do
+    [ -f "${f}" ] && { echo "${f}"; return; }
+  done
+  echo "${OUTPUT_DIR%/}/config.yaml"
+}
+
+token_path() {
+  local f
+  for f in "$(dirname "${TOKEN_FILE}")"/tokens/*; do
+    [ -f "${f}" ] && { echo "${f}"; return; }
+  done
+  echo "${TOKEN_FILE}"
+}
+
+CONFIG_YAML="$(config_yaml_path)"
 DNSMASQ_CONF="/etc/dnsmasq.d/nebula.conf"
 ETAG=""
 DNSMASQ_PID=""
@@ -89,8 +108,10 @@ while true; do
     continue
   fi
 
-  if [ ! -f "${TOKEN_FILE}" ]; then
-    echo "DNS poll: token file ${TOKEN_FILE} not found yet; waiting..." >&2
+  CONFIG_YAML="$(config_yaml_path)"
+  CURRENT_TOKEN_FILE="$(token_path)"
+  if [ ! -f "${CURRENT_TOKEN_FILE}" ]; then
+    echo "DNS poll: token file ${CURRENT_TOKEN_FILE} not found yet; waiting..." >&2
     sleep "${POLL_INTERVAL}"
     continue
   fi
@@ -100,7 +121,7 @@ while true; do
   TMP_BODY="$(mktemp)"
 
   CURL_ARGS="-sS -D \"${TMP_HEADERS}\" -o \"${TMP_BODY}\" --max-time 30"
-  TOKEN="$(tr -d '\n\r' < "${TOKEN_FILE}")"
+  TOKEN="$(tr -d '\n\r' < "${CURRENT_TOKEN_FILE}")"
   if [ -n "${TOKEN}" ]; then
     CURL_ARGS="${CURL_ARGS} -H \"Authorization: Bearer ${TOKEN}\""
   fi

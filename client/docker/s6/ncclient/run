@@ -23,8 +23,14 @@ if [ -z "${NEBULA_COMMANDER_CONFIG_DIR:-}" ]; then
   export NEBULA_COMMANDER_CONFIG_DIR="$(dirname "${TOKEN_FILE}")"
 fi
 
-# Ensure token file exists or enroll once using ENROLL_CODE
-if [ ! -f "${TOKEN_FILE}" ]; then
+# ncclient 0.8.0+ keeps one token per network in tokens/<id> next to TOKEN_FILE (and
+# converts a token from before 0.8.0 to that layout on start), so either counts.
+enrolled() {
+  [ -f "${TOKEN_FILE}" ] || [ -n "$(ls -A "$(dirname "${TOKEN_FILE}")/tokens" 2>/dev/null)" ]
+}
+
+# Ensure the device is enrolled, or enroll once using ENROLL_CODE
+if ! enrolled; then
   if [ -z "${ENROLL_CODE}" ]; then
     echo "Token file not found and ENROLL_CODE not set. Mount an existing token file or set ENROLL_CODE to enroll." >&2
     exit 1
@@ -32,12 +38,13 @@ if [ ! -f "${TOKEN_FILE}" ]; then
   mkdir -p "$(dirname "$(readlink -f "${TOKEN_FILE}")")"
   export NEBULA_COMMANDER_SERVER="${SERVER}"
   export NEBULA_DEVICE_TOKEN_FILE="${TOKEN_FILE}"
+  export NEBULA_COMMANDER_OUTPUT_DIR="${OUTPUT_DIR}"  # for the one-time conversion of a pre-0.8.0 install
   if ! ncclient --server "${SERVER}" enroll --code "${ENROLL_CODE}"; then
     echo "Enroll failed" >&2
     exit 1
   fi
-  if [ ! -f "${TOKEN_FILE}" ]; then
-    echo "Enroll succeeded but token file was not created at ${TOKEN_FILE}" >&2
+  if ! enrolled; then
+    echo "Enroll succeeded but no token was stored next to ${TOKEN_FILE}" >&2
     exit 1
   fi
 fi
