@@ -139,18 +139,71 @@ def normalize_public_endpoint(endpoint: str) -> str:
     return f"{host}:{int(port)}"
 
 
-def _valid_endpoint(node: Node) -> Optional[str]:
-    """The node's endpoint ready for static_host_map, or None if it has none or it's
-    invalid. Invalid values can predate validation on save, including on nodes that
-    were once lighthouses (the field used to be hidden, not cleared) - skip them
-    rather than hand every peer a config nebula won't start with."""
+def _valid_endpoints(node: Node) -> list[str]:
+    """The node's static_host_map addresses: public_endpoint, then extra_endpoints. Empty
+    if it has no (valid) public endpoint. Invalid values can predate validation on save,
+    including on nodes that were once lighthouses (the field used to be hidden, not
+    cleared) - skip them rather than hand every peer a config nebula won't start with."""
     if not node.public_endpoint or not node.ip_address:
-        return None
+        return []
     try:
-        return normalize_public_endpoint(node.public_endpoint)
+        endpoints = [normalize_public_endpoint(node.public_endpoint)]
     except ValueError as e:
         logger.warning("Skipping invalid public endpoint of node %s (%s): %s", node.id, node.hostname, e)
-        return None
+        return []
+    for raw in node.extra_endpoints or []:
+        try:
+            ep = normalize_public_endpoint(str(raw))
+        except ValueError as e:
+            logger.warning("Skipping invalid additional endpoint of node %s (%s): %s", node.id, node.hostname, e)
+            continue
+        if ep not in endpoints:
+            endpoints.append(ep)
+    return endpoints
+
+
+MAX_EXTRA_ENDPOINTS = 8
+
+
+def normalize_extra_endpoints(
+    endpoints: list[str], public_endpoint: Optional[str], network_cidr: Optional[str] = None
+) -> list[str]:
+    """
+    Validate a node's additional endpoints - more static_host_map addresses after its
+    public endpoint, e.g. a LAN address that only nodes in the same office can reach next
+    to the office's public one. Every peer tries all of them, so they're only allowed
+    alongside a public endpoint. Same format rules as the public endpoint (host:port,
+    hostnames and private addresses allowed); entries repeating the public endpoint or
+    each other are dropped. Raises ValueError with a user-facing message.
+    """
+    primary = normalize_public_endpoint(public_endpoint) if public_endpoint else None
+    normalized: list[str] = []
+    for raw in endpoints:
+        s = str(raw).strip()
+        if not s:
+            continue
+        if "," in s or any(c.isspace() for c in s):
+            raise ValueError(f"Enter one endpoint per entry (got {s!r})")
+        try:
+            ep = normalize_public_endpoint(s)
+        except ValueError as e:
+            raise ValueError(str(e).replace("Public endpoint", f"Additional endpoint {s!r}", 1)) from None
+        host = ep.rpartition(":")[0].strip("[]")
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            ip = None  # a hostname
+        if ip is not None and (ip.is_unspecified or ip.is_loopback or ip.is_multicast or ip.is_reserved):
+            raise ValueError(f"Additional endpoint {ip} is not routable")
+        if ip is not None and network_cidr and ip in ipaddress.ip_network(network_cidr, strict=False):
+            raise ValueError(f"Additional endpoint {ip} is inside the Nebula network {network_cidr}")
+        if ep != primary and ep not in normalized:
+            normalized.append(ep)
+    if normalized and not primary:
+        raise ValueError("Set a public endpoint before adding additional endpoints")
+    if len(normalized) > MAX_EXTRA_ENDPOINTS:
+        raise ValueError(f"At most {MAX_EXTRA_ENDPOINTS} additional endpoints per node")
+    return normalized
 
 
 MAX_ADVERTISE_ADDRS = 8
@@ -215,9 +268,10 @@ def normalize_advertise_addrs(addrs: list[str], network_cidr: str|None = None) -
     return normalized
 
 
-def _default_static_host_map(hosts_with_endpoint: list[tuple[str, str]]) -> dict[str, list[str]]:
-    """hosts_with_endpoint: list of (nebula_ip, normalized public_endpoint)."""
-    return {ip: [endpoint] for ip, endpoint in hosts_with_endpoint}
+def _default_static_host_map(hosts_with_endpoint: list[tuple[str, list[str]]]) -> dict[str, list[str]]:
+    """hosts_with_endpoint: list of (nebula_ip, [normalized endpoints]). Nebula tries
+    every address listed for a host."""
+    return {ip: list(endpoints) for ip, endpoints in hosts_with_endpoint}
 
 
 def _relay_section(node: Node, other_relay_ips: list[str]) -> dict[str, Any]:
@@ -548,7 +602,7 @@ def build_config(
     # Every peer with a (valid) public endpoint goes into static_host_map, not just
     # lighthouses and relays: a known address lets nodes reach each other directly
     # without first asking a lighthouse.
-    peers_with_endpoint = [(n, ep) for n in peer_nodes if (ep := _valid_endpoint(n))]
+    peers_with_endpoint = [(n, eps) for n in peer_nodes if (eps := _valid_endpoints(n))]
     hosts_with_endpoint = [(n.ip_address, ep) for n, ep in peers_with_endpoint]
     lighthouses_with_endpoint = [(n.ip_address, ep) for n, ep in peers_with_endpoint if n.is_lighthouse]
     other_lighthouse_ips = [ip for ip, _ in lighthouses_with_endpoint if ip != node.ip_address]

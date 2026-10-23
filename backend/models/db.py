@@ -93,6 +93,7 @@ class Node(Base):
     is_lighthouse: Mapped[bool] = mapped_column(Boolean, default=False)
     is_relay: Mapped[bool] = mapped_column(Boolean, default=False)
     public_endpoint: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # e.g. hostname:4242 for static_host_map
+    extra_endpoints: Mapped[Optional[list]] = mapped_column(JSON, default=list)  # ["host:port"] - more static_host_map addresses, after public_endpoint
     listen_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Nebula listen.port; None = DEFAULT_LISTEN_PORT, 0 = kernel-chosen
     advertise_addrs: Mapped[Optional[list]] = mapped_column(JSON, default=list)  # ["ip:port"] - lighthouse.advertise_addrs, extra addresses reported to lighthouses
     lighthouse_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # interval_seconds; DNS is via ncclient dnsmasq only

@@ -54,6 +54,24 @@ const ADVERTISE_ADDRS_HELP =
 /** Same limit as the backend's MAX_ADVERTISE_ADDRS (services/config_generator.py). */
 const MAX_ADVERTISE_ADDRS = 8;
 
+const EXTRA_ENDPOINTS_HELP =
+  "Optional. More addresses every node tries for this one, after the public endpoint - for addresses " +
+  "only some nodes can reach, e.g. this machine's LAN IP for nodes in the same office, while the public " +
+  "endpoint is the office's public IP. Nodes that can't reach an address just skip it.";
+
+/** Same limit as the backend's MAX_EXTRA_ENDPOINTS (services/config_generator.py). */
+const MAX_EXTRA_ENDPOINTS = 8;
+
+/** Shape check for one additional endpoint: hostname:port, IPv4:port or [IPv6]:port. The
+ * backend (normalize_extra_endpoints) is the real validator; its error shows on Save. */
+const checkExtraEndpoint = (value: string): string | null => {
+  const m = /^(?:\[([0-9a-fA-F:.]+)\]|([A-Za-z0-9.-]+)):(\d{1,5})$/.exec(value);
+  if (!m || Number(m[3]) < 1 || Number(m[3]) > 65535) {
+    return "Enter host:port, e.g. 192.168.1.50:4242, lh.example.com:4242 or [2001:db8::1]:4242";
+  }
+  return null;
+};
+
 const AUTO_UPDATE_LABELS: Record<string, string> = {
   off: "off",
   install: "installs updates",
@@ -148,6 +166,7 @@ export function Nodes() {
     public_endpoint: string;
     listen_port: string;
     advertise_addrs: string[];
+    extra_endpoints: string[];
     interval_seconds: string;
     log_level: string;
     log_format: string;
@@ -167,6 +186,7 @@ export function Nodes() {
     public_endpoint: "",
     listen_port: "4242",
     advertise_addrs: [],
+    extra_endpoints: [],
     interval_seconds: "60",
     log_level: "info",
     log_format: "text",
@@ -184,6 +204,8 @@ export function Nodes() {
   const [otherRouteError, setOtherRouteError] = useState<string | null>(null);
   const [advertiseAddrInput, setAdvertiseAddrInput] = useState("");
   const [advertiseAddrError, setAdvertiseAddrError] = useState<string | null>(null);
+  const [extraEndpointInput, setExtraEndpointInput] = useState("");
+  const [extraEndpointError, setExtraEndpointError] = useState<string | null>(null);
   const [expandedConsumerPickers, setExpandedConsumerPickers] = useState<Set<string>>(new Set());
   /** Per "Used by" picker (keyed like expandedConsumerPickers): the group / host currently
    * chosen in its dropdowns but not yet added. */
@@ -493,6 +515,7 @@ export function Nodes() {
       public_endpoint: node.public_endpoint ?? "",
       listen_port: String(node.listen_port ?? 4242),
       advertise_addrs: node.advertise_addrs ?? [],
+      extra_endpoints: node.extra_endpoints ?? [],
       group: (node.groups && node.groups[0]) ?? "",
       interval_seconds: String(opts?.interval_seconds ?? 60),
       log_level: logOpts?.level ?? "info",
@@ -732,6 +755,7 @@ export function Nodes() {
       (deviceDetailsForm.public_endpoint ?? "") !== (node.public_endpoint ?? "") ||
       deviceDetailsForm.listen_port.trim() !== String(node.listen_port ?? 4242) ||
       deviceDetailsForm.advertise_addrs.join(",") !== (node.advertise_addrs ?? []).join(",") ||
+      deviceDetailsForm.extra_endpoints.join(",") !== (node.extra_endpoints ?? []).join(",") ||
       String(deviceDetailsForm.interval_seconds ?? 60) !== String(opts?.interval_seconds ?? 60) ||
       (deviceDetailsForm.log_level ?? "info") !== (logOpts?.level ?? "info") ||
       (deviceDetailsForm.log_format ?? "text") !== (logOpts?.format ?? "text") ||
@@ -799,6 +823,8 @@ export function Nodes() {
         public_endpoint: deviceDetailsForm.public_endpoint.trim(),
         listen_port,
         advertise_addrs: deviceDetailsForm.advertise_addrs,
+        // Only alongside a public endpoint (the API rejects them without one).
+        extra_endpoints: deviceDetailsForm.public_endpoint.trim() ? deviceDetailsForm.extra_endpoints : [],
         group,
         lighthouse_options,
         logging_options,
@@ -835,6 +861,7 @@ export function Nodes() {
               public_endpoint: updated.public_endpoint ?? "",
               listen_port: String(updated.listen_port ?? 4242),
               advertise_addrs: updated.advertise_addrs ?? [],
+              extra_endpoints: updated.extra_endpoints ?? [],
               interval_seconds: String(updated.lighthouse_options?.interval_seconds ?? 60),
               log_level: updated.logging_options?.level ?? "info",
               log_format: updated.logging_options?.format ?? "text",
@@ -1740,6 +1767,80 @@ export function Nodes() {
                                     />
                                   </div>
 
+                                  {deviceDetailsForm.public_endpoint.trim() !== "" && (
+                                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 min-w-0">
+                                      <Label htmlFor="dd_extra_endpoints" value="Additional endpoints (host:port)" className="text-gray-500 dark:text-gray-400" />
+                                      {deviceDetailsModal.isEditing && (
+                                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1 mb-2">{EXTRA_ENDPOINTS_HELP}</p>
+                                      )}
+                                      {deviceDetailsForm.extra_endpoints.length === 0 && !deviceDetailsModal.isEditing && (
+                                        <p className="text-sm text-gray-400 dark:text-gray-500 mt-1">None</p>
+                                      )}
+                                      {deviceDetailsForm.extra_endpoints.map((ep) => (
+                                        <div key={ep} className="flex flex-wrap items-center gap-2 mt-2">
+                                          <span className="text-sm text-gray-700 dark:text-gray-300">{ep}</span>
+                                          {deviceDetailsModal.isEditing && (
+                                            <Button
+                                              type="button"
+                                              size="xs"
+                                              color="gray"
+                                              aria-label={`Remove ${ep}`}
+                                              onClick={() =>
+                                                setDeviceDetailsForm((f) => ({
+                                                  ...f,
+                                                  extra_endpoints: f.extra_endpoints.filter((x) => x !== ep),
+                                                }))
+                                              }
+                                            >
+                                              <HiTrash className="w-3 h-3" />
+                                            </Button>
+                                          )}
+                                        </div>
+                                      ))}
+                                      {deviceDetailsModal.isEditing && (
+                                        <div className="flex items-center gap-2 mt-2">
+                                          <TextInput
+                                            id="dd_extra_endpoints"
+                                            value={extraEndpointInput}
+                                            onChange={(e) => {
+                                              setExtraEndpointInput(e.target.value);
+                                              setExtraEndpointError(null);
+                                            }}
+                                            placeholder="e.g. 192.168.1.50:4242"
+                                            className="min-w-0 flex-1"
+                                          />
+                                          <Button
+                                            type="button"
+                                            color="gray"
+                                            onClick={() => {
+                                              const ep = extraEndpointInput.trim();
+                                              const shapeError = checkExtraEndpoint(ep);
+                                              if (shapeError) {
+                                                setExtraEndpointError(shapeError);
+                                                return;
+                                              }
+                                              if (ep === deviceDetailsForm.public_endpoint.trim() || deviceDetailsForm.extra_endpoints.includes(ep)) {
+                                                setExtraEndpointError("That endpoint is already listed");
+                                                return;
+                                              }
+                                              if (deviceDetailsForm.extra_endpoints.length >= MAX_EXTRA_ENDPOINTS) {
+                                                setExtraEndpointError(`At most ${MAX_EXTRA_ENDPOINTS} additional endpoints per node`);
+                                                return;
+                                              }
+                                              setDeviceDetailsForm((f) => ({ ...f, extra_endpoints: [...f.extra_endpoints, ep] }));
+                                              setExtraEndpointInput("");
+                                            }}
+                                          >
+                                            Add
+                                          </Button>
+                                        </div>
+                                      )}
+                                      {extraEndpointError && (
+                                        <p className="text-sm text-red-600 dark:text-red-400 mt-1">{extraEndpointError}</p>
+                                      )}
+                                    </div>
+                                  )}
+
                                   {deviceDetailsForm.platform === "desktop" && (
                                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4 min-w-0">
                                       <Label htmlFor="dd_listen_port" value="Listen port (UDP)" className="text-gray-500 dark:text-gray-400" />
@@ -2333,6 +2434,7 @@ export function Nodes() {
                                                 public_endpoint: node.public_endpoint ?? "",
                                                 listen_port: String(node.listen_port ?? 4242),
                                                 advertise_addrs: node.advertise_addrs ?? [],
+                                                extra_endpoints: node.extra_endpoints ?? [],
                                                 interval_seconds: String(node.lighthouse_options?.interval_seconds ?? 60),
                                                 log_level: node.logging_options?.level ?? "info",
                                                 log_format: node.logging_options?.format ?? "text",

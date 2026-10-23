@@ -26,6 +26,7 @@ from ..services.config_generator import (
     generate_config_for_node,
     get_dns_client_config,
     normalize_advertise_addrs,
+    normalize_extra_endpoints,
     normalize_public_endpoint,
 )
 from ..services.ip_allocator import IPAllocator
@@ -64,6 +65,7 @@ class NodeUpdate(BaseModel):
     is_lighthouse: Optional[bool] = None
     is_relay: Optional[bool] = None
     public_endpoint: Optional[str] = None
+    extra_endpoints: Optional[list[str]] = None  # more static_host_map addresses after public_endpoint
     listen_port: Optional[int] = None  # 0 = kernel-chosen (not for lighthouses/relays)
     advertise_addrs: Optional[list[str]] = None
     lighthouse_options: Optional[dict[str, Any]] = None
@@ -82,6 +84,7 @@ class NodeResponse(BaseModel):
     is_lighthouse: bool = False
     is_relay: bool = False
     public_endpoint: Optional[str] = None
+    extra_endpoints: list[str] = []
     listen_port: int = DEFAULT_LISTEN_PORT
     advertise_addrs: list[str] = []
     lighthouse_options: Optional[dict[str, Any]] = None
@@ -145,6 +148,7 @@ async def list_nodes(
             is_lighthouse=n.is_lighthouse,
             is_relay=n.is_relay,
             public_endpoint=n.public_endpoint,
+            extra_endpoints=n.extra_endpoints or [],
             listen_port=DEFAULT_LISTEN_PORT if n.listen_port is None else n.listen_port,
             advertise_addrs=n.advertise_addrs or [],
             lighthouse_options=n.lighthouse_options,
@@ -335,6 +339,7 @@ async def get_node(
         is_lighthouse=node.is_lighthouse,
         is_relay=node.is_relay,
         public_endpoint=node.public_endpoint,
+        extra_endpoints=node.extra_endpoints or [],
         listen_port=DEFAULT_LISTEN_PORT if node.listen_port is None else node.listen_port,
         advertise_addrs=node.advertise_addrs or [],
         lighthouse_options=node.lighthouse_options,
@@ -376,6 +381,7 @@ async def update_node(
     original_is_lighthouse = node.is_lighthouse
     original_is_relay = node.is_relay
     original_public_endpoint = node.public_endpoint
+    original_extra_endpoints = list(node.extra_endpoints or [])
     original_listen_port = DEFAULT_LISTEN_PORT if node.listen_port is None else node.listen_port
     original_advertise_addrs = list(node.advertise_addrs or [])
     original_lighthouse_options = (
@@ -500,6 +506,19 @@ async def update_node(
                 }
             )
         node.unsafe_routes = validated_routes
+    # Validated against the public endpoint as saved by this same request (it may have
+    # changed or been cleared); an untouched list is re-checked too, so clearing the public
+    # endpoint can't leave additional endpoints nobody would ever be given.
+    if body.extra_endpoints is not None or body.public_endpoint is not None:
+        net_cidr = (await session.execute(select(Network.subnet_cidr).where(Network.id == node.network_id))).scalar_one_or_none()
+        try:
+            node.extra_endpoints = normalize_extra_endpoints(
+                body.extra_endpoints if body.extra_endpoints is not None else (node.extra_endpoints or []),
+                node.public_endpoint,
+                net_cidr,
+            )
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
     # Checked after every field is applied: becoming a lighthouse or relay with port 0 is
     # as wrong as setting port 0 on one.
     if node.listen_port == 0 and (node.is_lighthouse or node.is_relay):
@@ -534,6 +553,10 @@ async def update_node(
     new_listen_port = DEFAULT_LISTEN_PORT if node.listen_port is None else node.listen_port
     if original_listen_port != new_listen_port:
         changed["listen_port"] = {"old": original_listen_port, "new": new_listen_port}
+
+    new_extra_endpoints = node.extra_endpoints or []
+    if original_extra_endpoints != new_extra_endpoints:
+        changed["extra_endpoints"] = {"old": original_extra_endpoints, "new": new_extra_endpoints}
 
     new_advertise_addrs = node.advertise_addrs or []
     if original_advertise_addrs != new_advertise_addrs:
