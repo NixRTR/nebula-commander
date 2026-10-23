@@ -42,6 +42,11 @@ const PUBLIC_ENDPOINT_HELP =
   "It's added to every node's static_host_map, so peers can connect without asking a lighthouse first. " +
   "Lighthouses and relays need one.";
 
+const LISTEN_PORT_HELP =
+  "UDP port Nebula listens on. Give nodes behind the same NAT, or two networks on one host, " +
+  "different ports. 0 lets the OS pick (not for lighthouses or relays). " +
+  "A lighthouse or relay's public endpoint must point at this port, or at a forward to it.";
+
 const ADVERTISE_ADDRS_HELP =
   "Optional. Extra IP:port addresses this node reports to lighthouses, for ones Nebula can't discover " +
   "itself (port forwards, a second uplink). Add one at a time; IP addresses only, port 0 is Nebula's listen port.";
@@ -141,6 +146,7 @@ export function Nodes() {
     is_lighthouse: boolean;
     is_relay: boolean;
     public_endpoint: string;
+    listen_port: string;
     advertise_addrs: string[];
     interval_seconds: string;
     log_level: string;
@@ -159,6 +165,7 @@ export function Nodes() {
     is_lighthouse: false,
     is_relay: false,
     public_endpoint: "",
+    listen_port: "4242",
     advertise_addrs: [],
     interval_seconds: "60",
     log_level: "info",
@@ -484,6 +491,7 @@ export function Nodes() {
       is_lighthouse: node.is_lighthouse,
       is_relay: node.is_relay,
       public_endpoint: node.public_endpoint ?? "",
+      listen_port: String(node.listen_port ?? 4242),
       advertise_addrs: node.advertise_addrs ?? [],
       group: (node.groups && node.groups[0]) ?? "",
       interval_seconds: String(opts?.interval_seconds ?? 60),
@@ -722,6 +730,7 @@ export function Nodes() {
       deviceDetailsForm.is_lighthouse !== node.is_lighthouse ||
       deviceDetailsForm.is_relay !== node.is_relay ||
       (deviceDetailsForm.public_endpoint ?? "") !== (node.public_endpoint ?? "") ||
+      deviceDetailsForm.listen_port.trim() !== String(node.listen_port ?? 4242) ||
       deviceDetailsForm.advertise_addrs.join(",") !== (node.advertise_addrs ?? []).join(",") ||
       String(deviceDetailsForm.interval_seconds ?? 60) !== String(opts?.interval_seconds ?? 60) ||
       (deviceDetailsForm.log_level ?? "info") !== (logOpts?.level ?? "info") ||
@@ -756,6 +765,13 @@ export function Nodes() {
       setError("Mobile nodes cannot be a lighthouse or relay. Unset those first.");
       return;
     }
+    // Blank means the default; 0 is a real value, so no `|| 4242` here.
+    const listenPortText = deviceDetailsForm.listen_port.trim();
+    const listen_port = listenPortText === "" ? 4242 : Number(listenPortText);
+    if (!Number.isInteger(listen_port) || listen_port < 0 || listen_port > 65535) {
+      setError("Listen port must be a whole number from 0 to 65535.");
+      return;
+    }
     const convertedToMobile = node.platform === "desktop" && deviceDetailsForm.platform !== "desktop";
     setSaving(true);
     const group = deviceDetailsForm.group?.trim() || null;
@@ -781,6 +797,7 @@ export function Nodes() {
         is_relay: deviceDetailsForm.is_relay,
         // "" (not null) when blank: the API treats null as "unchanged", so null could never clear it
         public_endpoint: deviceDetailsForm.public_endpoint.trim(),
+        listen_port,
         advertise_addrs: deviceDetailsForm.advertise_addrs,
         group,
         lighthouse_options,
@@ -816,6 +833,7 @@ export function Nodes() {
               is_lighthouse: updated.is_lighthouse,
               is_relay: updated.is_relay,
               public_endpoint: updated.public_endpoint ?? "",
+              listen_port: String(updated.listen_port ?? 4242),
               advertise_addrs: updated.advertise_addrs ?? [],
               interval_seconds: String(updated.lighthouse_options?.interval_seconds ?? 60),
               log_level: updated.logging_options?.level ?? "info",
@@ -1722,6 +1740,26 @@ export function Nodes() {
                                     />
                                   </div>
 
+                                  {deviceDetailsForm.platform === "desktop" && (
+                                    <div className="border-t border-gray-200 dark:border-gray-700 pt-4 min-w-0">
+                                      <Label htmlFor="dd_listen_port" value="Listen port (UDP)" className="text-gray-500 dark:text-gray-400" />
+                                      <TextInput
+                                        id="dd_listen_port"
+                                        type="number"
+                                        min={0}
+                                        max={65535}
+                                        value={deviceDetailsForm.listen_port}
+                                        onChange={(e) =>
+                                          setDeviceDetailsForm((f) => ({ ...f, listen_port: e.target.value }))
+                                        }
+                                        placeholder="4242"
+                                        helperText={deviceDetailsModal.isEditing ? LISTEN_PORT_HELP : undefined}
+                                        disabled={!deviceDetailsModal.isEditing}
+                                        className={`min-w-0 w-full ${!deviceDetailsModal.isEditing ? "bg-gray-50 dark:bg-gray-800 border-none cursor-default" : ""}`}
+                                      />
+                                    </div>
+                                  )}
+
                                   {deviceDetailsForm.is_lighthouse && (
                                     <div className="border-t border-gray-200 dark:border-gray-700 pt-4 space-y-4">
                                       <div>
@@ -2293,6 +2331,7 @@ export function Nodes() {
                                                 is_lighthouse: node.is_lighthouse,
                                                 is_relay: node.is_relay,
                                                 public_endpoint: node.public_endpoint ?? "",
+                                                listen_port: String(node.listen_port ?? 4242),
                                                 advertise_addrs: node.advertise_addrs ?? [],
                                                 interval_seconds: String(node.lighthouse_options?.interval_seconds ?? 60),
                                                 log_level: node.logging_options?.level ?? "info",

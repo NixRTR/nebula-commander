@@ -347,6 +347,7 @@ export type NodeUpdateData = {
   is_lighthouse?: boolean;
   is_relay?: boolean;
   public_endpoint?: string | null;
+  listen_port?: number;
   advertise_addrs?: string[];
   lighthouse_options?: import("../types/nodes").LighthouseOptions | null;
   logging_options?: import("../types/nodes").LoggingOptions | null;

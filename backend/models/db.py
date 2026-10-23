@@ -32,6 +32,7 @@ class Network(Base):
     ca_key_path: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
     cert_version: Mapped[int] = mapped_column(Integer, default=2)  # nebula cert format version for this network's CA
     cert_curve: Mapped[str] = mapped_column(String(16), default="25519")  # "25519" or "P256"
+    tun_dev: Mapped[Optional[str]] = mapped_column(String(15), nullable=True)  # Nebula tun.dev for every node; None = DEFAULT_TUN_DEV
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     nodes: Mapped[list["Node"]] = relationship(
@@ -92,6 +93,7 @@ class Node(Base):
     is_lighthouse: Mapped[bool] = mapped_column(Boolean, default=False)
     is_relay: Mapped[bool] = mapped_column(Boolean, default=False)
     public_endpoint: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)  # e.g. hostname:4242 for static_host_map
+    listen_port: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Nebula listen.port; None = DEFAULT_LISTEN_PORT, 0 = kernel-chosen
     advertise_addrs: Mapped[Optional[list]] = mapped_column(JSON, default=list)  # ["ip:port"] - lighthouse.advertise_addrs, extra addresses reported to lighthouses
     lighthouse_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # interval_seconds; DNS is via ncclient dnsmasq only
     logging_options: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)  # level, format, disable_timestamp, timestamp_format

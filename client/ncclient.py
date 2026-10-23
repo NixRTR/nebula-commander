@@ -129,6 +129,21 @@ def _config_path(output_dir: str) -> str:
     return os.path.join(output_dir, "config.yaml")
 
 
+# Sent on GET /api/device/config. Without "tun-dev" the server sets tun.dev to nebula1,
+# because clients before 0.8.0 find their interface by a "nebula" substring.
+CONFIG_FEATURES = "tun-dev"
+
+
+def _tun_dev_from_config(content: bytes) -> str | None:
+    """tun.dev from a Nebula config.yaml, or None if it's missing or unparsable."""
+    import yaml
+    try:
+        dev = ((yaml.safe_load(content) or {}).get("tun") or {}).get("dev")
+    except (yaml.YAMLError, AttributeError):
+        return None
+    return dev if isinstance(dev, str) and dev else None
+
+
 def _dns_client_config_path(output_dir: str) -> str:
     return os.path.join(output_dir, "dns-client.json")
 
@@ -355,6 +370,17 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
     if not os.path.exists(config):
         return None
     config_abs = os.path.abspath(config)
+    if sys.platform.startswith("linux"):
+        from client import linux_routing
+        with open(config, "rb") as f:
+            tun_dev = _tun_dev_from_config(f.read())
+        if tun_dev and linux_routing.is_foreign_interface(tun_dev):
+            print(
+                f"Not starting Nebula: its config's tun.dev {tun_dev!r} is an existing non-tun interface "
+                "on this host. Change the network's interface name in Nebula Commander.",
+                file=sys.stderr,
+            )
+            return None
     # Resolve to an absolute path before spawning on every platform (not just Windows),
     # so we don't rely on Popen's own PATH search at spawn time.
     nebula_abs = os.path.abspath(nebula_bin) if os.path.dirname(nebula_bin) else _which(nebula_bin)
@@ -908,8 +934,16 @@ def run_poll_loop(
     os.makedirs(output_dir, exist_ok=True)
     last_etag: str | None = None
     nebula_proc: subprocess.Popen | None = None
-    current_tun_dev: str | None = None  # this node's own tun device, parsed from its config (Linux routing only)
+    # This node's own tun device, parsed from its config (Linux routing and DNS only). Seeded
+    # from the config on disk so the clean-slate DNS removal below targets the right device.
+    current_tun_dev: str | None = None
+    try:
+        with open(_config_path(output_dir), "rb") as f:
+            current_tun_dev = _tun_dev_from_config(f.read())
+    except OSError:
+        pass
     last_advertised_routes: list[str] | None = None  # this node's own advertised routes, for change detection (Linux routing only)
+    last_routes_tun_dev: str | None = None  # the tun device last_advertised_routes was applied to (its nft rules match it by name)
     last_route_selection_fingerprint = None  # locally accepted subnet routes/exit node - see _route_selection_fingerprint
 
     # Clean slate on start: remove any split-horizon from a previous crash - and also when
@@ -918,7 +952,7 @@ def run_poll_loop(
     # ncclient's own rules/files, and is a no-op without the privilege to change DNS.
     if dns_debug_log:
         dns_debug_log(f"accept_dns={accept_dns}, removing any existing split-horizon on start")
-    remove_split_horizon_dns()
+    remove_split_horizon_dns(current_tun_dev)
     # Same for exit-node routing: a crash may have left the policy rules/bypass routes behind.
     exit_routing.remove(output_dir, dns_debug_log)
     # Windows: a nebula.exe left running by a previous instance (an MSI upgrade can stop
@@ -932,7 +966,7 @@ def run_poll_loop(
 
     def _ensure_dns() -> None:
         if accept_dns and applied_dns_config:
-            ok = ensure_split_horizon_dns(applied_dns_config)
+            ok = ensure_split_horizon_dns(applied_dns_config, current_tun_dev)
             if dns_debug_log:
                 dns_debug_log(f"ensure_split_horizon_dns result={ok}")
 
@@ -1052,7 +1086,7 @@ def run_poll_loop(
                 if dns_debug_log:
                     dns_debug_log(f"could not remove {path}: {e}")
         applied_dns_config.clear()
-        remove_split_horizon_dns()
+        remove_split_horizon_dns(current_tun_dev)
         exit_routing.remove(output_dir, dns_debug_log)
         if sys.platform.startswith("linux") and last_advertised_routes:
             try:
@@ -1097,7 +1131,7 @@ def run_poll_loop(
                     last_route_selection_fingerprint = route_selection_fingerprint
                     last_etag = None
 
-                headers = {"Authorization": f"Bearer {token}"}
+                headers = {"Authorization": f"Bearer {token}", "X-Ncclient-Features": CONFIG_FEATURES}
                 if last_etag is not None:
                     headers["If-None-Match"] = last_etag
                 r = requests.get(url, headers=headers, timeout=30)
@@ -1135,15 +1169,19 @@ def run_poll_loop(
                     )
                     if sys.platform.startswith("linux"):
                         advertised_routes = _fetch_advertised_routes(base, token, dns_debug_log)
-                        if advertised_routes != (last_advertised_routes or []):
+                        routes_tun_dev = current_tun_dev or "nebula1"
+                        if advertised_routes != (last_advertised_routes or []) or (
+                            advertised_routes and routes_tun_dev != last_routes_tun_dev
+                        ):
                             try:
                                 from client import linux_routing
                                 linux_routing.apply_routes(
                                     [{"route": route} for route in advertised_routes],
-                                    current_tun_dev or "nebula1",
+                                    routes_tun_dev,
                                     debug_log=dns_debug_log,
                                 )
                                 last_advertised_routes = advertised_routes
+                                last_routes_tun_dev = routes_tun_dev
                             except Exception as e:
                                 if dns_debug_log:
                                     dns_debug_log(f"applying advertised routes failed: {e}")
@@ -1198,13 +1236,7 @@ def run_poll_loop(
                     # Only tun.dev is read from the node's own config here - its own
                     # advertised routes never appear in its own tun.unsafe_routes (see
                     # _fetch_advertised_routes above for why) and are fetched separately.
-                    try:
-                        import yaml
-                        parsed = yaml.safe_load(r.content) or {}
-                        current_tun_dev = (parsed.get("tun") or {}).get("dev") or current_tun_dev
-                    except Exception as e:
-                        if dns_debug_log:
-                            dns_debug_log(f"parsing tun.dev from config failed: {e}")
+                    current_tun_dev = _tun_dev_from_config(r.content) or current_tun_dev
                 # Windows bypass routes go in before Nebula starts so its first handshakes
                 # already use them; on Linux this installs the kill switch, and the call
                 # after the start adds the route once the device exists.
@@ -1238,7 +1270,7 @@ def run_poll_loop(
                                 dns_debug_log("applying split-horizon DNS...")
                             applied_dns_config.clear()
                             applied_dns_config.update(r_dns.json())
-                            ok = apply_split_horizon_dns(config_dict=applied_dns_config)
+                            ok = apply_split_horizon_dns(config_dict=applied_dns_config, tun_dev=current_tun_dev)
                             if dns_debug_log:
                                 dns_debug_log(f"apply_split_horizon_dns result={ok}")
                     elif r_dns.status_code == 404:
@@ -1251,7 +1283,7 @@ def run_poll_loop(
                                 pass
                         if accept_dns:
                             applied_dns_config.clear()
-                            remove_split_horizon_dns()
+                            remove_split_horizon_dns(current_tun_dev)
                     else:
                         if dns_debug_log:
                             dns_debug_log(f"dns-client-config unexpected status={r_dns.status_code} body={r_dns.text[:200]!r}")
@@ -1293,7 +1325,7 @@ def run_poll_loop(
         if accept_dns:
             if dns_debug_log:
                 dns_debug_log("removing split-horizon on exit")
-            remove_split_horizon_dns()
+            remove_split_horizon_dns(current_tun_dev)
 
 
 def cmd_run(

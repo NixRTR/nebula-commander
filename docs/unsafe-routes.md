@@ -118,9 +118,10 @@ of the amber warning under Advanced → Subnet Router & Exit Node Config):
 2. `ncclient` on the gateway polls `GET /api/device/advertised-routes` and, when its
    own advertised routes change, enables IP forwarding
    (`net.ipv4.ip_forward`, and `net.ipv6.conf.all.forwarding` if any route is IPv6)
-   and installs a dedicated `inet ncclient_routing` nftables table: forwarding
-   accept rules scoped to each advertised subnet, and a masquerade rule for the
-   exit-node case.
+   and installs its own nftables table, `inet ncclient_routing_<tun device>` with
+   `-` replaced by `_` (e.g. `ncclient_routing_nc_3f9a2c41b7`): forwarding accept
+   rules scoped to each advertised subnet, and a masquerade rule for the exit-node
+   case. A host running one ncclient per network gets one table per network.
 
 None of this needs the admin to touch the host directly. `nft` (nftables) must be
 installed on the gateway for step 2 to work - `ncclient` logs a warning and skips it
@@ -192,6 +193,9 @@ host. `ncclient` 0.7.2 and later handle this for you:
   ip route add default dev nebula1 table 52042
   ```
 
+  Use the node's `listen.port` in place of `4242` and its `tun.dev` in place of
+  `nebula1`. Both are in the downloaded config.
+
 If the host enforces strict reverse-path filtering in nftables (NixOS's
 `networking.firewall.checkReversePath = true`, the default), and exit-node traffic
 doesn't come back, set it to `"loose"`. A strict `rp_filter=1` sysctl has been tested
@@ -221,14 +225,20 @@ Linux-only. On such a gateway node you need to:
 3. **Allow forwarding and (for an exit node) NAT between the Nebula tun interface and
    your physical interface.** On Linux with nftables, this is exactly what
    [`client/linux_routing.py`](../client/linux_routing.py) does for `ncclient` - use
-   it as a reference. For a subnet route to `192.168.1.0/24` via tun device `nebula1`:
+   it as a reference. Each network has its own tun device, shown as **Interface
+   name** on the network's page and under `tun.dev` in the node's `config.yaml`.
+   Networks created before v0.8.0 keep `nebula1`. New networks get `nc-` plus 10
+   random hex characters, such as `nc-3f9a2c41b7`. An admin can change the part after
+   `nc-` on the network's page; every name except the legacy `nebula1` starts with
+   `nc-`. Nodes running ncclient older than v0.8.0 always use `nebula1`.
+   For a subnet route to `192.168.1.0/24` via tun device `nc-3f9a2c41b7`:
 
    ```
-   table inet ncclient_routing {
+   table inet ncclient_routing_nc_3f9a2c41b7 {
        chain forward {
            type filter hook forward priority filter; policy accept;
-           iifname "nebula1" ip daddr 192.168.1.0/24 accept
-           ip saddr 192.168.1.0/24 oifname "nebula1" accept
+           iifname "nc-3f9a2c41b7" ip daddr 192.168.1.0/24 accept
+           ip saddr 192.168.1.0/24 oifname "nc-3f9a2c41b7" accept
        }
    }
    ```
@@ -237,10 +247,10 @@ Linux-only. On such a gateway node you need to:
    your uplink interface (`eth0` below):
 
    ```
-   table inet ncclient_routing {
+   table inet ncclient_routing_nc_3f9a2c41b7 {
        chain postrouting {
            type nat hook postrouting priority srcnat; policy accept;
-           iifname "nebula1" oifname "eth0" masquerade
+           iifname "nc-3f9a2c41b7" oifname "eth0" masquerade
        }
    }
    ```

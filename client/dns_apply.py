@@ -45,6 +45,14 @@ RESOLV_MARKER = "# nebula-commander"
 LINUX_NM_DNSMASQ_CONF = "/etc/NetworkManager/dnsmasq.d/nebula-commander.conf"
 LINUX_NM_DNS_MODE_CONF = "/etc/NetworkManager/conf.d/90-nebula-commander-dns.conf"
 LINUX_NM_UNMANAGED_CONF = "/etc/NetworkManager/conf.d/91-nebula-commander-unmanaged.conf"
+# A host can run one ncclient per network, each on its own tun device, so the dnsmasq
+# files are per instance: nebula-commander-<tun_dev>.conf next to LINUX_DNSMASQ_CONF and
+# LINUX_NM_DNSMASQ_CONF (see _instance_conf). Those two unsuffixed paths are what ncclient
+# before 0.8.0 wrote; the instance on LEGACY_TUN_DEV removes them. The shared conf.d files
+# are never removed at runtime: LINUX_NM_UNMANAGED_CONF is static and only the package's
+# uninstall removes it, and LINUX_NM_DNS_MODE_CONF goes once no instance file is left.
+# /etc/resolv.conf has a single marker block, so that fallback backend is single-instance.
+LEGACY_TUN_DEV = "nebula1"
 
 # Mirrored in contrib/dns-apply-windows.ps1 - see contrib/check_dns_paths_sync.py.
 NRPT_RULE_NAME = "NebulaCommander"
@@ -55,6 +63,9 @@ NRPT_RULE_NAME = "NebulaCommander"
 # argv token) or gets written into a Linux resolver config file.
 _HOSTNAME_RE = re.compile(r"^[A-Za-z0-9.\-]+$")
 _IP_RE = re.compile(r"^[0-9A-Fa-f:.]+$")  # covers IPv4 and IPv6 literals
+# tun.dev also comes from the backend (the node's config) and is written into a
+# NetworkManager conf file - Linux interface-name shaped only.
+_TUN_DEV_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,15}$")
 
 
 def _is_safe_dns_value(value: str) -> bool:
@@ -102,11 +113,24 @@ def _elevation_message() -> str:
     )
 
 
-def apply_split_horizon_dns(config_path: str | None = None, config_dict: dict | None = None) -> bool:
+def _safe_tun_dev(tun_dev: str | None) -> str | None:
+    """tun_dev if it is interface-name shaped, else None (falls back to name matching)."""
+    if tun_dev and _TUN_DEV_RE.match(tun_dev) and tun_dev not in (".", ".."):
+        return tun_dev
+    return None
+
+
+def apply_split_horizon_dns(
+    config_path: str | None = None,
+    config_dict: dict | None = None,
+    tun_dev: str | None = None,
+) -> bool:
     """
     Apply split-horizon DNS from dns-client.json path or from a dict.
     config_path: path to dns-client.json (read and parsed).
     config_dict: optional {"domain": str, "dns_servers": list[str]} (overrides config_path if both set).
+    tun_dev: this node's Nebula tun device (its config's `tun.dev`). Without it, Linux falls
+    back to the first interface whose name contains "nebula".
     Returns True if applied, False if skipped (no config, no privilege, or error).
     """
     if not _can_apply():
@@ -139,22 +163,23 @@ def apply_split_horizon_dns(config_path: str | None = None, config_dict: dict | 
 
     if sys.platform == "win32":
         return _apply_windows(domain, servers)
-    return _apply_linux(domain, servers)
+    return _apply_linux(domain, servers, _safe_tun_dev(tun_dev))
 
 
-def remove_split_horizon_dns() -> bool:
+def remove_split_horizon_dns(tun_dev: str | None = None) -> bool:
     """
-    Remove split-horizon DNS (drop-in or NRPT rule).
+    Remove this instance's split-horizon DNS (per-instance files or NRPT rule). Other
+    ncclient instances on the host keep theirs.
     Returns True if removed or already absent, False if no privilege or error.
     """
     if not _can_apply():
         return False
     if sys.platform == "win32":
         return _remove_windows()
-    return _remove_linux()
+    return _remove_linux(_safe_tun_dev(tun_dev))
 
 
-def ensure_split_horizon_dns(config_dict: dict) -> bool:
+def ensure_split_horizon_dns(config_dict: dict, tun_dev: str | None = None) -> bool:
     """
     Re-check that split-horizon DNS from config_dict is still in effect and re-apply it if
     not (resolver restarted, nebula recreated its interface, an earlier apply failed because
@@ -168,12 +193,13 @@ def ensure_split_horizon_dns(config_dict: dict) -> bool:
         a
         and a["domain"] == (config_dict.get("domain") or "").strip()
         and a["servers"] == [s.strip() for s in (config_dict.get("dns_servers") or []) if isinstance(s, str) and s.strip()]
+        and a["tun_dev"] == _safe_tun_dev(tun_dev)
         and _linux_verify_applied()
     ):
         return True
     if a:
         print("Split-horizon DNS is no longer in effect; re-applying.", file=sys.stderr)
-    return apply_split_horizon_dns(config_dict=config_dict)
+    return apply_split_horizon_dns(config_dict=config_dict, tun_dev=tun_dev)
 
 
 def _run_systemctl(*args: str) -> bool:
@@ -318,8 +344,18 @@ def _linux_resolv_conf_fallback_ok() -> bool:
     return True
 
 
-def _linux_nebula_interface() -> str | None:
-    """Return Nebula interface name (e.g. nebula1) if found."""
+def _linux_is_tun(ifname: str) -> bool:
+    return os.path.exists(f"/sys/class/net/{ifname}/tun_flags")
+
+
+def _linux_nebula_interface(tun_dev: str | None = None) -> str | None:
+    """Return the Nebula interface name if it exists. With tun_dev (from the node's config),
+    only that device counts - another ncclient's nebula on the same host must not match -
+    and only if it is a tun device, so a config naming e.g. eth0 never gets DNS applied
+    to the uplink. Without it (config from an older server), the first interface whose
+    name contains "nebula"."""
+    if tun_dev:
+        return tun_dev if _linux_is_tun(tun_dev) else None
     r = _run(["ip", "-o", "link", "show"], timeout=5)
     if r is None or r.returncode != 0:
         return None
@@ -330,11 +366,11 @@ def _linux_nebula_interface() -> str | None:
     return None
 
 
-def _linux_wait_for_nebula_interface(timeout: float = 10.0) -> str | None:
+def _linux_wait_for_nebula_interface(tun_dev: str | None = None, timeout: float = 10.0) -> str | None:
     """Nebula may still be creating its tun device right after a (re)start - wait briefly."""
     deadline = time.monotonic() + timeout
     while True:
-        iface = _linux_nebula_interface()
+        iface = _linux_nebula_interface(tun_dev)
         if iface or time.monotonic() >= deadline:
             return iface
         time.sleep(0.5)
@@ -383,15 +419,17 @@ def _linux_nm_reload(what: str) -> bool:
 
 
 def _linux_nm_keep_off_nebula() -> None:
-    """Tell NetworkManager to leave the Nebula tun device alone. Nebula creates and owns it;
-    if NetworkManager ever takes it over (e.g. once its auto-generated "external" connection
-    is modified and saved as a real profile), it brings the link down and nebula starts
-    logging "Failed to write to tun: input/output error". Marking it unmanaged also stops
-    NetworkManager from overwriting the per-link DNS the resolved backend sets on it."""
+    """Tell NetworkManager to leave the Nebula tun devices alone. Nebula creates and owns
+    them; if NetworkManager ever takes one over (e.g. once its auto-generated "external"
+    connection is modified and saved as a real profile), it brings the link down and nebula
+    starts logging "Failed to write to tun: input/output error". Marking them unmanaged also
+    stops NetworkManager from overwriting the per-link DNS the resolved backend sets.
+    The content is the same for every instance (the server only hands out "nebula1" and
+    "nc-*" names), so instances never rewrite each other's file."""
     changed = _write_if_changed(
         LINUX_NM_UNMANAGED_CONF,
-        "# Written by ncclient (Nebula Commander): nebula owns its tun device.\n"
-        "[keyfile]\nunmanaged-devices=interface-name:nebula*\n",
+        "# Written by ncclient (Nebula Commander): nebula owns its tun devices.\n"
+        "[keyfile]\nunmanaged-devices=interface-name:nebula*;interface-name:nc-*\n",
     )
     if changed:
         _linux_nm_reload("conf")
@@ -447,10 +485,34 @@ def _linux_resolved_verify(iface: str, domain: str, dns_servers: list[str]) -> b
     return set(dns_servers) <= servers and f"~{domain}" in domains
 
 
-def _linux_resolved_remove() -> None:
-    iface = _linux_nebula_interface()
+def _linux_resolved_remove(tun_dev: str | None = None) -> None:
+    iface = _linux_nebula_interface(tun_dev)
     if iface:
         _run(["resolvectl", "revert", iface])
+
+
+def _instance_conf(legacy_path: str, tun_dev: str) -> str:
+    """This instance's file next to legacy_path: .../nebula-commander-<tun_dev>.conf."""
+    return os.path.join(os.path.dirname(legacy_path), f"nebula-commander-{tun_dev}.conf")
+
+
+def _instance_confs_left(legacy_path: str) -> bool:
+    """Whether any instance (or a pre-0.8.0 ncclient) still has a file next to legacy_path."""
+    try:
+        return any(
+            name.startswith("nebula-commander") and name.endswith(".conf")
+            for name in os.listdir(os.path.dirname(legacy_path))
+        )
+    except OSError:
+        return False
+
+
+def _file_has(path: str, content: str) -> bool:
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            return f.read() == content
+    except OSError:
+        return False
 
 
 def _nm_dnsmasq_content(domain: str, dns_servers: list[str]) -> str:
@@ -459,12 +521,15 @@ def _nm_dnsmasq_content(domain: str, dns_servers: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _linux_nm_dnsmasq_apply(domain: str, dns_servers: list[str]) -> bool:
+def _linux_nm_dnsmasq_apply(tun_dev: str, domain: str, dns_servers: list[str]) -> bool:
     """NetworkManager's dnsmasq plugin reads /etc/NetworkManager/dnsmasq.d/, so a server=
     line per Nebula DNS server routes just that domain to them. If NetworkManager isn't
-    already in dnsmasq mode, switch it with a conf.d drop-in (removed again on exit)."""
+    already in dnsmasq mode, switch it with a conf.d drop-in (removed again once no
+    instance's file is left)."""
     try:
-        conf_changed = _write_if_changed(LINUX_NM_DNSMASQ_CONF, _nm_dnsmasq_content(domain, dns_servers))
+        conf_changed = _write_if_changed(
+            _instance_conf(LINUX_NM_DNSMASQ_CONF, tun_dev), _nm_dnsmasq_content(domain, dns_servers)
+        )
     except OSError:
         return False
     if _linux_nm_dns_property("Mode") != "dnsmasq":
@@ -476,54 +541,68 @@ def _linux_nm_dnsmasq_apply(domain: str, dns_servers: list[str]) -> bool:
     elif conf_changed:
         _linux_nm_reload("dns-full")
     for _ in range(10):
-        if _linux_nm_dnsmasq_verify(domain, dns_servers):
+        if _linux_nm_dnsmasq_verify(tun_dev, domain, dns_servers):
             return True
         time.sleep(0.5)
     return False
 
 
-def _linux_nm_dnsmasq_verify(domain: str, dns_servers: list[str]) -> bool:
-    try:
-        with open(LINUX_NM_DNSMASQ_CONF, "r", encoding="utf-8") as f:
-            if f.read() != _nm_dnsmasq_content(domain, dns_servers):
-                return False
-    except OSError:
-        return False
-    return _linux_nm_dns_property("Mode") == "dnsmasq"
+def _linux_nm_dnsmasq_verify(tun_dev: str, domain: str, dns_servers: list[str]) -> bool:
+    return (
+        _file_has(_instance_conf(LINUX_NM_DNSMASQ_CONF, tun_dev), _nm_dnsmasq_content(domain, dns_servers))
+        and _linux_nm_dns_property("Mode") == "dnsmasq"
+    )
 
 
-def _linux_nm_dnsmasq_remove() -> None:
-    removed_conf = _remove_file(LINUX_NM_DNSMASQ_CONF)
-    removed_mode = _remove_file(LINUX_NM_DNS_MODE_CONF)
-    removed_unmanaged = _remove_file(LINUX_NM_UNMANAGED_CONF)
+def _linux_nm_dnsmasq_remove(tun_dev: str) -> None:
+    """Remove this instance's file, and the dnsmasq mode drop-in once no instance needs it.
+    Never LINUX_NM_UNMANAGED_CONF: reloading NetworkManager without it lets NetworkManager
+    take over the tun device of every other instance still running."""
+    removed_conf = _remove_file(_instance_conf(LINUX_NM_DNSMASQ_CONF, tun_dev))
+    if tun_dev == LEGACY_TUN_DEV:
+        removed_conf = _remove_file(LINUX_NM_DNSMASQ_CONF) or removed_conf
+    removed_mode = not _instance_confs_left(LINUX_NM_DNSMASQ_CONF) and _remove_file(LINUX_NM_DNS_MODE_CONF)
     if not _linux_networkmanager_available():
         return
-    if removed_mode or removed_unmanaged:
+    if removed_mode:
         _linux_nm_reload("conf")
     elif removed_conf:
         _linux_nm_reload("dns-full")
 
 
-def _linux_dnsmasq_apply(domain: str, dns_servers: list[str]) -> bool:
+def _dnsmasq_content(domain: str, dns_servers: list[str]) -> str:
+    lines = [f"# Split-horizon for Nebula Commander domain {domain}"]
+    lines += [f"server=/.{domain}/{ip}" for ip in dns_servers]
+    return "\n".join(lines) + "\n"
+
+
+def _linux_dnsmasq_restart() -> bool:
+    if _run_systemctl("restart", "dnsmasq"):
+        return True
+    r = _run(["service", "dnsmasq", "restart"], timeout=15)
+    return r is not None and r.returncode == 0
+
+
+def _linux_dnsmasq_apply(tun_dev: str, domain: str, dns_servers: list[str]) -> bool:
+    """Restarts dnsmasq only when this instance's file changed, so instances don't restart
+    it for each other on every poll."""
     try:
-        os.makedirs(os.path.dirname(LINUX_DNSMASQ_CONF), mode=0o755, exist_ok=True)
-        lines = [f"# Split-horizon for Nebula Commander domain {domain}"]
-        for ip in dns_servers:
-            lines.append(f"server=/.{domain}/{ip}")
-        with open(LINUX_DNSMASQ_CONF, "w", encoding="utf-8") as f:
-            f.write("\n".join(lines) + "\n")
-        if _run_systemctl("restart", "dnsmasq"):
-            return True
-        r = _run(["service", "dnsmasq", "restart"], timeout=15)
-        return r is not None and r.returncode == 0
+        changed = _write_if_changed(_instance_conf(LINUX_DNSMASQ_CONF, tun_dev), _dnsmasq_content(domain, dns_servers))
     except OSError:
         return False
+    return _linux_dnsmasq_restart() if changed else True
 
 
-def _linux_dnsmasq_remove() -> None:
-    if _remove_file(LINUX_DNSMASQ_CONF):
-        if not _run_systemctl("restart", "dnsmasq"):
-            _run(["service", "dnsmasq", "restart"], timeout=15)
+def _linux_dnsmasq_verify(tun_dev: str, domain: str, dns_servers: list[str]) -> bool:
+    return _file_has(_instance_conf(LINUX_DNSMASQ_CONF, tun_dev), _dnsmasq_content(domain, dns_servers))
+
+
+def _linux_dnsmasq_remove(tun_dev: str) -> None:
+    removed = _remove_file(_instance_conf(LINUX_DNSMASQ_CONF, tun_dev))
+    if tun_dev == LEGACY_TUN_DEV:
+        removed = _remove_file(LINUX_DNSMASQ_CONF) or removed
+    if removed:
+        _linux_dnsmasq_restart()
 
 
 def _linux_resolv_conf_apply(domain: str, dns_servers: list[str]) -> bool:
@@ -600,7 +679,13 @@ def _linux_remove_legacy_files() -> None:
 _linux_applied: "dict | None" = None
 
 
-def _apply_linux(domain: str, dns_servers: list[str]) -> bool:
+def _instance_tun_dev(tun_dev: str | None) -> str:
+    """The device that names this instance's files. Without a config yet (tun_dev None),
+    ncclient runs nebula on LEGACY_TUN_DEV, as ncclient before 0.8.0 always did."""
+    return tun_dev or LEGACY_TUN_DEV
+
+
+def _apply_linux(domain: str, dns_servers: list[str], tun_dev: str | None = None) -> bool:
     global _linux_applied
     _linux_applied = None
     _linux_remove_legacy_files()
@@ -608,6 +693,7 @@ def _apply_linux(domain: str, dns_servers: list[str]) -> bool:
     if nm_running:
         _linux_nm_keep_off_nebula()
         _linux_nm_remove_legacy_profiles()
+    instance = _instance_tun_dev(tun_dev)
 
     backend, reason = _linux_detect_backend()
     if backend is None:
@@ -617,26 +703,33 @@ def _apply_linux(domain: str, dns_servers: list[str]) -> bool:
     ok = False
     iface = None
     if backend == "resolved":
-        iface = _linux_wait_for_nebula_interface()
+        iface = _linux_wait_for_nebula_interface(tun_dev)
         if not iface:
             _report("Split-horizon DNS not applied yet: Nebula interface not found (will retry).")
             return False
         ok = _linux_resolved_apply(iface, domain, dns_servers)
     elif backend == "nm-dnsmasq":
-        ok = _linux_nm_dnsmasq_apply(domain, dns_servers)
+        ok = _linux_nm_dnsmasq_apply(instance, domain, dns_servers)
     elif backend == "dnsmasq":
-        ok = _linux_dnsmasq_apply(domain, dns_servers)
+        ok = _linux_dnsmasq_apply(instance, domain, dns_servers)
     elif backend == "resolv.conf":
         ok = _linux_resolv_conf_apply(domain, dns_servers)
 
     if not ok:
         _report(f"Failed to apply split-horizon DNS via {backend} ({reason}).")
         return False
-    _linux_applied = {"backend": backend, "iface": iface, "domain": domain, "servers": list(dns_servers)}
+    _linux_applied = {
+        "backend": backend,
+        "iface": iface,
+        "tun_dev": tun_dev,
+        "domain": domain,
+        "servers": list(dns_servers),
+    }
     if backend == "resolv.conf":
         _report(
-            "Split-horizon DNS applied via /etc/resolv.conf (limited; not true split-horizon). "
-            "Install systemd-resolved or dnsmasq for proper split-horizon DNS."
+            "Split-horizon DNS applied via /etc/resolv.conf (limited; not true split-horizon, and "
+            "only one ncclient per host can use it). Install systemd-resolved or dnsmasq for proper "
+            "split-horizon DNS."
         )
     else:
         _report(f"Split-horizon DNS applied via {backend} ({reason}).")
@@ -649,24 +742,24 @@ def _linux_verify_applied() -> bool:
         return False
     backend = a["backend"]
     if backend == "resolved":
-        iface = _linux_nebula_interface()
+        iface = _linux_nebula_interface(a["iface"])
         return iface == a["iface"] and _linux_resolved_verify(iface, a["domain"], a["servers"])
     if backend == "nm-dnsmasq":
-        return _linux_nm_dnsmasq_verify(a["domain"], a["servers"])
+        return _linux_nm_dnsmasq_verify(_instance_tun_dev(a["tun_dev"]), a["domain"], a["servers"])
     if backend == "dnsmasq":
-        return os.path.isfile(LINUX_DNSMASQ_CONF)
+        return _linux_dnsmasq_verify(_instance_tun_dev(a["tun_dev"]), a["domain"], a["servers"])
     if backend == "resolv.conf":
         return _linux_resolv_conf_verify()
     return False
 
 
-def _remove_linux() -> bool:
+def _remove_linux(tun_dev: str | None = None) -> bool:
     global _linux_applied
     _linux_applied = None
     _linux_remove_legacy_files()
-    _linux_resolved_remove()
-    _linux_nm_dnsmasq_remove()
-    _linux_dnsmasq_remove()
+    _linux_resolved_remove(tun_dev)
+    _linux_nm_dnsmasq_remove(_instance_tun_dev(tun_dev))
+    _linux_dnsmasq_remove(_instance_tun_dev(tun_dev))
     _linux_resolv_conf_remove()
     return True
 

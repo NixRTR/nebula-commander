@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Card, Button, TextInput, Label, Select } from "flowbite-react";
 import { HiPlus } from "react-icons/hi";
 import { useNavigate } from "react-router-dom";
+import { TUN_DEV_PREFIX, TUN_DEV_SUFFIX_MAX_LEN } from "../types/networks";
 import type { Network, NetworkCreate } from "../types/networks";
 import type { Node } from "../types/nodes";
 import { listNetworks, listNodes, createNetwork } from "../api/client";
@@ -19,6 +20,7 @@ export function Networks() {
     name: "",
     subnet_cidr: "10.100.0.0/24",
     cert_curve: "25519",
+    tun_dev: "",
   });
 
   const load = useCallback(() => {
@@ -39,9 +41,10 @@ export function Networks() {
 
   const onSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    createNetwork(form)
+    const suffix = form.tun_dev?.trim();
+    createNetwork({ ...form, tun_dev: suffix ? TUN_DEV_PREFIX + suffix : undefined })
       .then(() => {
-        setForm({ name: "", subnet_cidr: "10.100.0.0/24", cert_curve: "25519" });
+        setForm({ name: "", subnet_cidr: "10.100.0.0/24", cert_curve: "25519", tun_dev: "" });
         setShowForm(false);
         load();
       })
@@ -107,6 +110,24 @@ export function Networks() {
               </Select>
               <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
                 Applies to every node on this network. Cannot be changed after creation.
+              </p>
+            </div>
+            <div>
+              <Label htmlFor="tun_dev" value="Interface name (optional)" />
+              <TextInput
+                id="tun_dev"
+                type="text"
+                addon={TUN_DEV_PREFIX}
+                value={form.tun_dev ?? ""}
+                onChange={(e) => setForm((f) => ({ ...f, tun_dev: e.target.value }))}
+                placeholder="3f9a2c41b7"
+                maxLength={TUN_DEV_SUFFIX_MAX_LEN}
+                className="font-mono"
+              />
+              <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                The tun device name on every node: {TUN_DEV_PREFIX} and up to {TUN_DEV_SUFFIX_MAX_LEN} lowercase
+                letters, digits or -. Leave blank to generate 10 random characters. Each network needs its own, so a
+                host can join several.
               </p>
             </div>
             <Button type="submit" color="purple">

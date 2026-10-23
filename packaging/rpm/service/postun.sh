@@ -12,6 +12,31 @@ if [ "$1" = "0" ]; then
         systemctl disable --now ncclient-update.timer 2>/dev/null || true
     fi
     rm -rf /etc/systemd/system/ncclient-update.timer.d
+    # Split-horizon DNS (client/dns_apply.py). ncclient leaves its NetworkManager
+    # drop-ins in place while it runs: removing them at runtime would let
+    # NetworkManager take over the tun device of every other ncclient instance.
+    nm_changed=
+    for f in /etc/NetworkManager/conf.d/90-nebula-commander-dns.conf \
+             /etc/NetworkManager/conf.d/91-nebula-commander-unmanaged.conf \
+             /etc/NetworkManager/dnsmasq.d/nebula-commander*.conf; do
+        if [ -e "$f" ]; then
+            rm -f "$f"
+            nm_changed=1
+        fi
+    done
+    if [ -n "$nm_changed" ] && command -v nmcli >/dev/null 2>&1; then
+        nmcli general reload conf 2>/dev/null || true
+    fi
+    dnsmasq_changed=
+    for f in /etc/dnsmasq.d/nebula-commander*.conf; do
+        if [ -e "$f" ]; then
+            rm -f "$f"
+            dnsmasq_changed=1
+        fi
+    done
+    if [ -n "$dnsmasq_changed" ] && [ -d /run/systemd/system ]; then
+        systemctl try-restart dnsmasq 2>/dev/null || true
+    fi
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
         systemctl reload polkit 2>/dev/null || systemctl try-restart polkit 2>/dev/null || true

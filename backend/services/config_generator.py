@@ -4,6 +4,7 @@ Generate Nebula YAML config for a node from Node + Network + peer nodes.
 import ipaddress
 import logging
 import re
+import secrets
 from pathlib import Path
 from typing import Any, Optional
 
@@ -21,6 +22,26 @@ DEFAULT_PKI_CA = "/etc/nebula/ca.crt"
 DEFAULT_PKI_CERT = "/etc/nebula/host.crt"
 DEFAULT_PKI_KEY = "/etc/nebula/host.key"
 DEFAULT_LISTEN_PORT = 4242
+# Every network's tun device before devices were per-network. Networks that predate
+# Network.tun_dev keep it (the column's SQL default backfills them), so upgrading the
+# server renames nothing on existing nodes. ncclient before 0.8.0 always gets it too:
+# it finds its interface by a "nebula" substring.
+DEFAULT_TUN_DEV = "nebula1"
+# Every name other than DEFAULT_TUN_DEV starts with this, generated or admin-chosen, so
+# none can collide with an interface the OS, a container runtime or another VPN creates,
+# and ncclient can recognise its interfaces by name (NetworkManager keeps off "nc-*").
+TUN_DEV_PREFIX = "nc-"
+# Random hex characters after TUN_DEV_PREFIX in a generated name.
+TUN_DEV_HASH_LEN = 10
+# ncclient 0.8.0+ sends this feature in X-Ncclient-Features on GET /api/device/config.
+# Clients that don't get DEFAULT_TUN_DEV, whatever the network's device is.
+TUN_DEV_CLIENT_FEATURE = "tun-dev"
+# Linux IFNAMSIZ is 16 bytes including the NUL (dev_valid_name in net/core/dev.c).
+TUN_DEV_MAX_LEN = 15
+TUN_DEV_SUFFIX_MAX_LEN = TUN_DEV_MAX_LEN - len(TUN_DEV_PREFIX)
+# No "_" in the suffix: ncclient names its nft table after the device with "-" mapped to
+# "_", and without "_" in the suffix no two devices map to the same table.
+_TUN_DEV_RE = re.compile(rf"^{TUN_DEV_PREFIX}[a-z0-9-]{{1,{TUN_DEV_SUFFIX_MAX_LEN}}}$")
 
 
 async def get_dns_client_config(
@@ -273,9 +294,45 @@ def _collect_advertised_routes(node: Node, peer_nodes: list[Node]) -> list[dict[
     return entries
 
 
-def _default_tun(advertised_routes: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
+def generate_tun_dev(taken: set[str]) -> str:
+    """
+    Tun device name for a new network: TUN_DEV_PREFIX + TUN_DEV_HASH_LEN random hex
+    characters, e.g. "nc-3f9a2c41b7". Random rather than derived from the network:
+    names and ids repeat across servers, and a host enrolled with two servers would
+    get one device for both. Drawn again if another network in `taken` has it.
+    """
+    while True:
+        dev = TUN_DEV_PREFIX + secrets.token_hex(TUN_DEV_HASH_LEN // 2)
+        if dev not in taken:
+            return dev
+
+
+def validate_tun_dev(value: str) -> str:
+    """Validate an admin-entered tun device name; returns it stripped. Raises ValueError
+    with a user-facing message. DEFAULT_TUN_DEV isn't accepted: only networks that
+    predate per-network devices have it, and clients before 0.8.0 get it anyway."""
+    dev = value.strip()
+    if not _TUN_DEV_RE.match(dev):
+        raise ValueError(
+            f"Interface name must be {TUN_DEV_PREFIX} followed by 1-{TUN_DEV_SUFFIX_MAX_LEN} "
+            "lowercase letters, digits or '-'"
+        )
+    return dev
+
+
+def network_tun_dev(network: Network) -> str:
+    """The tun device a network's nodes use (DEFAULT_TUN_DEV for networks without one)."""
+    return network.tun_dev or DEFAULT_TUN_DEV
+
+
+def client_supports_tun_dev(features_header: Optional[str]) -> bool:
+    """Whether an X-Ncclient-Features header lists TUN_DEV_CLIENT_FEATURE."""
+    return TUN_DEV_CLIENT_FEATURE in {f.strip() for f in (features_header or "").split(",")}
+
+
+def _default_tun(dev: str, advertised_routes: Optional[list[dict[str, Any]]] = None) -> dict[str, Any]:
     tun: dict[str, Any] = {
-        "dev": "nebula1",
+        "dev": dev,
         "drop_local_broadcast": False,
         "drop_multicast": False,
         "tx_queue": 500,
@@ -474,6 +531,7 @@ def build_config(
     inline_pki: Optional[tuple[str, str, str]] = None,
     mobile_dns: Optional[dict[str, list[str]]] = None,
     blocklist: Optional[list[str]] = None,
+    per_network_tun_dev: bool = True,
 ) -> str:
     """
     Build Nebula YAML config for the given node.
@@ -484,6 +542,8 @@ def build_config(
     blocklist: fingerprints of certificates in this network that are revoked or
     superseded (services/revocation.py) - peers must reject them even though they're
     still within their validity period.
+    per_network_tun_dev: False for ncclient before 0.8.0, which gets DEFAULT_TUN_DEV
+    instead of the network's device (see TUN_DEV_CLIENT_FEATURE).
     """
     # Every peer with a (valid) public endpoint goes into static_host_map, not just
     # lighthouses and relays: a known address lets nodes reach each other directly
@@ -519,9 +579,12 @@ def build_config(
         "static_host_map": _default_static_host_map(hosts_with_endpoint) if hosts_with_endpoint else {},
         "lighthouse": _lighthouse_section(node, other_lighthouse_ips),
         "relay": _relay_section(node, other_relay_ips),
-        "listen": _default_listen(),
+        "listen": _default_listen(DEFAULT_LISTEN_PORT if node.listen_port is None else node.listen_port),
         "punchy": _punchy_section(node),
-        "tun": _default_tun(_collect_advertised_routes(node, peer_nodes)),
+        "tun": _default_tun(
+            network_tun_dev(network) if per_network_tun_dev else DEFAULT_TUN_DEV,
+            _collect_advertised_routes(node, peer_nodes),
+        ),
         "logging": _logging_section(node),
         "firewall": _firewall_section(network, node, group_firewalls, peer_nodes),
     }
@@ -544,12 +607,13 @@ async def generate_config_for_node(
     node_id: int,
     inline_pki: Optional[tuple[str, str, str]] = None,
     mobile_dns: Optional[dict[str, list[str]]] = None,
+    per_network_tun_dev: bool = True,
 ) -> Optional[str]:
     """
     Load node + network + peers and return generated YAML config, or None if node not found.
     inline_pki: optional (ca_pem, cert_pem, key_pem) to embed in config (no file paths).
     mobile_dns: optional {"dns_resolvers": [...], "match_domains": [...]} for mobile nodes;
-    see build_config().
+    see build_config(). per_network_tun_dev: see build_config().
     """
     result = await session.execute(
         select(Node).where(Node.id == node_id)
@@ -580,5 +644,5 @@ async def generate_config_for_node(
 
     return build_config(
         node, network, peer_nodes, group_firewalls, inline_pki=inline_pki, mobile_dns=mobile_dns,
-        blocklist=await active_blocklist(session, network.id),
+        blocklist=await active_blocklist(session, network.id), per_network_tun_dev=per_network_tun_dev,
     )

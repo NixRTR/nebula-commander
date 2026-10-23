@@ -58,6 +58,8 @@ export interface Node {
   is_lighthouse: boolean;
   is_relay: boolean;
   public_endpoint: string | null;
+  /** Nebula listen.port. 4242 unless changed; 0 = kernel-chosen (never on lighthouses/relays). */
+  listen_port: number;
   /** Nebula lighthouse.advertise_addrs ("ip:port"). Not sent to lighthouses' own config. */
   advertise_addrs: string[];
   lighthouse_options: LighthouseOptions | null;

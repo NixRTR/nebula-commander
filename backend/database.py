@@ -109,6 +109,7 @@ def _run_sqlite_migrations() -> None:
             ("available_subnets", "ALTER TABLE nodes ADD COLUMN available_subnets TEXT"),
             ("os_platform", "ALTER TABLE nodes ADD COLUMN os_platform VARCHAR(16)"),
             ("advertise_addrs", "ALTER TABLE nodes ADD COLUMN advertise_addrs TEXT"),
+            ("listen_port", "ALTER TABLE nodes ADD COLUMN listen_port INTEGER"),
             ("client_version", "ALTER TABLE nodes ADD COLUMN client_version VARCHAR(32)"),
             ("auto_update", "ALTER TABLE nodes ADD COLUMN auto_update VARCHAR(16)"),
             ("update_available", "ALTER TABLE nodes ADD COLUMN update_available VARCHAR(32)"),
@@ -129,6 +130,9 @@ def _run_sqlite_migrations() -> None:
             # from the ORM-level default/explicit value on INSERT instead of this SQL default.
             ("cert_version", "ALTER TABLE networks ADD COLUMN cert_version INTEGER DEFAULT 1"),
             ("cert_curve", "ALTER TABLE networks ADD COLUMN cert_curve VARCHAR(16) DEFAULT '25519'"),
+            # DEFAULT 'nebula1' backfills existing networks to the device every node already
+            # uses, so the upgrade renames nothing; new networks get a generated name instead.
+            ("tun_dev", "ALTER TABLE networks ADD COLUMN tun_dev VARCHAR(15) DEFAULT 'nebula1'"),
         ]:
             if col not in network_columns:
                 cur.execute(sql)

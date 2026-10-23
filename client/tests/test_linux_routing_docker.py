@@ -15,7 +15,7 @@ def test_docker_user_rules_for_exit_and_subnet():
         "nebula1",
         "eth0",
     )
-    tag = ["-m", "comment", "--comment", "ncclient", "-j", "ACCEPT"]
+    tag = ["-m", "comment", "--comment", "ncclient:nebula1", "-j", "ACCEPT"]
     assert rules == [
         ["-i", "nebula1", "-o", "eth0", *tag],
         ["-i", "eth0", "-o", "nebula1", "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", *tag],
@@ -42,23 +42,38 @@ class _FakeIptables:
         return subprocess.CompletedProcess(argv, 0, "", "")
 
 
-def test_rules_are_replaced_not_duplicated(monkeypatch):
-    existing = (
-        "-N DOCKER-USER\n"
-        "-A DOCKER-USER -i nebula1 -o eth0 -m comment --comment ncclient -j ACCEPT\n"
-        "-A DOCKER-USER -s 10.0.0.0/8 -j DROP\n"  # someone else's rule: untouched
-        "-A DOCKER-USER -j RETURN\n"
-    )
-    fake = _FakeIptables(existing)
+_EXISTING = (
+    "-N DOCKER-USER\n"
+    "-A DOCKER-USER -i nebula1 -o eth0 -m comment --comment ncclient -j ACCEPT\n"  # pre-0.8.0
+    "-A DOCKER-USER -i nebula1 -o eth0 -m comment --comment ncclient:nebula1 -j ACCEPT\n"
+    "-A DOCKER-USER -i nc-b -d 192.168.2.0/24 -m comment --comment ncclient:nc-b -j ACCEPT\n"
+    "-A DOCKER-USER -s 10.0.0.0/8 -j DROP\n"  # someone else's rule: untouched
+    "-A DOCKER-USER -j RETURN\n"
+)
+
+
+def _replace_rules(monkeypatch, tun_dev):
+    fake = _FakeIptables(_EXISTING)
     monkeypatch.setattr(lr.shutil, "which", lambda name: f"/usr/sbin/{name}")
     monkeypatch.setattr(lr.subprocess, "run", fake)
     monkeypatch.setattr(lr, "_default_route_iface", lambda: "eth0")
-    lr._apply_docker_user_rules([{"route": "0.0.0.0/0"}], "nebula1", None)
-    deletes = [c for c in fake.calls if c[1] == "-D"]
-    assert deletes == [["-w", "-D", "DOCKER-USER", "-i", "nebula1", "-o", "eth0", "-m", "comment",
-                        "--comment", "ncclient", "-j", "ACCEPT"]]
+    lr._apply_docker_user_rules([{"route": "0.0.0.0/0"}], tun_dev, None)
+    deletes = [c[c.index("--comment") + 1] for c in fake.calls if c[1] == "-D"]
     inserts = [c for c in fake.calls if c[1] == "-I"]
+    return deletes, inserts
+
+
+def test_rules_are_replaced_not_duplicated(monkeypatch):
+    deletes, inserts = _replace_rules(monkeypatch, "nebula1")
+    # The nebula1 instance also removes what ncclient before 0.8.0 left; never nc-b's rules.
+    assert deletes == ["ncclient", "ncclient:nebula1"]
     assert len(inserts) == 2
+
+
+def test_an_instance_only_replaces_its_own_rules(monkeypatch):
+    deletes, inserts = _replace_rules(monkeypatch, "nc-a")
+    assert deletes == []
+    assert len(inserts) == 2 and all("ncclient:nc-a" in c for c in inserts)
 
 
 def test_no_docker_chain_is_a_noop(monkeypatch):

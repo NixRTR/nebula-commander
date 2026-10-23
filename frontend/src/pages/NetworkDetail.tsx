@@ -3,9 +3,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Card, Table, Badge, Button, Modal, Label, Select, Checkbox, TextInput } from 'flowbite-react';
 import { HiArrowLeft, HiPlus, HiPencil, HiTrash, HiGlobe, HiChevronDown, HiChevronRight } from 'react-icons/hi';
 import { RequireNetworkOwner } from '../components/permissions/RequireNetworkOwner';
-import { apiClient, listNodes } from '../api/client';
+import { apiClient, listNodes, updateNetwork } from '../api/client';
 import { isNodeActive } from '../utils/nodeStatus';
 import type { Node } from '../types/nodes';
+import { TUN_DEV_PREFIX, TUN_DEV_SUFFIX_MAX_LEN } from '../types/networks';
 import { GroupAccessDiagram } from '../components/GroupAccessDiagram';
 import { startReauthFlow } from './ReauthComplete';
 
@@ -14,6 +15,7 @@ interface NetworkInfo {
   name: string;
   subnet_cidr: string;
   cert_curve: "25519" | "P256";
+  tun_dev: string;
   created_at: string;
   group_count: number;
 }
@@ -67,6 +69,26 @@ export const NetworkDetail: React.FC = () => {
     redirecting: boolean;
   }>({ open: false, typedName: "", redirecting: false });
   const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  // Interface name (tun_dev) suffix after TUN_DEV_PREFIX: null while not editing
+  const [tunDevDraft, setTunDevDraft] = useState<string | null>(null);
+  const [tunDevError, setTunDevError] = useState<string | null>(null);
+  const [tunDevSaving, setTunDevSaving] = useState(false);
+
+  const saveTunDev = async () => {
+    if (!networkId || tunDevDraft === null) return;
+    setTunDevSaving(true);
+    setTunDevError(null);
+    try {
+      const updated = await updateNetwork(Number(networkId), { tun_dev: TUN_DEV_PREFIX + tunDevDraft.trim() });
+      setNetwork((n) => (n ? { ...n, tun_dev: updated.tun_dev } : n));
+      setTunDevDraft(null);
+    } catch (e) {
+      setTunDevError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setTunDevSaving(false);
+    }
+  };
 
   const fetchData = useCallback(async () => {
     if (!networkId) return;
@@ -210,6 +232,53 @@ export const NetworkDetail: React.FC = () => {
                 <strong>{network.cert_curve === 'P256' ? 'P256' : 'Curve25519'}</strong> &middot; Created{' '}
                 {new Date(network.created_at).toLocaleDateString()}
               </p>
+            )}
+            {network && tunDevDraft === null && (
+              <p className="mt-1 flex items-center gap-2 text-gray-600 dark:text-gray-400">
+                Interface: <strong className="font-mono">{network.tun_dev}</strong>
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Legacy "nebula1" networks start blank: they can only move to an nc- name.
+                    setTunDevDraft(
+                      network.tun_dev.startsWith(TUN_DEV_PREFIX) ? network.tun_dev.slice(TUN_DEV_PREFIX.length) : ""
+                    );
+                    setTunDevError(null);
+                  }}
+                  className="text-purple-600 hover:underline dark:text-purple-400"
+                  aria-label="Edit interface name"
+                >
+                  <HiPencil className="h-4 w-4" />
+                </button>
+              </p>
+            )}
+            {network && tunDevDraft !== null && (
+              <div className="mt-2 max-w-md space-y-2">
+                <Label htmlFor="tun_dev" value="Interface name" />
+                <div className="flex gap-2">
+                  <TextInput
+                    id="tun_dev"
+                    addon={TUN_DEV_PREFIX}
+                    value={tunDevDraft}
+                    onChange={(e) => setTunDevDraft(e.target.value)}
+                    maxLength={TUN_DEV_SUFFIX_MAX_LEN}
+                    className="flex-1 font-mono"
+                  />
+                  <Button size="sm" color="purple" onClick={saveTunDev} disabled={tunDevSaving || !tunDevDraft.trim()}>
+                    Save
+                  </Button>
+                  <Button size="sm" color="gray" onClick={() => setTunDevDraft(null)} disabled={tunDevSaving}>
+                    Cancel
+                  </Button>
+                </div>
+                <p className="text-sm text-gray-500 dark:text-gray-400">
+                  Every node in this network restarts Nebula on the new device. Host firewall rules or scripts
+                  that match the old name stop applying. Up to {TUN_DEV_SUFFIX_MAX_LEN} lowercase letters, digits or
+                  -. Nodes running ncclient older than 0.8.0 always use nebula1.
+                  {network.tun_dev === "nebula1" && " Once moved to an nc- name, the network can't go back to nebula1."}
+                </p>
+                {tunDevError && <p className="text-sm text-red-600 dark:text-red-400">{tunDevError}</p>}
+              </div>
             )}
           </div>
           <Button color="failure" size="sm" onClick={() => setDeleteModal({ open: true, typedName: "", redirecting: false })}>
