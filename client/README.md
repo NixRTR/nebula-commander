@@ -60,6 +60,34 @@ Run it as the same user that will run the client: root on Linux (see [Linux setu
 
 This saves the device token to your OS credential store (e.g. Windows Credential Manager, macOS Keychain, Linux Secret Service), or to `~/.nebula/device-token` (mode 0600) when there's no usable one, which is the case for root, servers and SSH sessions. It also saves the server URL so you can run `ncclient run` without `--server` next time.
 
+## Several networks
+
+One device can be in several networks, each on its own Nebula Commander server if
+needed (for example your own network plus a customer's). Enroll once per network with
+that network's code; the running service picks a new network up within a few seconds:
+
+```bash
+sudo ncclient enroll --server https://nc.example.com --code XXXXXXXX       # first network
+sudo ncclient enroll --server https://nc.customer.example --code YYYYYYYY  # another one
+sudo ncclient networks list                                                # all of them, with state
+sudo ncclient networks remove customer                                     # leave one (name or id)
+```
+
+Each network runs its own Nebula on its own tun device (`nc-…`, set per network in
+Nebula Commander) and keeps its own token, config and DNS; the desktop apps show a
+**Networks** page with one entry per network. Things to know:
+
+- **One exit node per device.** Accepting an exit node in one network replaces one
+  in use in another network.
+- **Listen ports.** Two networks can't share a UDP port. If they ask for the same one,
+  the second network uses a port the OS picks, unless it's a lighthouse or relay
+  (which need a fixed port) - give one of them another listen port in Nebula Commander.
+- **Commands for one network** take `--network NAME` when there's more than one, e.g.
+  `ncclient routes --network customer list`.
+- Each network's files are in `<output dir>/networks/<id>/`. A device enrolled with an
+  older version is converted to this layout on the first start of 0.8.0; going back to
+  an older version afterwards needs a new enrollment.
+
 **Upgrading from an older version:** If you previously used a token file, you must re-enroll once after upgrading. You can then delete the old token file if it exists (`~/.config/nebula-commander/token` or `/etc/nebula-commander/token`).
 
 ## Run (daemon)
@@ -135,7 +163,9 @@ ncclient routes reject-exit-node
 Multiple subnet routes can be accepted at once as long as their CIDRs don't
 overlap - `accept` rejects a conflicting one with an explanation of which
 already-accepted route it clashes with. At most one exit node is accepted at a
-time. A change takes effect within one poll cycle, no restart needed.
+time, across all networks on the device. A change takes effect within one poll
+cycle, no restart needed. With several networks, add `--network NAME` (before the
+subcommand: `ncclient routes --network office list`).
 
 An accepted exit node carries all of this device's traffic. `ncclient` keeps
 Nebula's own UDP out of the tunnel (policy routing on Linux, binding Nebula to the

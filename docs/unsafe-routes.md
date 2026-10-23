@@ -170,6 +170,8 @@ host. `ncclient` 0.7.2 and later handle this for you:
   gateway, the lighthouses or the Nebula Commander server - goes through the exit
   node. When the uplink's address changes (DHCP, another Wi-Fi), `ncclient` rebinds
   and restarts Nebula on its next poll.
+- **One exit node per device.** A device in several networks (ncclient 0.8.0+) still
+  has one exit node; picking one in another network replaces it.
 - **Local network:** stays direct by default (printers, NAS, the router). With
   **Allow local network access** off (`routes exit-lan block`), only the Nebula
   overlays and DHCP renewals stay local; everything else, including a DNS resolver on
