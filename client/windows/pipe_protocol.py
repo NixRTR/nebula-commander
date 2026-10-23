@@ -43,10 +43,15 @@ CMD_GET_LATEST_NEBULA_TAG = "get_latest_nebula_tag"
 CMD_GET_UPDATE_STATUS = "get_update_status"
 # Overlay IP + lighthouse reachability (client/connectivity.py); takes a few seconds.
 CMD_GET_CONNECTIVITY = "get_connectivity"
+# Every enrolled network (0.8.0+: one service, several networks): id, name, server,
+# tun_dev, overlay_ip, status, exit_node. Per-network commands take an optional
+# "network" argument with one of these ids; without it they use the first network.
+CMD_LIST_NETWORKS = "list_networks"
 
 # --- MANAGE commands ---
 CMD_SET_SETTINGS = "set_settings"
 CMD_ENROLL = "enroll"
+CMD_REMOVE_NETWORK = "remove_network"
 CMD_ACCEPT_ROUTE = "accept_route"
 CMD_REJECT_ROUTE = "reject_route"
 CMD_ACCEPT_EXIT_NODE = "accept_exit_node"

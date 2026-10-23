@@ -108,24 +108,24 @@ def _h_enroll(output_dir: str, msg) -> "tuple[str, tuple]":
 
 def _h_accept_route(output_dir: str, msg) -> "tuple[str, tuple]":
     cidr, via = msg.body
-    service_api.accept_route(output_dir, cidr, via or None)
+    service_api.accept_route(output_dir, cidr, via or None, first_if_many=True)
     return "", ()
 
 
 def _h_reject_route(output_dir: str, msg) -> "tuple[str, tuple]":
     (cidr,) = msg.body
-    service_api.reject_route(output_dir, cidr)
+    service_api.reject_route(output_dir, cidr, first_if_many=True)
     return "", ()
 
 
 def _h_accept_exit_node(output_dir: str, msg) -> "tuple[str, tuple]":
     (via,) = msg.body
-    service_api.accept_exit_node(output_dir, via)
+    service_api.accept_exit_node(output_dir, via, first_if_many=True)
     return "", ()
 
 
 def _h_reject_exit_node(output_dir: str, msg) -> "tuple[str, tuple]":
-    service_api.reject_exit_node(output_dir)
+    service_api.reject_exit_node(output_dir, first_if_many=True)
     return "", ()
 
 
@@ -147,6 +147,76 @@ def _h_check_for_updates_now(output_dir: str, msg) -> "tuple[str, tuple]":
     return "s", (json.dumps(service_api.check_updates_now()),)
 
 
+# --- one network of several (0.8.0+): the first argument is the network's id ---------
+# The methods above without a network act on the first network, so an app from before
+# 0.8.0 (e.g. an older Flatpak) keeps working against this service.
+
+def _h_list_networks(output_dir: str, msg) -> "tuple[str, tuple]":
+    return "s", (json.dumps(service_api.list_networks(output_dir)),)
+
+
+def _h_enroll_network(output_dir: str, msg) -> "tuple[str, tuple]":
+    server, code = msg.body
+    return "s", (json.dumps(service_api.enroll_network(server, code)),)
+
+
+def _h_remove_network(output_dir: str, msg) -> "tuple[str, tuple]":
+    (network,) = msg.body
+    service_api.remove_network(output_dir, network)
+    return "", ()
+
+
+def _h_get_status_n(output_dir: str, msg) -> "tuple[str, tuple]":
+    (network,) = msg.body
+    status = service_api.get_status(output_dir, network, first_if_many=False)
+    return "sss", (status.get("state") or "", status.get("message") or "", status.get("updated_at") or "")
+
+
+def _h_get_available_routes_n(output_dir: str, msg) -> "tuple[str, tuple]":
+    (network,) = msg.body
+    return "s", (json.dumps(service_api.get_available_routes(output_dir, network, first_if_many=False)),)
+
+
+def _h_get_settings_n(output_dir: str, msg) -> "tuple[str, tuple]":
+    (network,) = msg.body
+    return "s", (json.dumps(service_api.get_settings(network)),)
+
+
+def _h_set_settings_n(output_dir: str, msg) -> "tuple[str, tuple]":
+    network, payload = msg.body
+    service_api.set_settings(json.loads(payload), network)
+    return "", ()
+
+
+def _h_accept_route_n(output_dir: str, msg) -> "tuple[str, tuple]":
+    network, cidr, via = msg.body
+    service_api.accept_route(output_dir, cidr, via or None, network)
+    return "", ()
+
+
+def _h_reject_route_n(output_dir: str, msg) -> "tuple[str, tuple]":
+    network, cidr = msg.body
+    service_api.reject_route(output_dir, cidr, network)
+    return "", ()
+
+
+def _h_accept_exit_node_n(output_dir: str, msg) -> "tuple[str, tuple]":
+    network, via = msg.body
+    service_api.accept_exit_node(output_dir, via, network)
+    return "", ()
+
+
+def _h_reject_exit_node_n(output_dir: str, msg) -> "tuple[str, tuple]":
+    (network,) = msg.body
+    service_api.reject_exit_node(output_dir, network)
+    return "", ()
+
+
+def _h_get_config_yaml_n(output_dir: str, msg) -> "tuple[str, tuple]":
+    (network,) = msg.body
+    return "s", (service_api.get_config_yaml(output_dir, network, first_if_many=False),)
+
+
 _ADMIN_REQUIRED = (
     "Administrator required - only members of the sudo or wheel group can change "
     "Nebula Commander settings, enrollment, routes or the service."
@@ -154,7 +224,11 @@ _ADMIN_REQUIRED = (
 
 # member name -> (handler, required polkit action)
 # Changes the poll loop (same process) should apply right away, not on its next poll.
-_APPLY_NOW = frozenset({"SetSettings", "AcceptRoute", "RejectRoute", "AcceptExitNode", "RejectExitNode"})
+_APPLY_NOW = frozenset({
+    "SetSettings", "AcceptRoute", "RejectRoute", "AcceptExitNode", "RejectExitNode",
+    "SetSettingsForNetwork", "AcceptRouteForNetwork", "RejectRouteForNetwork", "AcceptExitNodeForNetwork",
+    "RejectExitNodeForNetwork", "EnrollNetwork", "RemoveNetwork", "Enroll",
+})
 
 _METHODS = {
     "GetStatus": (_h_get_status, ACTION_READ),
@@ -171,6 +245,18 @@ _METHODS = {
     "GetUpdateStatus": (_h_get_update_status, ACTION_READ),
     "SetAutoUpdate": (_h_set_auto_update, ACTION_MANAGE),
     "CheckForUpdatesNow": (_h_check_for_updates_now, ACTION_MANAGE),
+    "ListNetworks": (_h_list_networks, ACTION_READ),
+    "EnrollNetwork": (_h_enroll_network, ACTION_MANAGE),
+    "RemoveNetwork": (_h_remove_network, ACTION_MANAGE),
+    "GetStatusForNetwork": (_h_get_status_n, ACTION_READ),
+    "GetAvailableRoutesForNetwork": (_h_get_available_routes_n, ACTION_READ),
+    "GetSettingsForNetwork": (_h_get_settings_n, ACTION_READ),
+    "SetSettingsForNetwork": (_h_set_settings_n, ACTION_MANAGE),
+    "AcceptRouteForNetwork": (_h_accept_route_n, ACTION_MANAGE),
+    "RejectRouteForNetwork": (_h_reject_route_n, ACTION_MANAGE),
+    "AcceptExitNodeForNetwork": (_h_accept_exit_node_n, ACTION_MANAGE),
+    "RejectExitNodeForNetwork": (_h_reject_exit_node_n, ACTION_MANAGE),
+    "GetConfigYamlForNetwork": (_h_get_config_yaml_n, ACTION_READ),
 }
 
 

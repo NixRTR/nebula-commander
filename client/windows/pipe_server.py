@@ -82,23 +82,36 @@ class ServiceHooks:
 def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], Any], str]]":
     out_dir = shared_root()
 
-    def get_status(_a):
-        return load_status()
+    # Every per-network command takes an optional "network" (an id from list_networks).
+    # Without it the first network is used, which is what an app from before 0.8.0 means.
+    def _net(a) -> "str | None":
+        return _arg(a, "network", str, required=False)
 
-    def get_settings(_a):
-        s = service_api.get_settings()
+    def _first(a) -> bool:
+        return _net(a) is None
+
+    def get_status(a):
+        if _net(a) is None:
+            return load_status()  # the whole service (all networks), as before
+        return service_api.get_status(out_dir, _net(a), first_if_many=False)
+
+    def get_settings(a):
+        s = service_api.get_settings(_net(a))
         return {k: s.get(k) for k in (
             "server", "interval", "accept_dns", "node_id", "accepted_subnet_routes", "accepted_exit_node",
-            "exit_allow_lan",
+            "exit_allow_lan", "host_exit_active",
         )}
 
     def is_enrolled(_a):
         enrolled, server = service_api.is_enrolled()
         return {"enrolled": enrolled, "server": server}
 
-    def get_dns_configured(_a):
+    def get_dns_configured(a):
         import os
-        return os.path.isfile(os.path.join(out_dir, "dns-client.json"))
+        try:
+            return os.path.isfile(os.path.join(service_api.network_dir(out_dir, _net(a), _first(a)), "dns-client.json"))
+        except service_api.ServiceApiError:
+            return False
 
     def set_settings(a):
         partial = {}
@@ -110,39 +123,52 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
             partial["accept_dns"] = _arg(a, "accept_dns", bool)
         if "exit_allow_lan" in a:
             partial["exit_allow_lan"] = _arg(a, "exit_allow_lan", bool)
-        service_api.set_settings(partial)
-        hooks.restart_poll()
+        service_api.set_settings(partial, _net(a))
+        hooks.restart_poll()  # interval/accept_dns are read when the loops start
         return None
 
     def enroll(a):
-        node_id = service_api.enroll(_arg(a, "server", str), _arg(a, "code", str))
-        hooks.restart_poll()
-        return {"node_id": node_id}
+        # The supervisor starts the new network within a couple of seconds.
+        e = service_api.enroll_network(_arg(a, "server", str), _arg(a, "code", str))
+        service_api.request_poll_now()
+        return {"node_id": e["node_id"], "network": e["id"], "name": e["name"]}
 
+    def remove_network(a):
+        service_api.remove_network(out_dir, _arg(a, "network", str))
+        return None
+
+    # Route choices are re-read by each network's loop; a poll-now applies them without
+    # restarting every network's Nebula.
     def accept_route(a):
-        cidr, via = service_api.accept_route(out_dir, _arg(a, "cidr", str), _arg(a, "via", str, required=False))
-        hooks.restart_poll()
+        cidr, via = service_api.accept_route(
+            out_dir, _arg(a, "cidr", str), _arg(a, "via", str, required=False), _net(a), first_if_many=_first(a)
+        )
+        service_api.request_poll_now()
         return {"cidr": cidr, "via": via}
 
     def reject_route(a):
-        service_api.reject_route(out_dir, _arg(a, "cidr", str))
-        hooks.restart_poll()
+        service_api.reject_route(out_dir, _arg(a, "cidr", str), _net(a), first_if_many=_first(a))
+        service_api.request_poll_now()
         return None
 
     def accept_exit_node(a):
-        service_api.accept_exit_node(out_dir, _arg(a, "via", str))
-        hooks.restart_poll()
+        service_api.accept_exit_node(out_dir, _arg(a, "via", str), _net(a), first_if_many=_first(a))
+        service_api.request_poll_now()
         return None
 
-    def reject_exit_node(_a):
-        service_api.reject_exit_node(out_dir)
-        hooks.restart_poll()
+    def reject_exit_node(a):
+        service_api.reject_exit_node(out_dir, _net(a), first_if_many=_first(a))
+        service_api.request_poll_now()
         return None
 
     def update_nebula(a):
         return {"tag": hooks.update_nebula(_arg(a, "tag", str, required=False))}
 
     def poll_now(_a):
+        service_api.request_poll_now()
+        return None
+
+    def reload_settings(_a):
         hooks.restart_poll()
         return None
 
@@ -165,23 +191,27 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         proto.CMD_GET_STATUS: (get_status, READ),
         proto.CMD_GET_SETTINGS: (get_settings, READ),
         proto.CMD_IS_ENROLLED: (is_enrolled, READ),
-        proto.CMD_GET_AVAILABLE_ROUTES: (lambda _a: service_api.get_available_routes(out_dir), READ),
-        proto.CMD_GET_ADVERTISED_ROUTES: (lambda _a: service_api.get_advertised_routes(), READ),
-        proto.CMD_GET_CONFIG_YAML: (lambda _a: service_api.get_config_yaml(out_dir), READ),
+        proto.CMD_GET_AVAILABLE_ROUTES: (lambda a: service_api.get_available_routes(out_dir, _net(a), _first(a)), READ),
+        proto.CMD_GET_ADVERTISED_ROUTES: (lambda a: service_api.get_advertised_routes(_net(a), _first(a)), READ),
+        proto.CMD_GET_CONFIG_YAML: (lambda a: service_api.get_config_yaml(out_dir, _net(a), _first(a)), READ),
+        proto.CMD_LIST_NETWORKS: (lambda _a: service_api.list_networks(out_dir), READ),
         proto.CMD_GET_DNS_CONFIGURED: (get_dns_configured, READ),
         proto.CMD_GET_NEBULA_VERSION: (lambda _a: nebula_install.installed_version(), READ),
         proto.CMD_GET_LATEST_NEBULA_TAG: (lambda _a: nebula_install.latest_tag(), READ),
         proto.CMD_GET_UPDATE_STATUS: (lambda _a: service_api.get_update_status(), READ),
-        proto.CMD_GET_CONNECTIVITY: (lambda _a: connectivity.get_connectivity(out_dir), READ),
+        proto.CMD_GET_CONNECTIVITY: (
+            lambda a: connectivity.get_connectivity(service_api.network_dir(out_dir, _net(a), _first(a))), READ
+        ),
         proto.CMD_SET_SETTINGS: (set_settings, MANAGE),
         proto.CMD_ENROLL: (enroll, MANAGE),
+        proto.CMD_REMOVE_NETWORK: (remove_network, MANAGE),
         proto.CMD_ACCEPT_ROUTE: (accept_route, MANAGE),
         proto.CMD_REJECT_ROUTE: (reject_route, MANAGE),
         proto.CMD_ACCEPT_EXIT_NODE: (accept_exit_node, MANAGE),
         proto.CMD_REJECT_EXIT_NODE: (reject_exit_node, MANAGE),
         proto.CMD_UPDATE_NEBULA: (update_nebula, MANAGE),
         proto.CMD_POLL_NOW: (poll_now, MANAGE),
-        proto.CMD_RELOAD_SETTINGS: (poll_now, MANAGE),
+        proto.CMD_RELOAD_SETTINGS: (reload_settings, MANAGE),
         proto.CMD_SET_AUTO_UPDATE: (set_auto_update, MANAGE),
         proto.CMD_UPDATE_CHECK_NOW: (update_check_now, MANAGE),
     }
