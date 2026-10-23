@@ -8,6 +8,7 @@ import logging
 import secrets
 import zipfile
 from datetime import datetime, timedelta
+from typing import Optional
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -111,6 +112,8 @@ class EnrollResponse(BaseModel):
     device_token: str
     node_id: int
     hostname: str
+    # Shown by ncclient 0.8.0+ to tell enrolled networks apart (one client, many networks).
+    network_name: Optional[str] = None
 
 
 @router.post("/enroll", response_model=EnrollResponse)
@@ -184,10 +187,12 @@ async def enroll(
     node.device_token_version = (node.device_token_version or 1) + 1
     await session.flush()
     device_token = create_device_token(node.id, node.device_token_version)
+    network = await session.get(Network, node.network_id)
     return EnrollResponse(
         device_token=device_token,
         node_id=node.id,
         hostname=node.hostname,
+        network_name=network.name if network else None,
     )
 
 

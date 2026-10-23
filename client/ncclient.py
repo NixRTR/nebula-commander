@@ -113,16 +113,64 @@ def _detect_os_platform() -> str:
     return sys.platform
 
 
-def cmd_enroll(server: str, code: str) -> None:
-    from client.service_api import EnrollError, enroll
+def cmd_enroll(server: str, code: str, output_dir: str | None = None) -> None:
+    """Enroll in a network (another one, if this device is already enrolled somewhere)."""
+    from client.config import migrate_to_enrollments
+    from client.service_api import EnrollError, enroll_network
 
     try:
-        enroll(server, code)
-    except EnrollError as e:
+        migrate_to_enrollments(output_dir or _default_output_dir())
+    except Exception as e:
+        print(f"Converting the existing settings failed: {e}", file=sys.stderr)
+    try:
+        e = enroll_network(server, code)
+    except EnrollError as err:
+        print(err.message, file=sys.stderr)
+        sys.exit(1)
+    label = e["name"] or f"node {e['node_id']}"
+    print(f"Enrolled in network {label} (id {e['id']}). Token saved.")
+    _notify_service_poll_now()
+    print("A running ncclient service picks it up on its own; otherwise run: ncclient run")
+
+
+def _resolve_network_or_exit(network: str | None) -> dict:
+    from client.service_api import ServiceApiError, resolve_network
+
+    try:
+        return resolve_network(network)
+    except ServiceApiError as e:
+        print(e.message + (" Use --network <name or id> (see 'ncclient networks list')." if network is None else ""),
+              file=sys.stderr)
+        sys.exit(1)
+
+
+def cmd_networks_list(output_dir: str) -> None:
+    from client.config import migrate_to_enrollments
+    from client.service_api import list_networks
+
+    migrate_to_enrollments(output_dir)
+    networks = list_networks(output_dir)
+    if not networks:
+        print("Not enrolled in any network. Enroll with: ncclient enroll --server URL --code CODE")
+        return
+    print(f"{'ID':<10} {'NAME':<20} {'DEVICE':<15} {'OVERLAY IP':<16} {'STATE':<10} SERVER")
+    for n in networks:
+        state = (n.get("status") or {}).get("state") or "unknown"
+        exit_note = f"  (exit node {n['exit_node']})" if n.get("exit_node") else ""
+        print(f"{n['id']:<10} {(n['name'] or '-'):<20} {(n['tun_dev'] or '-'):<15} {(n['overlay_ip'] or '-'):<16} "
+              f"{state:<10} {n['server']}{exit_note}")
+
+
+def cmd_networks_remove(output_dir: str, network: str) -> None:
+    from client.service_api import ServiceApiError, remove_network
+
+    try:
+        removed = remove_network(output_dir, network)
+    except ServiceApiError as e:
         print(e.message, file=sys.stderr)
         sys.exit(1)
-    print("Enrolled. Token saved.")
-    print("Run: ncclient run")
+    _notify_service_poll_now()
+    print(f"Removed network {removed}. A running ncclient service stops it and deletes its files.")
 
 
 def _config_path(output_dir: str) -> str:
@@ -272,13 +320,16 @@ def _route_selection_fingerprint(
     accepted_subnet_routes: list[dict] | None,
     accepted_exit_node: dict | None,
     exit_allow_lan: bool = True,
+    host_exit_active: bool = False,
 ):
     """Hashable snapshot of the current local route selection, used by
     run_poll_loop to notice a purely local accept/reject change (nothing
-    server-side changed) and force a refetch+reapply."""
+    server-side changed) and force a refetch+reapply. host_exit_active: another
+    network on this host took or released the exit node (Windows binds every
+    Nebula to the uplink while one is in use)."""
     subnet_key = tuple(sorted((r.get("route"), r.get("via")) for r in (accepted_subnet_routes or [])))
     exit_key = (accepted_exit_node or {}).get("via")
-    return (subnet_key, exit_key, bool(exit_allow_lan))
+    return (subnet_key, exit_key, bool(exit_allow_lan), bool(host_exit_active))
 
 
 def _write_available_routes(path: str, routes: list[dict]) -> None:
@@ -861,28 +912,52 @@ def run_poll_loop(
     status_callback: Callable[[str, str], None] | None = None,
     accept_dns: bool = False,
     dns_debug_log: Callable[[str], None] | None = None,
+    enrollment_id: str | None = None,
+    manage_host: bool = True,
+    config_filter: "Callable[[bytes], bytes] | None" = None,
 ) -> None:
     """
     Poll for config/certs and optionally run Nebula. Exits when stop_event is set.
+    enrollment_id: which enrolled network this loop runs (client/config.py) - its token
+    and settings view; output_dir is then that network's own directory. None: the
+    pre-0.8.0 single-network settings and token.
+    manage_host: whether this loop also does host-wide clean-up at start (Windows: stop
+    a nebula.exe left by a previous instance). The supervisor running several loops does
+    that once itself and passes False.
+    config_filter: a last local rewrite of config.yaml before it's written (the
+    supervisor moves a network off a listen port another network already uses).
     status_callback(status, message) is called with "idle", "connected", or "error".
     When accept_dns is True, fetch dns-client-config, write dns-client.json, and apply
     split-horizon DNS (systemd-resolved / NRPT); remove on exit and on start.
     When dns_debug_log is provided, it is called with DNS-related debug messages
     for troubleshooting.
     """
-    from client.token_store import get_token
-    from client.config import load_settings
+    from client import token_store
+    from client.config import enrollment_view, load_settings as _load_all_settings
     from client.dns_apply import apply_split_horizon_dns, ensure_split_horizon_dns, remove_split_horizon_dns
     from client import exit_routing
 
+    def get_token() -> "str | None":
+        return token_store.get_token(enrollment_id) if enrollment_id else token_store.get_token()
+
+    def load_settings() -> dict:
+        settings = _load_all_settings()
+        return enrollment_view(settings, enrollment_id) if enrollment_id else settings
+
+    def _host_exit_active() -> bool:
+        """Some network on this host routes all traffic through an exit node: on Windows
+        every Nebula must then be bound to the uplink, not just that network's."""
+        return bool(load_settings().get("host_exit_active"))
+
     base = _server_url(server)
 
-    def _sleep() -> None:
-        from client.service_api import take_poll_now
+    from client.service_api import poll_now_generation, take_poll_now
+    poll_now_seen = [poll_now_generation()]  # this loop's own view (several networks, one process)
 
+    def _sleep() -> None:
         elapsed = 0
         while elapsed < interval and not stop_event.is_set():
-            if take_poll_now():  # a change from the desktop app (D-Bus) applies now
+            if take_poll_now(poll_now_seen):  # a change from an app (D-Bus/pipe) applies now
                 return
             stop_event.wait(timeout=1)
             elapsed += 1
@@ -961,12 +1036,19 @@ def run_poll_loop(
     exit_routing.remove(output_dir, dns_debug_log)
     # Windows: a nebula.exe left running by a previous instance (an MSI upgrade can stop
     # the service without its child) keeps the tunnel device and runs a stale config.
-    if sys.platform == "win32" and nebula_bin:
+    if sys.platform == "win32" and nebula_bin and manage_host:
         _stop_nebula(None)
     # The dns-client-config last applied, so unchanged polls can re-check it's still in effect.
     applied_dns_config: dict = {}
     exit_allow_lan = True
     exit_routing_failed = False
+
+    def _final_config(config_bytes: bytes) -> bytes:
+        """What goes into config.yaml after route filtering: the supervisor's rewrite
+        (listen-port clashes), then Windows' uplink binding."""
+        if config_filter is not None:
+            config_bytes = config_filter(config_bytes)
+        return exit_routing.bind_to_uplink(config_bytes, dns_debug_log, force=_host_exit_active())
 
     def _ensure_dns() -> None:
         if accept_dns and applied_dns_config:
@@ -987,9 +1069,7 @@ def run_poll_loop(
         except OSError:
             return
         try:
-            updated = exit_routing.bind_to_uplink(
-                filter_accepted_routes(current, accepted_subnet_routes, accepted_exit_node), dns_debug_log
-            )
+            updated = _final_config(filter_accepted_routes(current, accepted_subnet_routes, accepted_exit_node))
         except Exception as e:  # a damaged config.yaml must not stop the loop from starting
             if dns_debug_log:
                 dns_debug_log(f"re-filtering config.yaml failed: {e}")
@@ -1032,7 +1112,7 @@ def run_poll_loop(
         # Windows: Nebula is bound to the uplink's address while an exit node is in use
         # (exit_routing.bind_to_uplink). A new address (DHCP, another Wi-Fi) needs the
         # config rewritten and Nebula restarted, or its own UDP follows the exit route.
-        rebound = exit_routing.bind_to_uplink(config_bytes, _exit_log)
+        rebound = exit_routing.bind_to_uplink(config_bytes, _exit_log, force=_host_exit_active())
         if rebound != config_bytes:
             try:
                 with open(_config_path(output_dir), "wb") as f:
@@ -1143,7 +1223,8 @@ def run_poll_loop(
                 accepted_exit_node = current_settings.get("accepted_exit_node")
                 exit_allow_lan = current_settings.get("exit_allow_lan", True) is not False
                 route_selection_fingerprint = _route_selection_fingerprint(
-                    accepted_subnet_routes, accepted_exit_node, exit_allow_lan
+                    accepted_subnet_routes, accepted_exit_node, exit_allow_lan,
+                    bool(current_settings.get("host_exit_active")),
                 )
                 if route_selection_fingerprint != last_route_selection_fingerprint:
                     # Also on the first pass: the Windows app's reject restarts this whole
@@ -1246,9 +1327,7 @@ def run_poll_loop(
 
                 config_path = _config_path(output_dir)
                 with open(config_path, "wb") as f:
-                    f.write(exit_routing.bind_to_uplink(
-                        filter_accepted_routes(r.content, accepted_subnet_routes, accepted_exit_node), dns_debug_log
-                    ))
+                    f.write(_final_config(filter_accepted_routes(r.content, accepted_subnet_routes, accepted_exit_node)))
                 if not status_callback:
                     print(f"Wrote {config_path}")
                 if status_callback:
@@ -1420,16 +1499,21 @@ def cmd_run(
             print(f"[warn] Auto-update timer check failed: {e}", file=sys.stderr, flush=True)
 
     try:
-        run_poll_loop(
-            server,
+        # One poll loop per enrolled network (client/supervisor.py); `server` is only the
+        # fallback for a network enrolled before servers were stored per network.
+        from client.supervisor import Supervisor
+
+        Supervisor(
             output_dir,
             interval,
             nebula_bin,
             restart_service,
-            stop_event=stop_event,
-            status_callback=_log_callback,
+            stop_event,
             accept_dns=accept_dns,
-        )
+            status_callback=_log_callback,
+            default_server=server,
+            log=lambda m: print(f"[info] {m}", flush=True),
+        ).run()
     except KeyboardInterrupt:
         print("\nStopped.")
         stop_event.set()
@@ -1452,12 +1536,12 @@ def _notify_service_poll_now() -> None:
         pass
 
 
-def cmd_routes_list(output_dir: str) -> None:
-    from client.config import load_settings
-    from client.service_api import get_available_routes
+def cmd_routes_list(output_dir: str, network: str | None = None) -> None:
+    from client.service_api import get_available_routes, get_settings
 
-    available = get_available_routes(output_dir)
-    settings = load_settings()
+    e = _resolve_network_or_exit(network)
+    available = get_available_routes(output_dir, e["id"])
+    settings = get_settings(e["id"])
     accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
     accepted_exit_node = settings.get("accepted_exit_node")
     accepted_subnet_keys = {(r.get("route"), r.get("via")) for r in accepted_subnet_routes}
@@ -1478,11 +1562,12 @@ def cmd_routes_list(output_dir: str) -> None:
         print(f"\nLocal network while using an exit node: {'direct (allowed)' if allow_lan else 'through the exit node (blocked)'}")
 
 
-def cmd_routes_accept(output_dir: str, cidr: str, via: str | None) -> None:
+def cmd_routes_accept(output_dir: str, cidr: str, via: str | None, network: str | None = None) -> None:
     from client.service_api import RouteError, accept_route
 
+    e = _resolve_network_or_exit(network)
     try:
-        accepted_cidr, accepted_via = accept_route(output_dir, cidr, via)
+        accepted_cidr, accepted_via = accept_route(output_dir, cidr, via, e["id"])
     except RouteError as e:
         print(e.message, file=sys.stderr)
         sys.exit(1)
@@ -1490,11 +1575,12 @@ def cmd_routes_accept(output_dir: str, cidr: str, via: str | None) -> None:
     print(f"Accepted {accepted_cidr} via {accepted_via}.")
 
 
-def cmd_routes_reject(output_dir: str, cidr: str) -> None:
+def cmd_routes_reject(output_dir: str, cidr: str, network: str | None = None) -> None:
     from client.service_api import RouteError, reject_route
 
+    e = _resolve_network_or_exit(network)
     try:
-        reject_route(output_dir, cidr)
+        reject_route(output_dir, cidr, e["id"])
     except RouteError as e:
         print(e.message, file=sys.stderr)
         sys.exit(1)
@@ -1502,11 +1588,13 @@ def cmd_routes_reject(output_dir: str, cidr: str) -> None:
     print(f"Rejected {cidr}.")
 
 
-def cmd_routes_accept_exit_node(output_dir: str, via: str, block_lan: bool = False) -> None:
+def cmd_routes_accept_exit_node(output_dir: str, via: str, block_lan: bool = False, network: str | None = None) -> None:
+    """A host has one exit node: accepting one replaces any other network's."""
     from client.service_api import RouteError, accept_exit_node, set_settings
 
+    e = _resolve_network_or_exit(network)
     try:
-        accept_exit_node(output_dir, via)
+        accept_exit_node(output_dir, via, e["id"])
     except RouteError as e:
         print(e.message, file=sys.stderr)
         sys.exit(1)
@@ -1528,11 +1616,12 @@ def cmd_routes_exit_lan(allow: bool) -> None:
     )
 
 
-def cmd_routes_reject_exit_node(output_dir: str) -> None:
+def cmd_routes_reject_exit_node(output_dir: str, network: str | None = None) -> None:
+    """Stop using the host's exit node (whichever network it's in, unless --network)."""
     from client.service_api import RouteError, reject_exit_node
 
     try:
-        reject_exit_node(output_dir)
+        reject_exit_node(output_dir, network, first_if_many=network is None)
     except RouteError as e:
         print(e.message, file=sys.stderr)
         sys.exit(1)
@@ -1643,7 +1732,7 @@ def _apply_linux_service_defaults(cmd: str) -> None:
     as root, only when the service's state dir exists, and never overriding
     anything already set (the systemd unit and the NixOS wrapper set these
     explicitly - NixOS's output dir is a subdirectory, for example)."""
-    if cmd not in ("enroll", "routes", "auto-update") or not sys.platform.startswith("linux"):
+    if cmd not in ("enroll", "routes", "networks", "auto-update") or not sys.platform.startswith("linux"):
         return
     if os.geteuid() != 0 or not os.path.isdir(_LINUX_SERVICE_STATE_DIR):
         return
@@ -1673,8 +1762,18 @@ def main() -> None:
     p_install.add_argument("--no-start", action="store_true", help="Do not start the service after enable")
     p_install.add_argument("--non-interactive", action="store_true", help="Use env vars only, no prompts")
 
-    p_enroll = sub.add_parser("enroll", parents=[server_after], help="Enroll with a one-time code from the UI")
+    p_enroll = sub.add_parser(
+        "enroll", parents=[server_after],
+        help="Enroll in a network with a one-time code from the UI (run again to add another network)",
+    )
     p_enroll.add_argument("--code", "-c", required=True, help="Enrollment code")
+
+    p_networks = sub.add_parser("networks", help="List or remove the networks this device is enrolled in")
+    p_networks.add_argument("--output-dir", "-o", default=None, help="Same directory 'run' was given")
+    networks_sub = p_networks.add_subparsers(dest="networks_cmd", required=True)
+    networks_sub.add_parser("list", help="Show every enrolled network and its state")
+    p_networks_remove = networks_sub.add_parser("remove", help="Leave a network: stop its Nebula and forget its token")
+    p_networks_remove.add_argument("network", help="Network name or id (see 'networks list')")
 
     p_run = sub.add_parser("run", parents=[server_after], help="Run daemon: poll for config and certs, optionally start/restart Nebula (dnclientd-style)")
     p_run.add_argument("--output-dir", "-o", default=None, help="Directory to write config.yaml, ca.crt, host.crt (default: /etc/nebula on Linux, ~/.nebula on Windows)")
@@ -1688,6 +1787,7 @@ def main() -> None:
         help="Manage locally-accepted subnet routers / exit nodes (client-side consent on top of server authorization)",
     )
     p_routes.add_argument("--output-dir", "-o", default=None, help="Same directory 'run' was given (default: /etc/nebula on Linux, ~/.nebula on Windows)")
+    p_routes.add_argument("--network", "-N", default=None, help="Network name or id (needed when enrolled in several; see 'networks list')")
     routes_sub = p_routes.add_subparsers(dest="routes_cmd", required=True)
 
     routes_sub.add_parser("list", help="Show routes offered to this node and which are accepted")
@@ -1727,9 +1827,11 @@ def main() -> None:
 
     args = ap.parse_args()
     _apply_linux_service_defaults(args.cmd)
-    from client.config import load_settings
+    from client.config import enrollments, load_settings
     server = (args.server or "").strip() or (load_settings().get("server") or "").strip() or None
-    if args.cmd == "run" and not server:
+    # Networks enrolled with 0.8.0+ carry their own server; --server is only needed for the
+    # first enroll (or a pre-0.8.0 enrollment whose settings never stored one).
+    if args.cmd == "run" and not server and not enrollments(load_settings()):
         print("Set --server or NEBULA_COMMANDER_SERVER to your Nebula Commander URL.", file=sys.stderr)
         sys.exit(1)
     if args.cmd == "enroll" and not server:
@@ -1743,6 +1845,12 @@ def main() -> None:
         )
     elif args.cmd == "enroll":
         cmd_enroll(server, args.code)
+    elif args.cmd == "networks":
+        output_dir = os.path.expanduser(args.output_dir or _default_output_dir())
+        if args.networks_cmd == "list":
+            cmd_networks_list(output_dir)
+        elif args.networks_cmd == "remove":
+            cmd_networks_remove(output_dir, args.network)
     elif args.cmd == "run":
         if getattr(args, "nebula", None) and getattr(args, "restart_service", None):
             print("Use only one of --nebula or --restart-service.", file=sys.stderr)
@@ -1762,16 +1870,19 @@ def main() -> None:
         )
     elif args.cmd == "routes":
         output_dir = os.path.expanduser(args.output_dir or _default_output_dir())
+        from client.config import migrate_to_enrollments
+        migrate_to_enrollments(output_dir)
+        network = args.network
         if args.routes_cmd == "list":
-            cmd_routes_list(output_dir)
+            cmd_routes_list(output_dir, network)
         elif args.routes_cmd == "accept":
-            cmd_routes_accept(output_dir, args.cidr, getattr(args, "via", None))
+            cmd_routes_accept(output_dir, args.cidr, getattr(args, "via", None), network)
         elif args.routes_cmd == "reject":
-            cmd_routes_reject(output_dir, args.cidr)
+            cmd_routes_reject(output_dir, args.cidr, network)
         elif args.routes_cmd == "accept-exit-node":
-            cmd_routes_accept_exit_node(output_dir, args.via, block_lan=args.block_lan)
+            cmd_routes_accept_exit_node(output_dir, args.via, block_lan=args.block_lan, network=network)
         elif args.routes_cmd == "reject-exit-node":
-            cmd_routes_reject_exit_node(output_dir)
+            cmd_routes_reject_exit_node(output_dir, network)
         elif args.routes_cmd == "exit-lan":
             cmd_routes_exit_lan(args.mode == "allow")
     elif args.cmd == "auto-update":

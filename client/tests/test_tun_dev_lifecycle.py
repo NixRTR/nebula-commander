@@ -53,7 +53,7 @@ def env(monkeypatch, tmp_path):
     import client.exit_routing as exit_routing
     monkeypatch.setattr(exit_routing, "remove", lambda *a, **k: None)
     monkeypatch.setattr(exit_routing, "apply", lambda *a, **k: False)
-    monkeypatch.setattr(exit_routing, "bind_to_uplink", lambda b, log=None: b)
+    monkeypatch.setattr(exit_routing, "bind_to_uplink", lambda b, log=None, **kw: b)
     import client.linux_routing as linux_routing
     monkeypatch.setattr(linux_routing, "apply_routes", lambda routes, dev, debug_log=None: calls["routes"].append((list(routes), dev)))
     import client.token_store as token_store

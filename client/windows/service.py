@@ -43,7 +43,7 @@ import win32service  # noqa: E402
 import win32serviceutil  # noqa: E402
 
 from client.config import load_settings, save_settings  # noqa: E402
-from client.ncclient import run_poll_loop  # noqa: E402
+from client.supervisor import Supervisor  # noqa: E402
 from client.windows import nebula_install  # noqa: E402
 from client.windows.harden import harden_shared_root  # noqa: E402
 from client.windows.pipe_server import PipeServer, ServiceHooks  # noqa: E402
@@ -96,10 +96,12 @@ class NebulaCommanderService(win32serviceutil.ServiceFramework, ServiceHooks):
         save_status(status, message)
 
     def _start_poll(self) -> None:
-        """(Re)start the poll loop from current settings.json. Safe to call again
-        while a previous poll thread is still winding down - run_poll_loop exits
-        promptly once stop_event is set."""
+        """(Re)start polling from current settings.json: one loop per enrolled network
+        (client/supervisor.py, which also picks up networks enrolled or removed later).
+        Safe to call again while a previous run is still winding down - every loop
+        exits promptly once stop_event is set."""
         settings = load_settings()
+        # Only a default for networks enrolled before servers were stored per network.
         server = (settings.get("server") or "").strip()
         interval = int(settings.get("interval") or 60)
         interval = max(10, min(3600, interval))
@@ -109,30 +111,29 @@ class NebulaCommanderService(win32serviceutil.ServiceFramework, ServiceHooks):
         accept_dns = bool(settings.get("accept_dns", False))
         output_dir = shared_root()
 
-        if not server:
-            save_status("error", "Set server URL from the Nebula Commander app's Settings page")
-            return
         if not os.path.isfile(nebula_path):
             save_status("error", "Nebula is not installed - use Settings > Nebula > Install in the app")
             return
 
         self.stop_event.clear()
-        self.poll_thread = threading.Thread(
-            target=run_poll_loop,
-            args=(server, output_dir, interval, nebula_path, None),
-            kwargs={
-                "stop_event": self.stop_event,
-                "status_callback": self._status_callback,
-                "accept_dns": accept_dns,
-            },
-            daemon=True,
+        supervisor = Supervisor(
+            output_dir,
+            interval,
+            nebula_path,
+            None,
+            self.stop_event,
+            accept_dns=accept_dns,
+            status_callback=self._status_callback,
+            default_server=server or None,
+            log=servicemanager.LogInfoMsg,
         )
+        self.poll_thread = threading.Thread(target=supervisor.run, name="supervisor", daemon=True)
         self.poll_thread.start()
 
     def _stop_poll(self) -> None:
         self.stop_event.set()
         if self.poll_thread and self.poll_thread.is_alive():
-            self.poll_thread.join(timeout=15)
+            self.poll_thread.join(timeout=45)  # every network stops its Nebula and undoes DNS/routes
 
     def _restart_poll_locked(self) -> None:
         self._stop_poll()

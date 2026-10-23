@@ -470,20 +470,28 @@ def windows_uplink_ip(tun_dev: str = "nebula1") -> Optional[str]:
     return uplink[1] if uplink else None
 
 
-def bind_to_uplink(config_bytes: bytes, debug_log: Optional[Callable[[str], None]] = None) -> bytes:
+def bind_to_uplink(config_bytes: bytes, debug_log: Optional[Callable[[str], None]] = None, force: bool = False) -> bytes:
     """Windows with an exit route: config_bytes with listen.host = the uplink's address, so
     Nebula's own UDP keeps leaving through the uplink (strong host model) while the exit
     route carries everything else. Unchanged on other platforms, without an exit route,
-    or while no uplink is found (the next poll retries)."""
+    or while no uplink is found (the next poll retries).
+    force: another network on this host uses an exit node. Its default route captures
+    every Nebula's UDP, so this one is bound to the uplink too."""
     if sys.platform != "win32":
         return config_bytes
     try:
         plan = plan_from_config(config_bytes)
-        if plan is None:
+        if plan is None and not force:
             # No exit route (any more): back to the server's 0.0.0.0, so a binding left over
             # from an exit node can't go stale when the address changes later.
             return with_listen_host(config_bytes, "0.0.0.0")
-        ip = windows_uplink_ip(plan.tun_dev)
+        if plan is not None:
+            tun_dev = plan.tun_dev
+        else:
+            import yaml
+            parsed = yaml.safe_load(config_bytes) or {}
+            tun_dev = str(((parsed.get("tun") or {}) if isinstance(parsed, dict) else {}).get("dev") or "nebula1")
+        ip = windows_uplink_ip(tun_dev)
         if not ip:
             _log("Exit node: no physical IPv4 uplink found yet; Nebula not bound to it", debug_log)
             return config_bytes

@@ -42,7 +42,7 @@ class _WorkingKeyring(types.ModuleType):
 def home(monkeypatch, tmp_path):
     for k in ("NEBULA_DEVICE_TOKEN_FILE", "NEBULA_COMMANDER_CONFIG_DIR"):
         monkeypatch.delenv(k, raising=False)
-    monkeypatch.setattr(token_store, "_default_token_path", lambda: str(tmp_path / ".nebula" / "device-token"))
+    monkeypatch.setattr(token_store, "_default_token_path", lambda enrollment_id=None: str(tmp_path / ".nebula" / "device-token"))
     return tmp_path
 
 

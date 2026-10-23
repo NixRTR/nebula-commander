@@ -16,13 +16,19 @@ in machine scope at <that dir>/token.bin - readable by any process on the machin
 default below), which is what lets a LocalSystem service and an unelevated GUI
 client both read/write the same enrolled token. This takes priority over both
 NEBULA_DEVICE_TOKEN_FILE and keyring when active.
+
+ncclient 0.8.0+ keeps one token per enrolled network: pass the enrollment id
+(client/config.py). With an id the token lives next to where the id-less one would:
+<dir of NEBULA_DEVICE_TOKEN_FILE>/tokens/<id>, <config dir>/tokens/<id>.bin (DPAPI),
+~/.nebula/tokens/<id> (fallback file) or keyring key device_token:<id>. Without an id
+these functions use the pre-0.8.0 single token, which the settings migration moves.
 """
 from __future__ import annotations
 
 import os
 import sys
 
-__all__ = ["get_token", "set_token"]
+__all__ = ["get_token", "set_token", "delete_token"]
 
 _SERVICE = "nebula-commander"
 _KEY = "device_token"
@@ -34,27 +40,45 @@ _CRYPTPROTECT_UI_FORBIDDEN = 0x1
 _CRYPTPROTECT_LOCAL_MACHINE = 0x4
 
 
-def _token_file_path() -> str | None:
+def _safe_id(enrollment_id: str) -> str:
+    if not enrollment_id or not all(c.isalnum() or c in "-_" for c in enrollment_id):
+        raise ValueError(f"invalid enrollment id {enrollment_id!r}")
+    return enrollment_id
+
+
+def _token_file_path(enrollment_id: str | None = None) -> str | None:
     path = os.environ.get("NEBULA_DEVICE_TOKEN_FILE", "").strip()
-    return path or None
+    if not path:
+        return None
+    if enrollment_id:
+        return os.path.join(os.path.dirname(path) or ".", "tokens", _safe_id(enrollment_id))
+    return path
 
 
-def _default_token_path() -> str:
+def _default_token_path(enrollment_id: str | None = None) -> str:
     """Path used when keyring is not available (e.g. Linux binary without keyring)."""
+    if enrollment_id:
+        return os.path.join(os.path.expanduser("~"), ".nebula", "tokens", _safe_id(enrollment_id))
     return os.path.join(os.path.expanduser("~"), ".nebula", "device-token")
+
+
+def _keyring_key(enrollment_id: str | None) -> str:
+    return f"{_KEY}:{_safe_id(enrollment_id)}" if enrollment_id else _KEY
 
 
 def _shared_dpapi_active() -> bool:
     return sys.platform == "win32" and bool(os.environ.get("NEBULA_COMMANDER_CONFIG_DIR", "").strip())
 
 
-def _dpapi_token_path() -> str:
+def _dpapi_token_path(enrollment_id: str | None = None) -> str:
     from .config import config_dir
+    if enrollment_id:
+        return os.path.join(config_dir(), "tokens", f"{_safe_id(enrollment_id)}.bin")
     return os.path.join(config_dir(), "token.bin")
 
 
-def _dpapi_get_token() -> str | None:
-    path = _dpapi_token_path()
+def _dpapi_get_token(enrollment_id: str | None = None) -> str | None:
+    path = _dpapi_token_path(enrollment_id)
     if not os.path.isfile(path):
         return None
     try:
@@ -71,9 +95,9 @@ def _dpapi_get_token() -> str | None:
         return None
 
 
-def _dpapi_set_token(token: str) -> None:
+def _dpapi_set_token(token: str, enrollment_id: str | None = None) -> None:
     import win32crypt
-    path = _dpapi_token_path()
+    path = _dpapi_token_path(enrollment_id)
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     blob = win32crypt.CryptProtectData(
         token.encode("utf-8"),
@@ -111,20 +135,20 @@ def _write_token_file(path: str, token: str) -> None:
         f.write(token)
 
 
-def get_token() -> str | None:
+def get_token(enrollment_id: str | None = None) -> str | None:
     """Read device token: DPAPI shared store (Windows shared-state mode), else file
     (if NEBULA_DEVICE_TOKEN_FILE set), else keyring."""
     if _shared_dpapi_active():
-        return _dpapi_get_token()
-    path = _token_file_path()
+        return _dpapi_get_token(enrollment_id)
+    path = _token_file_path(enrollment_id)
     if path:
         return _read_token_file(path)
-    fallback = _read_token_file(_default_token_path())
+    fallback = _read_token_file(_default_token_path(enrollment_id))
     if fallback:
         return fallback
     try:
         import keyring
-        value = keyring.get_password(_SERVICE, _KEY)
+        value = keyring.get_password(_SERVICE, _keyring_key(enrollment_id))
         return value if value else None
     except (ImportError, ModuleNotFoundError):
         return None
@@ -133,20 +157,20 @@ def get_token() -> str | None:
         return None
 
 
-def set_token(token: str) -> None:
+def set_token(token: str, enrollment_id: str | None = None) -> None:
     """Write device token: DPAPI shared store (Windows shared-state mode), else file
     (if NEBULA_DEVICE_TOKEN_FILE set), else keyring."""
     if _shared_dpapi_active():
-        _dpapi_set_token(token)
+        _dpapi_set_token(token, enrollment_id)
         return
-    path = _token_file_path()
+    path = _token_file_path(enrollment_id)
     if path:
         _write_token_file(path, token)
         return
-    fallback = _default_token_path()
+    fallback = _default_token_path(enrollment_id)
     try:
         import keyring
-        keyring.set_password(_SERVICE, _KEY, token)
+        keyring.set_password(_SERVICE, _keyring_key(enrollment_id), token)
     except (ImportError, ModuleNotFoundError):
         _write_token_file(fallback, token)
         return
@@ -161,3 +185,26 @@ def set_token(token: str) -> None:
         os.remove(fallback)
     except FileNotFoundError:
         pass
+
+
+def delete_token(enrollment_id: str | None = None) -> None:
+    """Forget a token (network removed, or the pre-0.8.0 token after the migration
+    copied it). Removes every place get_token() may read it from."""
+    paths = [_token_file_path(enrollment_id), _default_token_path(enrollment_id)]
+    if sys.platform == "win32":
+        paths.append(_dpapi_token_path(enrollment_id))
+    for path in paths:
+        if path:
+            try:
+                os.remove(path)
+            except FileNotFoundError:
+                pass
+            except OSError as e:
+                print(f"Could not remove token file {path}: {e}", file=sys.stderr)
+    if _shared_dpapi_active():
+        return
+    try:
+        import keyring
+        keyring.delete_password(_SERVICE, _keyring_key(enrollment_id))
+    except Exception:
+        pass  # not there, or no usable keyring

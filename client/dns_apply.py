@@ -162,7 +162,7 @@ def apply_split_horizon_dns(
         return False
 
     if sys.platform == "win32":
-        return _apply_windows(domain, servers)
+        return _apply_windows(domain, servers, _safe_tun_dev(tun_dev))
     return _apply_linux(domain, servers, _safe_tun_dev(tun_dev))
 
 
@@ -175,7 +175,7 @@ def remove_split_horizon_dns(tun_dev: str | None = None) -> bool:
     if not _can_apply():
         return False
     if sys.platform == "win32":
-        return _remove_windows()
+        return _remove_windows(_safe_tun_dev(tun_dev))
     return _remove_linux(_safe_tun_dev(tun_dev))
 
 
@@ -764,20 +764,30 @@ def _remove_linux(tun_dev: str | None = None) -> bool:
     return True
 
 
-def _apply_windows(domain: str, dns_servers: list[str]) -> bool:
-    # NRPT: namespace with leading dot. Rule name fixed for idempotent remove.
+def _nrpt_rule_name(tun_dev: str | None) -> str:
+    """One NRPT rule (DisplayName) per network, so removing one network's DNS leaves the
+    others'. The legacy device keeps the pre-0.8.0 name, which a single-network install
+    already has."""
+    if not tun_dev or tun_dev == LEGACY_TUN_DEV:
+        return NRPT_RULE_NAME
+    return f"{NRPT_RULE_NAME}-{tun_dev}"
+
+
+def _apply_windows(domain: str, dns_servers: list[str], tun_dev: str | None = None) -> bool:
+    # NRPT: namespace with leading dot. Rule name per network for idempotent remove.
     if not dns_servers:
         return False
+    rule_name = _nrpt_rule_name(tun_dev)
     namespace = f".{domain}" if not domain.startswith(".") else domain
     # PowerShell: -DisplayName (friendly name), -NameServers (DNS servers). -Name is not a valid Add parameter.
     # Remove each NebulaCommander rule by its .Name (GUID) so all old namespaces are cleared.
     # Remove via Remove-DnsClientNrptRule -Name (CIM delete doesn't work for NRPT).
     addrs = ",".join(f"'{s}'" for s in dns_servers)
-    _remove_windows()
+    _remove_windows(tun_dev)
     ps_add = f"""
 $ErrorActionPreference = 'Stop'
 $ConfirmPreference = 'None'
-Add-DnsClientNrptRule -Namespace '{namespace}' -DisplayName '{NRPT_RULE_NAME}' -NameServers @({addrs}) -Confirm:$false
+Add-DnsClientNrptRule -Namespace '{namespace}' -DisplayName '{rule_name}' -NameServers @({addrs}) -Confirm:$false
 """
     try:
         subprocess.run(  # nosec B603 - fixed command resolved via shutil.which, shell=False
@@ -794,13 +804,13 @@ Add-DnsClientNrptRule -Namespace '{namespace}' -DisplayName '{NRPT_RULE_NAME}' -
         return False
 
 
-def _remove_windows() -> bool:
+def _remove_windows(tun_dev: str | None = None) -> bool:
     # Same loop as manual cleanup: Get-DnsClientNrptRule + Remove-DnsClientNrptRule -Name.
     # Run without -NonInteractive so Remove-DnsClientNrptRule doesn't hit "Read and Prompt" (fails when the calling process exits).
     ps = f"""
 $ErrorActionPreference = 'Stop'
 $ConfirmPreference = 'None'
-$RuleName = '{NRPT_RULE_NAME}'
+$RuleName = '{_nrpt_rule_name(tun_dev)}'
 $max = 10
 for ($i = 0; $i -lt $max; $i++) {{
   $names = @(Get-DnsClientNrptRule | Where-Object {{ $_.DisplayName -eq $RuleName }} | ForEach-Object {{ $_.Name }})

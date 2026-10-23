@@ -46,8 +46,11 @@ def test_redact_unparseable_yaml_still_strips_pem():
     assert "4ThE1GAsSU3V" not in out
 
 
-def test_get_config_yaml_is_redacted(tmp_path):
-    (tmp_path / "config.yaml").write_text(CONFIG, encoding="utf-8")
+def test_get_config_yaml_is_redacted(tmp_path, monkeypatch):
+    monkeypatch.setattr(service_api, "load_settings", lambda: {"enrollments": [{"id": "abcd1234", "server": "https://a"}]})
+    net = tmp_path / "networks" / "abcd1234"
+    net.mkdir(parents=True)
+    (net / "config.yaml").write_text(CONFIG, encoding="utf-8")
     out = service_api.get_config_yaml(str(tmp_path))
     assert "PRIVATE KEY" not in out
 

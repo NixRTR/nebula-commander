@@ -21,20 +21,40 @@ Harmless across separate CLI invocations (one lock per short-lived
 process); load-bearing once client/linux/dbus_server.py's handler thread
 and client/ncclient.py's poll-loop thread can both touch settings.json
 within the same long-running `ncclient run` process.
+
+Since 0.8.0 one ncclient can be enrolled in several networks (client/config.py).
+Every per-network function takes `network` - an enrollment id or name. None means
+the only enrollment; with several, `first_if_many` callers (the pre-0.8.0 D-Bus/pipe
+methods an older app still calls) get the first one and everyone else gets a
+ServiceApiError asking which network. `output_dir` is always the base directory; each
+network's files are in config.enrollment_dir(output_dir, id).
 """
 from __future__ import annotations
 
 import ipaddress
 import json
 import os
+import sys
 import threading
 
-from client.config import load_settings, save_settings
-from client.token_store import get_token, set_token
+from client.config import (
+    enrollment_dir,
+    enrollment_view,
+    enrollments,
+    find_enrollment,
+    load_settings,
+    new_enrollment_id,
+    save_settings,
+)
+from client.token_store import delete_token, get_token, set_token
 
 __all__ = [
     "ServiceApiError",
     "EnrollError",
+    "list_networks",
+    "remove_network",
+    "resolve_network",
+    "network_dir",
     "RouteError",
     "enroll",
     "is_enrolled",
@@ -58,22 +78,38 @@ __all__ = [
 
 _lock = threading.Lock()
 
-# Set by in-process callers (the Linux D-Bus server) after a route/settings change so
-# run_poll_loop applies it now instead of on its next poll; the Windows service restarts
-# its poll loop for the same purpose.
-_poll_now = threading.Event()
+# Bumped by in-process callers (the D-Bus server, the Windows pipe server) after a
+# route/settings change so every network's run_poll_loop applies it now instead of on
+# its next poll. A counter rather than an Event: with several networks each loop must
+# see the request, not just the first to look.
+_poll_now_generation = 0
+_poll_now_lock = threading.Lock()
 
 
 def request_poll_now() -> None:
-    _poll_now.set()
+    global _poll_now_generation
+    with _poll_now_lock:
+        _poll_now_generation += 1
 
 
-def take_poll_now() -> bool:
-    """True (once) if a poll was requested since the last call."""
-    if _poll_now.is_set():
-        _poll_now.clear()
+def poll_now_generation() -> int:
+    """Compare with an earlier value: different means a poll was requested since."""
+    return _poll_now_generation
+
+
+def take_poll_now(seen: "list[int] | None" = None) -> bool:
+    """True (once per caller) if a poll was requested since the caller last looked.
+    seen: a one-element list holding the caller's last generation (updated here); the
+    default is a module-wide slot, the pre-0.8.0 single-loop behaviour."""
+    slot = seen if seen is not None else _default_seen
+    current = _poll_now_generation
+    if current != slot[0]:
+        slot[0] = current
         return True
     return False
+
+
+_default_seen = [0]
 
 # Keys a caller (CLI flag or D-Bus SetSettings) may set directly.
 # accepted_subnet_routes/accepted_exit_node/node_id are only ever mutated by
@@ -119,10 +155,103 @@ def _server_url(server: str) -> str:
     return base
 
 
+def resolve_network(network: "str | None", first_if_many: bool = False) -> dict:
+    """The enrollment `network` (id or name) refers to. Raises ServiceApiError when there
+    is none, or when network is None with several enrolled (unless first_if_many)."""
+    settings = load_settings()
+    items = enrollments(settings)
+    if not items:
+        raise ServiceApiError("Not enrolled in any network yet.")
+    if network is None and first_if_many:
+        return items[0]
+    found = find_enrollment(settings, network)
+    if found is None:
+        if network is None:
+            names = ", ".join(e.get("name") or e["id"] for e in items)
+            raise ServiceApiError(f"Enrolled in several networks ({names}) - say which one.")
+        raise ServiceApiError(f"No enrolled network {network!r}.")
+    return found
+
+
+def network_dir(output_dir: str, network: "str | None", first_if_many: bool = False) -> str:
+    return enrollment_dir(output_dir, resolve_network(network, first_if_many)["id"])
+
+
+def list_networks(output_dir: str) -> list[dict]:
+    """Every enrolled network with what an app shows on its card. Never includes a token."""
+    from client.status_store import load_status
+
+    settings = load_settings()
+    exit_node = settings.get("exit_node") if isinstance(settings.get("exit_node"), dict) else None
+    out = []
+    for e in enrollments(settings):
+        d = enrollment_dir(output_dir, e["id"])
+        tun_dev = _tun_dev(d)
+        status = load_status(os.path.join(d, "status.json"))
+        out.append({
+            "id": e["id"],
+            "name": e.get("name") or "",
+            "hostname": e.get("hostname") or "",
+            "server": e.get("server") or "",
+            "node_id": e.get("node_id"),
+            "tun_dev": tun_dev or "",
+            # Windows: recorded by the service (a PowerShell call per network is too slow here).
+            "overlay_ip": (status.get("overlay_ip") if sys.platform == "win32" else _overlay_ip(tun_dev)) or "",
+            "status": {k: status.get(k) for k in ("state", "message", "updated_at")},
+            "exit_node": (exit_node or {}).get("via") if (exit_node or {}).get("enrollment") == e["id"] else None,
+            "accepted_subnet_routes": e.get("accepted_subnet_routes") or [],
+        })
+    return out
+
+
+def _tun_dev(state_dir: str) -> "str | None":
+    try:
+        import yaml
+        with open(os.path.join(state_dir, "config.yaml"), "r", encoding="utf-8") as f:
+            dev = ((yaml.safe_load(f) or {}).get("tun") or {}).get("dev")
+        return dev if isinstance(dev, str) and dev else None
+    except Exception:
+        return None
+
+
+def _overlay_ip(tun_dev: "str | None") -> "str | None":
+    if not tun_dev:
+        return None
+    try:
+        from client.connectivity import interface_ipv4
+        return interface_ipv4(tun_dev)
+    except Exception:
+        return None
+
+
+def remove_network(output_dir: str, network: str) -> str:
+    """Forget an enrolled network: its settings entry, token, and the host's exit node if
+    it was this network's. The running service stops that network's Nebula, removes its
+    DNS/routing and deletes its directory (client/supervisor.py); without a service the
+    directory is removed on the next start. Returns the removed id."""
+    with _lock:
+        settings = load_settings()
+        e = find_enrollment(settings, network)
+        if e is None:
+            raise ServiceApiError(f"No enrolled network {network!r}.")
+        settings["enrollments"] = [x for x in enrollments(settings) if x["id"] != e["id"]]
+        if isinstance(settings.get("exit_node"), dict) and settings["exit_node"].get("enrollment") == e["id"]:
+            settings["exit_node"] = None
+        save_settings(settings)
+        delete_token(e["id"])
+    return e["id"]
+
+
 def enroll(server: str, code: str) -> "str | None":
-    """Enroll this device with a one-time code. Returns node_id (may be
-    None). Raises EnrollError on any failure. The HTTP call and token write
-    both happen here, in the caller's process - see module docstring."""
+    """Enroll this device in a network with a one-time code. Adds a network, or replaces
+    the token of one already enrolled as the same node on the same server (re-enroll).
+    Returns node_id (may be None). Raises EnrollError on any failure. The HTTP call and
+    token write both happen here, in the caller's process - see module docstring."""
+    return enroll_network(server, code)["node_id"]
+
+
+def enroll_network(server: str, code: str) -> dict:
+    """enroll(), returning {"id", "node_id", "name", "hostname"} of the enrollment."""
     import requests
 
     base = _server_url(server)
@@ -142,67 +271,104 @@ def enroll(server: str, code: str) -> "str | None":
     token = data["device_token"]
     node_id = data.get("node_id")
     with _lock:
-        set_token(token)
-        save_settings({**load_settings(), "server": base, "node_id": node_id})
-    return node_id
+        settings = load_settings()
+        items = enrollments(settings)
+        e = next((x for x in items if x.get("server") == base and node_id is not None and x.get("node_id") == node_id), None)
+        if e is None:
+            e = {"id": new_enrollment_id(), "server": base, "node_id": node_id, "accepted_subnet_routes": []}
+            items.append(e)
+        if data.get("network_name"):
+            e["name"] = data["network_name"]
+        if data.get("hostname"):
+            e["hostname"] = data["hostname"]
+        set_token(token, e["id"])
+        settings["enrollments"] = items
+        save_settings(settings)
+    return {"id": e["id"], "node_id": node_id, "name": e.get("name") or "", "hostname": e.get("hostname") or ""}
 
 
 def is_enrolled() -> "tuple[bool, str]":
-    """(enrolled, server) - never returns the token itself."""
-    enrolled = get_token() is not None
-    server = (load_settings().get("server") or "").strip()
-    return enrolled, server
+    """(enrolled, server of the first network) - never returns the token itself."""
+    items = enrollments(load_settings())
+    for e in items:
+        if get_token(e["id"]) is not None:
+            return True, (e.get("server") or "").strip()
+    return False, (items[0].get("server") or "").strip() if items else ""
 
 
-def get_settings() -> dict:
-    """settings.json's content, as-is (never includes the token - that's
-    always stored separately via client.token_store)."""
-    return load_settings()
+def get_settings(network: "str | None" = None) -> dict:
+    """One network's view of settings.json (host-wide keys plus its server, node_id,
+    accepted routes and accepted_exit_node - the pre-0.8.0 shape apps read), or just
+    the host-wide keys when nothing is enrolled. Never includes a token."""
+    settings = load_settings()
+    if not enrollments(settings):
+        return {k: v for k, v in settings.items() if k not in ("enrollments", "exit_node")}
+    return enrollment_view(settings, resolve_network(network, first_if_many=True)["id"])
 
 
-def set_settings(partial: dict) -> None:
-    """Merge server/interval/accept_dns/exit_allow_lan into settings.json.
-    Silently ignores any other key (route selection/node_id have their own
-    dedicated functions below - never settable via a raw partial update).
-    exit_allow_lan: while an exit node is in use, keep local-network traffic
-    direct (default) - see client/exit_routing.py."""
+def set_settings(partial: dict, network: "str | None" = None) -> None:
+    """Merge interval/accept_dns/exit_allow_lan (host-wide) and server (one network's)
+    into settings.json. Silently ignores any other key (route selection/node_id have
+    their own dedicated functions below - never settable via a raw partial update).
+    exit_allow_lan: while an exit node is in use, keep local-network traffic direct
+    (default) - see client/exit_routing.py."""
     updates = {k: v for k, v in partial.items() if k in _SETTABLE_KEYS}
     for k in _BOOL_KEYS:
         if k in updates and not isinstance(updates[k], bool):
             raise ServiceApiError(f"{k} must be true or false.")
     with _lock:
-        save_settings({**load_settings(), **updates})
+        settings = load_settings()
+        server = updates.pop("server", None)
+        if server is not None and enrollments(settings):
+            target = resolve_network(network, first_if_many=True)["id"]
+            for e in enrollments(settings):
+                if e["id"] == target:
+                    e["server"] = _server_url(server) if server.strip() else e.get("server")
+        elif server is not None:
+            settings["server"] = server  # before any enrollment: the default for the first enroll
+        save_settings({**settings, **updates})
 
 
-def get_advertised_routes() -> list[str]:
-    """CIDRs this device advertises as a subnet router / exit node, fetched
-    with the stored token inside the caller's (privileged) process - so a GUI
-    can show them without ever reading the token itself. Empty when not
-    enrolled or on any failure."""
+def get_advertised_routes(network: "str | None" = None, first_if_many: bool = True) -> list[str]:
+    """CIDRs this device advertises as a subnet router / exit node in a network,
+    fetched with the stored token inside the caller's (privileged) process - so a GUI
+    can show them without ever reading the token itself. Empty when not enrolled or
+    on any failure."""
     from client.ncclient import _fetch_advertised_routes
 
-    token = get_token()
-    server = (load_settings().get("server") or "").strip()
+    try:
+        e = resolve_network(network, first_if_many)
+    except ServiceApiError:
+        return []
+    token = get_token(e["id"])
+    server = (e.get("server") or "").strip()
     if not token or not server:
         return []
     return _fetch_advertised_routes(_server_url(server), token)
 
 
-def get_status(output_dir: str) -> dict:
+def get_status(output_dir: str, network: "str | None" = None, first_if_many: bool = True) -> dict:
     from client.status_store import load_status
 
-    return load_status(os.path.join(output_dir, "status.json"))
+    try:
+        d = network_dir(output_dir, network, first_if_many)
+    except ServiceApiError as e:
+        return {"state": "idle", "message": e.message, "updated_at": None}
+    return load_status(os.path.join(d, "status.json"))
 
 
 def _available_routes_path(output_dir: str) -> str:
     return os.path.join(output_dir, "available-routes.json")
 
 
-def get_available_routes(output_dir: str) -> list[dict]:
-    """Everything currently offered to this node. Empty list if
+def get_available_routes(output_dir: str, network: "str | None" = None, first_if_many: bool = True) -> list[dict]:
+    """Everything currently offered to this node in a network. Empty list if
     available-routes.json doesn't exist yet (no successful poll since the
-    service last started) or can't be read."""
-    path = _available_routes_path(output_dir)
+    service last started), can't be read, or nothing is enrolled."""
+    try:
+        path = _available_routes_path(network_dir(output_dir, network, first_if_many))
+    except ServiceApiError:
+        return []
     if not os.path.isfile(path):
         return []
     try:
@@ -243,9 +409,9 @@ def redact_config_yaml(content: str) -> str:
     )
 
 
-def get_config_yaml(output_dir: str) -> str:
-    """config.yaml with the private key redacted - see redact_config_yaml."""
-    path = os.path.join(output_dir, "config.yaml")
+def get_config_yaml(output_dir: str, network: "str | None" = None, first_if_many: bool = True) -> str:
+    """A network's config.yaml with the private key redacted - see redact_config_yaml."""
+    path = os.path.join(network_dir(output_dir, network, first_if_many), "config.yaml")
     try:
         with open(path, "r", encoding="utf-8") as f:
             return redact_config_yaml(f.read())
@@ -275,11 +441,20 @@ def validate_new_subnet_route(new_route: str, currently_accepted: "list[dict] | 
     return None
 
 
-def accept_route(output_dir: str, cidr: str, via: "str | None") -> "tuple[str, str]":
-    """Accept an offered subnet route. Returns (cidr, via) actually
+def _update_enrollment(settings: dict, enrollment_id: str, **fields) -> None:
+    for e in enrollments(settings):
+        if e["id"] == enrollment_id:
+            e.update(fields)
+
+
+def accept_route(
+    output_dir: str, cidr: str, via: "str | None", network: "str | None" = None, first_if_many: bool = False
+) -> "tuple[str, str]":
+    """Accept an offered subnet route in a network. Returns (cidr, via) actually
     accepted. Raises RouteError if not offered, ambiguous, an exit-node
     CIDR, or it would overlap an already-accepted route."""
-    available = get_available_routes(output_dir)
+    e = resolve_network(network, first_if_many)
+    available = get_available_routes(output_dir, e["id"])
     matches = [r for r in available if r.get("route") == cidr and (via is None or r.get("via") == via)]
     if not matches:
         raise RouteError(f"{cidr!r} is not currently offered to this node.")
@@ -292,45 +467,60 @@ def accept_route(output_dir: str, cidr: str, via: "str | None") -> "tuple[str, s
 
     with _lock:
         settings = load_settings()
-        accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
+        current = find_enrollment(settings, e["id"]) or {}
+        accepted_subnet_routes = current.get("accepted_subnet_routes") or []
         error = validate_new_subnet_route(cidr, accepted_subnet_routes)
         if error:
             raise RouteError(error)
         accepted_subnet_routes = [r for r in accepted_subnet_routes if r.get("route") != cidr] + [
             {"route": cidr, "via": match.get("via")}
         ]
-        settings["accepted_subnet_routes"] = accepted_subnet_routes
+        _update_enrollment(settings, e["id"], accepted_subnet_routes=accepted_subnet_routes)
         save_settings(settings)
     return cidr, match.get("via")
 
 
-def reject_route(output_dir: str, cidr: str) -> None:
+def reject_route(output_dir: str, cidr: str, network: "str | None" = None, first_if_many: bool = False) -> None:
+    e = resolve_network(network, first_if_many)
     with _lock:
         settings = load_settings()
-        accepted_subnet_routes = settings.get("accepted_subnet_routes") or []
+        accepted_subnet_routes = (find_enrollment(settings, e["id"]) or {}).get("accepted_subnet_routes") or []
         remaining = [r for r in accepted_subnet_routes if r.get("route") != cidr]
         if len(remaining) == len(accepted_subnet_routes):
             raise RouteError(f"{cidr!r} was not accepted.")
-        settings["accepted_subnet_routes"] = remaining
+        _update_enrollment(settings, e["id"], accepted_subnet_routes=remaining)
         save_settings(settings)
 
 
-def accept_exit_node(output_dir: str, via: str) -> None:
-    available = get_available_routes(output_dir)
+def accept_exit_node(output_dir: str, via: str, network: "str | None" = None, first_if_many: bool = False) -> None:
+    """Route all of this host's traffic through an exit node of a network. A host has
+    one exit node: one already in use in another network is replaced."""
+    e = resolve_network(network, first_if_many)
+    available = get_available_routes(output_dir, e["id"])
     if not any(r.get("kind") == "exit" and r.get("via") == via for r in available):
         raise RouteError(f"No exit node with via={via!r} is currently offered to this node.")
     with _lock:
         settings = load_settings()
-        settings["accepted_exit_node"] = {"via": via}
+        settings["exit_node"] = {"enrollment": e["id"], "via": via}
         save_settings(settings)
 
 
-def reject_exit_node(output_dir: str) -> None:
+def reject_exit_node(output_dir: str, network: "str | None" = None, first_if_many: bool = False) -> None:
+    """Stop using the host's exit node. With network set, only if it belongs to that
+    network."""
     with _lock:
         settings = load_settings()
-        if not settings.get("accepted_exit_node"):
+        current = settings.get("exit_node") if isinstance(settings.get("exit_node"), dict) else None
+        if not current or not current.get("via"):
             raise RouteError("No exit node is currently accepted.")
-        settings["accepted_exit_node"] = None
+        if network is not None or not first_if_many:
+            try:
+                e = resolve_network(network, first_if_many)
+            except ServiceApiError:
+                e = None
+            if network is not None and (e is None or current.get("enrollment") != e["id"]):
+                raise RouteError("This network's exit node isn't the one in use.")
+        settings["exit_node"] = None
         save_settings(settings)
 
 
