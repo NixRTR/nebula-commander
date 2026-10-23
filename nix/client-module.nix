@@ -11,6 +11,30 @@ let
     "--interval"
     (toString cfg.interval)
   ] ++ optional cfg.acceptDns "--accept-dns";
+
+  # Networks to enroll in: services.ncclient.networks plus, for configurations written
+  # before 0.8.0, the single server/enrollCodeFile as the network "default".
+  enrollNetworks = filterAttrs (_: n: n.enrollCodeFile != null) (
+    cfg.networks
+    // optionalAttrs (cfg.server != null && cfg.enrollCodeFile != null) {
+      default = { server = cfg.server; enrollCodeFile = cfg.enrollCodeFile; };
+    }
+  );
+
+  # Once per network: a marker in stateDir records that it's enrolled, so a used
+  # one-time code is never sent again. A device token from before 0.8.0 (stateDir/token,
+  # or tokens/ after the client converted it) counts as the "default" network.
+  enrollScript = name: net: ''
+    marker=${cfg.stateDir}/.enrolled-${name}
+    if [ ! -e "$marker" ]; then
+      if [ "${name}" = "default" ] && { [ -f ${cfg.stateDir}/token ] || [ -n "$(ls -A ${cfg.stateDir}/tokens 2>/dev/null)" ]; }; then
+        touch "$marker"
+      else
+        ${cfg.package}/bin/ncclient --server ${escapeShellArg net.server} enroll --code "$(cat ${net.enrollCodeFile})"
+        touch "$marker"
+      fi
+    fi
+  '';
 in
 
 {
@@ -32,8 +56,13 @@ in
     };
 
     server = mkOption {
-      type = types.str;
-      description = "Nebula Commander server URL (e.g. https://nebula.example.com).";
+      type = types.nullOr types.str;
+      default = null;
+      description = ''
+        Nebula Commander server URL (e.g. https://nebula.example.com) for a device in
+        one network. With several networks use `networks` instead; each network keeps
+        its own server.
+      '';
     };
 
     enrollCodeFile = mkOption {
@@ -41,9 +70,37 @@ in
       default = null;
       description = ''
         Path to a file containing a one-time enrollment code (e.g. managed by
-        sops-nix). When set and no device token exists yet at
-        "''${stateDir}/token", ncclient enroll is run once before the main
-        service starts. Leave null if you provision the token file out of band.
+        sops-nix) for `server`. The device is enrolled once, before the main
+        service starts (same as `networks.default`). Leave null if you provision
+        the token out of band.
+      '';
+    };
+
+    networks = mkOption {
+      type = types.attrsOf (types.submodule {
+        options = {
+          server = mkOption {
+            type = types.str;
+            description = "This network's Nebula Commander server URL.";
+          };
+          enrollCodeFile = mkOption {
+            type = types.nullOr types.path;
+            default = null;
+            description = "File with a one-time enrollment code for this network (enrolled once).";
+          };
+        };
+      });
+      default = { };
+      example = literalExpression ''
+        {
+          home = { server = "https://nebula.example.com"; enrollCodeFile = "/run/secrets/nc-home"; };
+          office = { server = "https://nc.office.example"; enrollCodeFile = "/run/secrets/nc-office"; };
+        }
+      '';
+      description = ''
+        Networks this device joins (0.8.0+: one ncclient runs a Nebula per network,
+        each on its own tun device). Each is enrolled once with its code; removing an
+        entry here does not leave the network - use `ncclient networks remove`.
       '';
     };
 
@@ -156,7 +213,7 @@ in
       });
     '';
 
-    systemd.services.ncclient-enroll = mkIf (cfg.enrollCodeFile != null) {
+    systemd.services.ncclient-enroll = mkIf (enrollNetworks != { }) {
       description = "Enroll ncclient with Nebula Commander";
       after = [ "network-online.target" ];
       wants = [ "network-online.target" ];
@@ -165,23 +222,21 @@ in
       environment = {
         NEBULA_DEVICE_TOKEN_FILE = "${cfg.stateDir}/token";
         NEBULA_COMMANDER_CONFIG_DIR = cfg.stateDir;
+        # Where a pre-0.8.0 install's state files are, for the one-time conversion.
+        NEBULA_COMMANDER_OUTPUT_DIR = cfg.outputDir;
       };
       serviceConfig = {
         Type = "oneshot";
         RemainAfterExit = true;
       };
-      script = ''
-        if [ ! -f "${cfg.stateDir}/token" ]; then
-          ${cfg.package}/bin/ncclient --server ${cfg.server} enroll --code "$(cat ${cfg.enrollCodeFile})"
-        fi
-      '';
+      script = concatStringsSep "\n" (mapAttrsToList enrollScript enrollNetworks);
     };
 
     systemd.services.ncclient = {
       description = "Nebula Commander device client (ncclient)";
-      after = [ "network-online.target" ] ++ optional (cfg.enrollCodeFile != null) "ncclient-enroll.service";
+      after = [ "network-online.target" ] ++ optional (enrollNetworks != { }) "ncclient-enroll.service";
       wants = [ "network-online.target" ];
-      requires = optional (cfg.enrollCodeFile != null) "ncclient-enroll.service";
+      requires = optional (enrollNetworks != { }) "ncclient-enroll.service";
       wantedBy = [ "multi-user.target" ];
 
       # Extend PATH via `path`, not `environment.PATH`: NixOS's systemd module already
@@ -196,12 +251,14 @@ in
       # flag (--output-dir, --interval, --accept-dns, --nebula, --restart-service) must
       # be passed on the command line - there is no env-var equivalent for them.
       environment = {
-        NEBULA_COMMANDER_SERVER = cfg.server;
         NEBULA_DEVICE_TOKEN_FILE = "${cfg.stateDir}/token";
         NEBULA_COMMANDER_CONFIG_DIR = cfg.stateDir;
         # Auto-update on NixOS only ever notifies: the version is pinned by this
         # machine's flake, so the client must never install anything itself.
         NEBULA_COMMANDER_INSTALL_KIND = "nixos";
+      } // optionalAttrs (cfg.server != null) {
+        # Only a fallback: each enrolled network carries its own server.
+        NEBULA_COMMANDER_SERVER = cfg.server;
       };
 
       serviceConfig = {
@@ -210,7 +267,7 @@ in
         # privileged precedent on the other two platforms (Windows Service =
         # LocalSystem, Docker image = root in container) rather than attempting
         # CAP_NET_ADMIN-only hardening untested here.
-        ExecStart = "${cfg.package}/bin/ncclient --server ${cfg.server} run ${concatStringsSep " " runArgs}";
+        ExecStart = "${cfg.package}/bin/ncclient${optionalString (cfg.server != null) " --server ${escapeShellArg cfg.server}"} run ${concatStringsSep " " runArgs}";
         Restart = "on-failure";
         RestartSec = "30s";
       };
