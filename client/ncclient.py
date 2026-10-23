@@ -415,7 +415,7 @@ def is_process_elevated() -> bool:
     return _windows_process_is_elevated()
 
 
-def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
+def _start_nebula(nebula_bin: str, output_dir: str, bind_force: bool = False) -> subprocess.Popen | None:
     output_dir = os.path.expanduser(output_dir)
     config = _config_path(output_dir)
     if not os.path.exists(config):
@@ -444,7 +444,9 @@ def _start_nebula(nebula_bin: str, output_dir: str) -> subprocess.Popen | None:
             from client import exit_routing
             with open(config, "rb") as f:
                 current = f.read()
-            bound = exit_routing.bind_to_uplink(current)
+            # bind_force: another network on this host uses an exit node (see
+            # exit_routing.bind_to_uplink) - without it the binding would be undone here.
+            bound = exit_routing.bind_to_uplink(current, force=bind_force)
             if bound != current:
                 with open(config, "wb") as f:
                     f.write(bound)
@@ -1110,7 +1112,7 @@ def run_poll_loop(
             return
         if nebula_bin and nebula_proc is not None and nebula_proc.poll() is None:
             _stop_nebula(nebula_proc)
-            nebula_proc = _start_nebula(nebula_bin, output_dir)
+            nebula_proc = _start_nebula(nebula_bin, output_dir, bind_force=_host_exit_active())
             _ensure_exit()
         # Not running yet (first pass): whichever path starts it uses the updated file.
 
@@ -1146,7 +1148,7 @@ def run_poll_loop(
                 if nebula_bin and nebula_proc is not None:
                     _exit_log("Exit node: uplink address changed; restarting Nebula bound to the new one")
                     _stop_nebula(nebula_proc)
-                    nebula_proc = _start_nebula(nebula_bin, output_dir)
+                    nebula_proc = _start_nebula(nebula_bin, output_dir, bind_force=_host_exit_active())
             except OSError as e:
                 _exit_log(f"Exit node: could not rewrite config for the new uplink address: {e}")
         pid = getattr(nebula_proc, "pid", None) if nebula_proc is not None and nebula_proc.poll() is None else None
@@ -1171,7 +1173,7 @@ def run_poll_loop(
             return proc
         if dns_debug_log:
             dns_debug_log(f"{reason}; starting Nebula from the last known config")
-        started = _start_nebula(nebula_bin, output_dir)
+        started = _start_nebula(nebula_bin, output_dir, bind_force=_host_exit_active())
         if started is not None and status_callback:
             status_callback("error", f"{reason} - running on the last known config")
         return started
@@ -1324,7 +1326,7 @@ def run_poll_loop(
                                     dns_debug_log(f"applying advertised routes failed: {e}")
                 if r.status_code == 304:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
-                        nebula_proc = _start_nebula(nebula_bin, output_dir)
+                        nebula_proc = _start_nebula(nebula_bin, output_dir, bind_force=_host_exit_active())
                     _ensure_exit()
                     _ensure_dns()
                     _sleep()
@@ -1343,7 +1345,7 @@ def run_poll_loop(
                 config_id = etag_raw.strip('"') if etag_raw is not None else hashlib.sha256(r.content).hexdigest()
                 if last_etag is not None and config_id == last_etag:
                     if nebula_bin and (nebula_proc is None or nebula_proc.poll() is not None):
-                        nebula_proc = _start_nebula(nebula_bin, output_dir)
+                        nebula_proc = _start_nebula(nebula_bin, output_dir, bind_force=_host_exit_active())
                     _ensure_exit()
                     _ensure_dns()
                     _sleep()
@@ -1381,7 +1383,7 @@ def run_poll_loop(
                 _ensure_exit()
                 if nebula_bin:
                     _stop_nebula(nebula_proc)
-                    nebula_proc = _start_nebula(nebula_bin, output_dir)
+                    nebula_proc = _start_nebula(nebula_bin, output_dir, bind_force=_host_exit_active())
                     if enrollment_id:
                         # Another network's exit routing exempts every Nebula's UDP port
                         # (re-read on each of its polls): have it look now, not up to an

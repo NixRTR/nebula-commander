@@ -30,7 +30,7 @@ class _FakeProc:
 def loop_env(monkeypatch, tmp_path):
     started, stopped = [], []
 
-    def fake_start(nebula_bin, output_dir):
+    def fake_start(nebula_bin, output_dir, **kw):
         proc = _FakeProc()
         started.append(proc)
         return proc

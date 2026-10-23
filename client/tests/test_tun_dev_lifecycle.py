@@ -44,7 +44,7 @@ class _FakeProc:
 def env(monkeypatch, tmp_path):
     calls = {"dns_remove": [], "routes": []}
     monkeypatch.setattr(ncclient.sys, "platform", "linux")
-    monkeypatch.setattr(ncclient, "_start_nebula", lambda b, o: _FakeProc())
+    monkeypatch.setattr(ncclient, "_start_nebula", lambda b, o, **kw: _FakeProc())
     monkeypatch.setattr(ncclient, "_stop_nebula", lambda p: None)
     import client.dns_apply as dns_apply
     monkeypatch.setattr(dns_apply, "remove_split_horizon_dns", lambda dev=None: calls["dns_remove"].append(dev) or True)
