@@ -118,3 +118,14 @@ def test_stopping_removes_this_instances_nft_table(env):
     routes["routes"] = ["192.168.50.0/24"]
     _run(out, [_config("nc-office"), _config("nc-office")])
     assert calls["routes"][-1] == ([], "nc-office")
+
+
+def test_a_new_networks_routes_go_on_its_own_device(env):
+    """Found on a Debian VM running two networks (2026-10-23): a network's first poll
+    applied its advertised routes before its config was written, to a guessed "nebula1"
+    - another network's device, whose traffic then got this network's NAT."""
+    out, calls, routes = env
+    routes["routes"] = ["0.0.0.0/0"]
+    _run(out, [_config("nc-office")])
+    applied = [dev for r, dev in calls["routes"] if r]
+    assert applied and set(applied) == {"nc-office"}, calls["routes"]

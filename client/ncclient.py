@@ -853,13 +853,17 @@ def _fill_enrollment_details(base: str, token: str, enrollment_id: str, debug_lo
     name (it's what the apps and `networks list` show). True once done or not possible
     (an older server without /api/device/info) - either way, don't ask again."""
     try:
+        from client.service_api import set_enrollment_details
+
         r = requests.get(f"{base}/api/device/info", headers={"Authorization": f"Bearer {token}"}, timeout=15)
         if r.status_code == 404:
+            # A server before 0.8.0: name the network after the server, better than its id.
+            from urllib.parse import urlparse
+            set_enrollment_details(enrollment_id, urlparse(base).hostname or "", "")
             return True
         if not r.ok:
             return False
         data = r.json()
-        from client.service_api import set_enrollment_details
         set_enrollment_details(enrollment_id, str(data.get("network_name") or ""), str(data.get("hostname") or ""))
         return True
     except Exception as e:
@@ -1296,10 +1300,16 @@ def run_poll_loop(
                     )
                     if sys.platform.startswith("linux"):
                         advertised_routes = _fetch_advertised_routes(base, token, dns_debug_log)
-                        routes_tun_dev = current_tun_dev or "nebula1"
-                        if advertised_routes != (last_advertised_routes or []) or (
+                        # The device from this response's config (a new network's first
+                        # poll has no config on disk yet), else the one written last.
+                        # Never a guess: rules for the wrong device would NAT another
+                        # network's traffic.
+                        routes_tun_dev = (
+                            _tun_dev_from_config(r.content) if r.status_code == 200 else None
+                        ) or current_tun_dev
+                        if routes_tun_dev and (advertised_routes != (last_advertised_routes or []) or (
                             advertised_routes and routes_tun_dev != last_routes_tun_dev
-                        ):
+                        )):
                             try:
                                 from client import linux_routing
                                 linux_routing.apply_routes(
@@ -1372,6 +1382,12 @@ def run_poll_loop(
                 if nebula_bin:
                     _stop_nebula(nebula_proc)
                     nebula_proc = _start_nebula(nebula_bin, output_dir)
+                    if enrollment_id:
+                        # Another network's exit routing exempts every Nebula's UDP port
+                        # (re-read on each of its polls): have it look now, not up to an
+                        # interval later, or this Nebula's traffic follows the exit route.
+                        from client.service_api import request_poll_now
+                        request_poll_now()
                 if restart_service:
                     _restart_systemd_service(restart_service)
                 _ensure_exit()

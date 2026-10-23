@@ -452,7 +452,10 @@ def set_enrollment_details(enrollment_id: str, name: str, hostname: str) -> None
     before the server returned them, see ncclient._fill_enrollment_details)."""
     with _lock:
         settings = load_settings()
-        _update_enrollment(settings, enrollment_id, name=name, hostname=hostname)
+        fields = {"name": name}
+        if hostname:
+            fields["hostname"] = hostname
+        _update_enrollment(settings, enrollment_id, **fields)
         save_settings(settings)
 
 
