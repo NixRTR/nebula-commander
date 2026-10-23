@@ -172,8 +172,9 @@ class _FakeIp:
 
 
 @pytest.fixture
-def linux_host(monkeypatch):
+def linux_host(monkeypatch, tmp_path):
     fake = _FakeIp()
+    monkeypatch.setattr(er, "LINUX_OWNER_FILE", str(tmp_path / "run" / "exit-owner.json"))
     monkeypatch.setattr(er, "_run", fake)
     monkeypatch.setattr(er.os.path, "isdir", lambda p: p == "/sys/class/net/nebula1")
     monkeypatch.setattr(er, "_linux_ipv6_enabled", lambda: True)
@@ -222,6 +223,42 @@ def test_linux_apply_without_exit_route_only_removes_what_it_installed(linux_hos
     er.apply(CONFIG_NO_EXIT, "/tmp/x")
     assert any(c[2:4] == ["rule", "del"] for c in linux_host.calls)
     assert ["ip", "-4", "route", "flush", "table", "52042"] in linux_host.calls
+
+
+def _owner_record(path, state_dir, pid):
+    import os
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({"state_dir": state_dir, "pid": pid}, f)
+
+
+def test_linux_apply_records_this_process_as_owner(linux_host):
+    import os
+    assert er.apply(CONFIG, "/tmp/x") is True
+    with open(er.LINUX_OWNER_FILE, encoding="utf-8") as f:
+        assert json.load(f) == {"state_dir": os.path.abspath("/tmp/x"), "pid": os.getpid()}
+    er.remove("/tmp/x")
+    assert not os.path.exists(er.LINUX_OWNER_FILE)
+
+
+def test_another_running_instance_keeps_its_exit_rules(linux_host, monkeypatch):
+    """Bug found 2026-10-21: a second ncclient's start-up clean-up dropped the first one's
+    kill switch until that one's next poll."""
+    _owner_record(er.LINUX_OWNER_FILE, "/var/lib/other", 4321)
+    monkeypatch.setattr(er, "_pid_alive", lambda pid: pid == 4321)
+    linux_host.calls.clear()
+    er.remove("/tmp/x")
+    assert linux_host.calls == [], "start-up clean-up must not touch another instance's rules"
+    assert er.apply(CONFIG, "/tmp/x") is False, "a second exit node on the same host is refused"
+    assert linux_host.calls == []
+
+
+def test_rules_of_a_dead_instance_are_cleaned_up(linux_host, monkeypatch):
+    _owner_record(er.LINUX_OWNER_FILE, "/var/lib/other", 4321)
+    monkeypatch.setattr(er, "_pid_alive", lambda pid: False)
+    er.remove("/tmp/x")
+    assert any(c[2:4] == ["rule", "del"] for c in linux_host.calls)
+    assert er.apply(CONFIG, "/tmp/x") is True
 
 
 def test_linux_port_zero_without_known_port_does_not_install(linux_host, monkeypatch):

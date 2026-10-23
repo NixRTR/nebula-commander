@@ -302,6 +302,61 @@ def _linux_own_addresses() -> tuple[tuple[str, ...], tuple[str, ...]]:
 
 _linux_applied: Optional[tuple] = None
 
+# The rules and table 52042 are host-wide, while each ncclient process (the packaged
+# service, a Docker container, a second `ncclient run`) only knows its own state. The
+# process that installed them records itself here so the others leave them alone - a
+# second process's start-up clean-up would otherwise drop the first one's kill switch.
+LINUX_OWNER_FILE = "/run/ncclient/exit-owner.json"
+
+
+def _pid_alive(pid: object) -> bool:
+    if not isinstance(pid, int) or pid <= 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def _linux_owner() -> Optional[dict]:
+    try:
+        with open(LINUX_OWNER_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _linux_other_owner(state_dir: str) -> Optional[dict]:
+    """The owner record if a different, still running ncclient installed the rules."""
+    owner = _linux_owner()
+    if not owner or owner.get("state_dir") == os.path.abspath(state_dir):
+        return None
+    return owner if _pid_alive(owner.get("pid")) else None
+
+
+def _linux_set_owner(state_dir: str) -> None:
+    try:
+        os.makedirs(os.path.dirname(LINUX_OWNER_FILE), mode=0o755, exist_ok=True)
+        tmp = LINUX_OWNER_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump({"state_dir": os.path.abspath(state_dir), "pid": os.getpid()}, f)
+        os.replace(tmp, LINUX_OWNER_FILE)
+    except OSError:
+        pass  # without the record a second instance may clean up too eagerly - not fatal
+
+
+def _linux_clear_owner() -> None:
+    try:
+        os.remove(LINUX_OWNER_FILE)
+    except OSError:
+        pass
+
 
 def _linux_present(plan: ExitPlan, tun_present: bool) -> bool:
     r = _run(["ip", "-4", "route", "show", "table", str(ROUTE_TABLE)])
@@ -324,8 +379,13 @@ def _linux_remove() -> None:
         _run(["ip", fam, "route", "flush", "table", str(ROUTE_TABLE)])
 
 
-def _linux_apply(plan: ExitPlan, allow_lan: bool, nebula_pid: Optional[int], debug_log) -> bool:
+def _linux_apply(plan: ExitPlan, allow_lan: bool, nebula_pid: Optional[int], debug_log, state_dir: str = "") -> bool:
     global _linux_applied
+    other = _linux_other_owner(state_dir)
+    if other:
+        _log(f"Exit node: another ncclient on this host (pid {other.get('pid')}, {other.get('state_dir')}) "
+             "already routes all traffic through an exit node; not applied", debug_log)
+        return False
     # Nebula may still be creating its device right after a (re)start - wait briefly. If
     # it's still missing, only the kill switch goes in and the next call adds the route.
     tun_present = False
@@ -360,6 +420,7 @@ def _linux_apply(plan: ExitPlan, allow_lan: bool, nebula_pid: Optional[int], deb
             _linux_remove()
             return False
     _linux_applied = key
+    _linux_set_owner(state_dir)
     _log(f"Exit node: all traffic routed via {plan.tun_dev}"
          # route_v6 only says the config routes ::/0: on an IPv4-only network the gateway's
          # cert can't carry it, and the gateway drops the IPv6 instead of forwarding it.
@@ -583,7 +644,7 @@ def apply(
                 remove(state_dir, debug_log)
             return False
         if sys.platform.startswith("linux"):
-            return _linux_apply(plan, allow_lan, nebula_pid, debug_log)
+            return _linux_apply(plan, allow_lan, nebula_pid, debug_log, state_dir)
         if sys.platform == "win32":
             return _windows_apply(plan, allow_lan, state_dir, debug_log)
         return False
@@ -593,10 +654,16 @@ def apply(
 
 
 def remove(state_dir: str, debug_log: Optional[Callable[[str], None]] = None) -> None:
-    """Undo everything apply() installed (exit node rejected, revoked, ncclient stopping)."""
+    """Undo everything apply() installed (exit node rejected, revoked, ncclient stopping).
+    On Linux, rules another running ncclient installed are left alone."""
     try:
         if sys.platform.startswith("linux"):
+            other = _linux_other_owner(state_dir)
+            if other:
+                _log(f"Exit node: rules belong to another ncclient (pid {other.get('pid')}); left in place", debug_log)
+                return
             _linux_remove()
+            _linux_clear_owner()
         elif sys.platform == "win32":
             _windows_remove(state_dir, debug_log)
     except Exception as e:
