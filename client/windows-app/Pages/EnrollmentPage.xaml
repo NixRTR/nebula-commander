@@ -10,16 +10,16 @@
 
     <ScrollViewer>
         <StackPanel Padding="24,16,24,24" Spacing="16" MaxWidth="480" HorizontalAlignment="Left">
-            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Enrollment" />
+            <TextBlock Style="{StaticResource TitleTextBlockStyle}" Text="Add a network" />
             <TextBlock
-                Text="Enroll this device with a one-time code from the Nebula Commander UI (Nodes → Enroll)."
+                Text="Enroll this device in a network with a one-time code from that network's Nebula Commander (Nodes → Get Enrollment Code). A device can be in several networks, on different servers."
                 TextWrapping="Wrap"
                 Opacity="0.7" />
 
             <InfoBar
                 x:Name="AlreadyEnrolledBar"
                 Title="Already enrolled"
-                Message="Enrolling again will replace this device's token and re-point it at the server below."
+                Message="A code for another network adds that network. A new code for a network this device is already in replaces its token."
                 Severity="Informational"
                 IsOpen="False"
                 IsClosable="False" />

@@ -38,15 +38,15 @@
             SelectionChanged="NavView_SelectionChanged">
             <NavigationView.MenuItems>
                 <NavigationViewItem
-                    Content="Status"
-                    Tag="status">
+                    Content="Networks"
+                    Tag="networks">
                     <NavigationViewItem.Icon>
                         <FontIcon Glyph="&#xE9D9;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
-                <NavigationViewItem Content="Enrollment" Tag="enrollment">
+                <NavigationViewItem Content="Add network" Tag="enrollment">
                     <NavigationViewItem.Icon>
-                        <FontIcon Glyph="&#xE8FB;" />
+                        <FontIcon Glyph="&#xE710;" />
                     </NavigationViewItem.Icon>
                 </NavigationViewItem>
             </NavigationView.MenuItems>

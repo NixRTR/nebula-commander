@@ -25,12 +25,11 @@ public sealed partial class SettingsPage : Page
             if (settings is null)
             {
                 ShowSaveResult(InfoBarSeverity.Warning, "Service not running",
-                    "Start the Nebula Commander service (Status page) to view or change settings.");
+                    "Start the Nebula Commander service (Networks page) to view or change settings.");
                 SaveButton.IsEnabled = false;
             }
             else
             {
-                ServerBox.Text = settings.Server ?? "";
                 IntervalBox.Value = settings.Interval ?? 60;
                 AcceptDnsToggle.IsOn = settings.AcceptDns ?? false;
                 SaveButton.IsEnabled = true;
@@ -58,10 +57,9 @@ public sealed partial class SettingsPage : Page
         SaveProgress.IsActive = true;
         try
         {
-            var server = string.IsNullOrWhiteSpace(ServerBox.Text) ? "" : BackendClient.NormalizeServerUrl(ServerBox.Text.Trim());
             var interval = Math.Clamp((int)(double.IsNaN(IntervalBox.Value) ? 60 : IntervalBox.Value), 10, 3600);
             // The service saves and restarts its poll loop with the new settings.
-            var result = await ServiceApi.SetSettingsAsync(server, interval, AcceptDnsToggle.IsOn);
+            var result = await ServiceApi.SetSettingsAsync(interval, AcceptDnsToggle.IsOn);
             if (result.Ok)
             {
                 ShowSaveResult(InfoBarSeverity.Success, "Saved", "Settings saved. The service is using them now.");

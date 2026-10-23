@@ -18,12 +18,18 @@ public sealed partial class EnrollmentPage : Page
         var enrollment = await ServiceApi.GetEnrollmentAsync();
         if (enrollment is null)
         {
-            ShowResult(InfoBarSeverity.Warning, "The Nebula Commander service isn't running - start it from the Status page.");
+            ShowResult(InfoBarSeverity.Warning, "The Nebula Commander service isn't running - start it from the Networks page.");
             return;
         }
-        if (!string.IsNullOrWhiteSpace(enrollment.Server))
+        if (string.IsNullOrWhiteSpace(ServerBox.Text) && !string.IsNullOrWhiteSpace(enrollment.Server))
         {
             ServerBox.Text = enrollment.Server;
+        }
+        var networks = await ServiceApi.ListNetworksAsync();
+        if (networks is { Count: > 0 })
+        {
+            AlreadyEnrolledBar.Title = $"Enrolled in {networks.Count} network{(networks.Count == 1 ? "" : "s")}: "
+                + string.Join(", ", networks.Select(n => n.DisplayName));
         }
         AlreadyEnrolledBar.IsOpen = enrollment.Enrolled;
     }
@@ -65,8 +71,8 @@ public sealed partial class EnrollmentPage : Page
             }
 
             CodeBox.Text = "";
-            ShowResult(InfoBarSeverity.Success, "Enrolled. Loading status...");
-            App.MainWindowInstance?.NavigateToTag("status");
+            ShowResult(InfoBarSeverity.Success, "Enrolled. Starting the network...");
+            App.MainWindowInstance?.NavigateToTag("networks");
         }
         finally
         {

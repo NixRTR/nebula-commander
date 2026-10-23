@@ -30,30 +30,50 @@ public static class ServiceApi
         }
     }
 
+    /// <summary>Per-network commands take the network's id (from
+    /// <see cref="ListNetworksAsync"/>); null means the service-wide/first network.</summary>
+    private static Dictionary<string, object?>? Net(string? network, Dictionary<string, object?>? args = null)
+    {
+        if (network is null)
+        {
+            return args;
+        }
+        args ??= new Dictionary<string, object?>();
+        args["network"] = network;
+        return args;
+    }
+
     // --- reads (any user) ---
 
-    public static async Task<NebulaStatus> GetStatusAsync() =>
-        As<NebulaStatus>(await PipeClient.SendAsync("get_status")) ?? new NebulaStatus();
+    /// <summary>Every enrolled network (one service, several networks); empty when not
+    /// enrolled, null when the service isn't reachable.</summary>
+    public static async Task<List<NetworkInfo>?> ListNetworksAsync() =>
+        As<List<NetworkInfo>>(await PipeClient.SendAsync("list_networks"));
+
+    /// <summary>A network's status, or the whole service's when network is null.</summary>
+    public static async Task<NebulaStatus> GetStatusAsync(string? network = null) =>
+        As<NebulaStatus>(await PipeClient.SendAsync("get_status", Net(network))) ?? new NebulaStatus();
 
     /// <summary>null when the service isn't reachable.</summary>
-    public static async Task<NebulaSettings?> GetSettingsAsync() =>
-        As<NebulaSettings>(await PipeClient.SendAsync("get_settings"));
+    public static async Task<NebulaSettings?> GetSettingsAsync(string? network = null) =>
+        As<NebulaSettings>(await PipeClient.SendAsync("get_settings", Net(network)));
 
     /// <summary>null when the service isn't reachable.</summary>
     public static async Task<EnrollmentState?> GetEnrollmentAsync() =>
         As<EnrollmentState>(await PipeClient.SendAsync("is_enrolled"));
 
-    public static async Task<List<AvailableRoute>> GetAvailableRoutesAsync() =>
-        As<List<AvailableRoute>>(await PipeClient.SendAsync("get_available_routes")) ?? new();
+    public static async Task<List<AvailableRoute>> GetAvailableRoutesAsync(string? network = null) =>
+        As<List<AvailableRoute>>(await PipeClient.SendAsync("get_available_routes", Net(network))) ?? new();
 
-    public static async Task<List<string>> GetAdvertisedRoutesAsync() =>
-        As<List<string>>(await PipeClient.SendAsync("get_advertised_routes", timeoutMs: 15000)) ?? new();
+    public static async Task<List<string>> GetAdvertisedRoutesAsync(string? network = null) =>
+        As<List<string>>(await PipeClient.SendAsync("get_advertised_routes", Net(network), timeoutMs: 15000)) ?? new();
 
     /// <summary>config.yaml with the private key redacted by the service.</summary>
-    public static Task<PipeClient.PipeResponse> GetConfigYamlAsync() => PipeClient.SendAsync("get_config_yaml");
+    public static Task<PipeClient.PipeResponse> GetConfigYamlAsync(string? network = null) =>
+        PipeClient.SendAsync("get_config_yaml", Net(network));
 
-    public static async Task<bool> GetDnsConfiguredAsync() =>
-        As<bool>(await PipeClient.SendAsync("get_dns_configured"));
+    public static async Task<bool> GetDnsConfiguredAsync(string? network = null) =>
+        As<bool>(await PipeClient.SendAsync("get_dns_configured", Net(network)));
 
     public static async Task<string?> GetNebulaVersionAsync() =>
         As<string>(await PipeClient.SendAsync("get_nebula_version", timeoutMs: 15000));
@@ -80,30 +100,38 @@ public static class ServiceApi
     public static Task<PipeClient.PipeResponse> UpdateCheckNowAsync() =>
         PipeClient.SendAsync("update_check_now", timeoutMs: 30000);
 
-    public static Task<PipeClient.PipeResponse> SetSettingsAsync(string server, int interval, bool acceptDns) =>
+    /// <summary>Settings for every network (each keeps the server it enrolled with).</summary>
+    public static Task<PipeClient.PipeResponse> SetSettingsAsync(int interval, bool acceptDns) =>
         PipeClient.SendAsync("set_settings", new Dictionary<string, object?>
         {
-            ["server"] = server,
             ["interval"] = interval,
             ["accept_dns"] = acceptDns,
         }, timeoutMs: 30000);
 
+    /// <summary>Enroll in a network (another one, if already enrolled). The result has
+    /// "network" (its id) and "name".</summary>
     public static Task<PipeClient.PipeResponse> EnrollAsync(string server, string code) =>
         PipeClient.SendAsync("enroll", new Dictionary<string, object?> { ["server"] = server, ["code"] = code },
             timeoutMs: 60000);
 
-    public static Task<PipeClient.PipeResponse> AcceptRouteAsync(string cidr, string? via) =>
-        PipeClient.SendAsync("accept_route", new Dictionary<string, object?> { ["cidr"] = cidr, ["via"] = via },
+    /// <summary>Leave a network: its Nebula stops and the device forgets its token.</summary>
+    public static Task<PipeClient.PipeResponse> RemoveNetworkAsync(string network) =>
+        PipeClient.SendAsync("remove_network", new Dictionary<string, object?> { ["network"] = network },
+            timeoutMs: 60000);
+
+    public static Task<PipeClient.PipeResponse> AcceptRouteAsync(string cidr, string? via, string? network = null) =>
+        PipeClient.SendAsync("accept_route", Net(network, new Dictionary<string, object?> { ["cidr"] = cidr, ["via"] = via }),
             timeoutMs: 30000);
 
-    public static Task<PipeClient.PipeResponse> RejectRouteAsync(string cidr) =>
-        PipeClient.SendAsync("reject_route", new Dictionary<string, object?> { ["cidr"] = cidr }, timeoutMs: 30000);
+    public static Task<PipeClient.PipeResponse> RejectRouteAsync(string cidr, string? network = null) =>
+        PipeClient.SendAsync("reject_route", Net(network, new Dictionary<string, object?> { ["cidr"] = cidr }), timeoutMs: 30000);
 
-    public static Task<PipeClient.PipeResponse> AcceptExitNodeAsync(string via) =>
-        PipeClient.SendAsync("accept_exit_node", new Dictionary<string, object?> { ["via"] = via }, timeoutMs: 30000);
+    /// <summary>A device has one exit node: one in use in another network is replaced.</summary>
+    public static Task<PipeClient.PipeResponse> AcceptExitNodeAsync(string via, string? network = null) =>
+        PipeClient.SendAsync("accept_exit_node", Net(network, new Dictionary<string, object?> { ["via"] = via }), timeoutMs: 30000);
 
-    public static Task<PipeClient.PipeResponse> RejectExitNodeAsync() =>
-        PipeClient.SendAsync("reject_exit_node", timeoutMs: 30000);
+    public static Task<PipeClient.PipeResponse> RejectExitNodeAsync(string? network = null) =>
+        PipeClient.SendAsync("reject_exit_node", Net(network), timeoutMs: 30000);
 
     public static Task<PipeClient.PipeResponse> SetExitAllowLanAsync(bool allowLan) =>
         PipeClient.SendAsync("set_settings", new Dictionary<string, object?> { ["exit_allow_lan"] = allowLan },

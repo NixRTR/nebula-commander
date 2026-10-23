@@ -135,7 +135,7 @@ public sealed partial class MainWindow : Window
         Application.Current.Exit();
     }
 
-    /// <summary>Selects the given MenuItem tag ("status"/"enrollment"), which
+    /// <summary>Selects the given MenuItem tag ("networks"/"enrollment"), which
     /// fires NavView_SelectionChanged and navigates the frame to match.</summary>
     public void NavigateToTag(string tag)
     {
@@ -148,14 +148,14 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// <summary>Enrolled -> Status, not enrolled -> Enrollment. Called once at
+    /// <summary>Enrolled -> Networks, not enrolled -> Add network. Called once at
     /// launch (see App.xaml.cs::OnLaunched). Asks the service (is_enrolled) -
     /// the token itself is never readable by this app. Service unreachable ->
     /// Status, which explains that.</summary>
     public async void NavigateInitial()
     {
         var enrollment = await ServiceApi.GetEnrollmentAsync();
-        NavigateToTag(enrollment is { Enrolled: false } ? "enrollment" : "status");
+        NavigateToTag(enrollment is { Enrolled: false } ? "enrollment" : "networks");
     }
 
     private void TitleBar_PaneToggleRequested(TitleBar sender, object args)
@@ -178,8 +178,8 @@ public sealed partial class MainWindow : Window
         {
             switch (item.Tag)
             {
-                case "status":
-                    NavFrame.Navigate(typeof(StatusPage));
+                case "networks":
+                    NavFrame.Navigate(typeof(NetworksPage));
                     break;
                 case "enrollment":
                     NavFrame.Navigate(typeof(EnrollmentPage));

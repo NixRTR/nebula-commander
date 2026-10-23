@@ -51,6 +51,44 @@ public sealed class NebulaSettings
     /// (absent = true).</summary>
     [JsonPropertyName("exit_allow_lan")]
     public bool? ExitAllowLan { get; set; }
+
+    /// <summary>Some network on this device uses an exit node (maybe another one's).</summary>
+    [JsonPropertyName("host_exit_active")]
+    public bool? HostExitActive { get; set; }
+}
+
+/// <summary>One enrolled network - client/service_api.py's list_networks.</summary>
+public sealed class NetworkInfo
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("hostname")]
+    public string Hostname { get; set; } = "";
+
+    [JsonPropertyName("server")]
+    public string Server { get; set; } = "";
+
+    [JsonPropertyName("node_id")]
+    public int? NodeId { get; set; }
+
+    [JsonPropertyName("tun_dev")]
+    public string TunDev { get; set; } = "";
+
+    [JsonPropertyName("overlay_ip")]
+    public string OverlayIp { get; set; } = "";
+
+    [JsonPropertyName("status")]
+    public NebulaStatus Status { get; set; } = new();
+
+    /// <summary>The exit node's gateway IP when this network's exit node is the one in use.</summary>
+    [JsonPropertyName("exit_node")]
+    public string? ExitNode { get; set; }
+
+    public string DisplayName => string.IsNullOrWhiteSpace(Name) ? (NodeId is int id ? $"Node {id}" : Id) : Name;
 }
 
 /// <summary>One entry from available-routes.json - everything this node is

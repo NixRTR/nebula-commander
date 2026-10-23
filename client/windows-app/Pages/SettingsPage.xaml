@@ -15,11 +15,8 @@
             <!-- Connection -->
             <StackPanel Spacing="12">
                 <TextBlock Text="Connection" Style="{StaticResource SubtitleTextBlockStyle}" />
-
-                <TextBox
-                    x:Name="ServerBox"
-                    Header="Server URL"
-                    PlaceholderText="https://nebula-commander.example.com" />
+                <!-- No server here: each network keeps the server it was enrolled with. -->
+                <TextBlock Text="These apply to every network." Opacity="0.7" />
 
                 <NumberBox
                     x:Name="IntervalBox"

@@ -35,10 +35,12 @@
             <!-- Header -->
             <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
                 <Image Source="/Assets/Logo.png" Width="36" Height="36" />
-                <TextBlock Text="Status" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
+                <TextBlock x:Name="TitleText" Text="Network" Style="{StaticResource TitleTextBlockStyle}" VerticalAlignment="Center" />
                 <Button x:Name="RefreshButton" Content="Refresh" Click="RefreshButton_Click" Margin="12,0,0,0" VerticalAlignment="Center" />
+                <Button x:Name="LeaveButton" Content="Leave network" Click="LeaveButton_Click" VerticalAlignment="Center" />
                 <ProgressRing x:Name="RefreshProgress" IsActive="False" Width="16" Height="16" VerticalAlignment="Center" />
             </StackPanel>
+            <InfoBar x:Name="LeaveResultBar" IsOpen="False" IsClosable="True" />
 
             <!-- Connection -->
             <Border Style="{StaticResource CardStyle}">
@@ -52,24 +54,6 @@
                         <Button x:Name="TestConnectionButton" Content="Test Connection" Click="TestConnectionButton_Click" />
                         <TextBlock x:Name="TestConnectionResult" VerticalAlignment="Center" Style="{StaticResource MutedTextStyle}" />
                     </StackPanel>
-                </StackPanel>
-            </Border>
-
-            <!-- Service -->
-            <Border Style="{StaticResource CardStyle}">
-                <StackPanel Spacing="8">
-                    <TextBlock Text="Nebula Commander Service" Style="{StaticResource CardHeaderStyle}" />
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <Ellipse x:Name="ServiceDot" Style="{StaticResource DotStyle}" />
-                        <TextBlock x:Name="ServiceStateText" />
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <Button x:Name="ServiceStartButton" Content="Start" Click="ServiceStartButton_Click" />
-                        <Button x:Name="ServiceStopButton" Content="Stop" Click="ServiceStopButton_Click" />
-                        <Button x:Name="ServiceRestartButton" Content="Restart" Click="ServiceRestartButton_Click" />
-                        <ProgressRing x:Name="ServiceProgress" IsActive="False" Width="16" Height="16" VerticalAlignment="Center" />
-                    </StackPanel>
-                    <TextBlock x:Name="ServiceActionResult" Style="{StaticResource MutedTextStyle}" TextWrapping="Wrap" />
                 </StackPanel>
             </Border>
 
@@ -114,6 +98,8 @@
                     <TextBlock x:Name="NoSubnetRoutesText" Text="None offered" Style="{StaticResource MutedTextStyle}" Visibility="Collapsed" />
 
                     <TextBlock Text="Exit node (pick one):" Style="{StaticResource MutedTextStyle}" Margin="0,8,0,0" />
+                    <TextBlock x:Name="ExitReplaceNote" Visibility="Collapsed" TextWrapping="Wrap" Style="{StaticResource MutedTextStyle}"
+                               Text="Another network's exit node is in use. This device has one exit node: picking one here replaces it." />
                     <StackPanel x:Name="ExitNodePanel" Spacing="4" />
                     <TextBlock x:Name="NoExitNodesText" Text="None offered" Style="{StaticResource MutedTextStyle}" Visibility="Collapsed" />
                     <CheckBox x:Name="ExitAllowLanCheckBox" Content="Allow local network access while using an exit node"

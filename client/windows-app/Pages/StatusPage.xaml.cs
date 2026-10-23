@@ -4,12 +4,20 @@ using Microsoft.UI;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Navigation;
 using NebulaCommanderApp.Services;
 
 namespace NebulaCommanderApp.Pages;
 
+/// <summary>One network's status, routes, exit node and config. Opened from
+/// <see cref="NetworksPage"/> with the <see cref="NetworkInfo"/> as the navigation
+/// parameter; without one (service from before 0.8.0) it shows the service's only
+/// network.</summary>
 public sealed partial class StatusPage : Page
 {
+    private NetworkInfo? _network;
+    private string? NetworkId => _network?.Id;
+
     // Cheap local refresh (pipe reads + service query, no network) on a short
     // timer so the page feels live; routing info hits the backend so it's only
     // refetched on page load / the Refresh button, not on every tick.
@@ -30,6 +38,56 @@ public sealed partial class StatusPage : Page
         OpenFolderButton.IsEnabled = Elevation.IsElevated;
     }
 
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        _network = e.Parameter as NetworkInfo;
+        TitleText.Text = _network?.DisplayName ?? "Status";
+        LeaveButton.Visibility = _network is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private async void LeaveButton_Click(object sender, RoutedEventArgs e)
+    {
+        if (_network is null)
+        {
+            return;
+        }
+        var dialog = new ContentDialog
+        {
+            Title = $"Leave {_network.DisplayName}?",
+            Content = "Nebula stops for this network and the device forgets its token. Joining again needs a new enrollment code.",
+            PrimaryButtonText = "Leave network",
+            CloseButtonText = "Cancel",
+            DefaultButton = ContentDialogButton.Close,
+            XamlRoot = XamlRoot,
+        };
+        if (await dialog.ShowAsync() != ContentDialogResult.Primary)
+        {
+            return;
+        }
+        var result = await ServiceApi.RemoveNetworkAsync(_network.Id);
+        if (!result.Ok)
+        {
+            if (result.AdministratorRequired)
+            {
+                App.MainWindowInstance?.ShowAdminRequired();
+            }
+            LeaveResultBar.Severity = InfoBarSeverity.Error;
+            LeaveResultBar.Title = "Leave network";
+            LeaveResultBar.Message = ServiceApi.Describe(result);
+            LeaveResultBar.IsOpen = true;
+            return;
+        }
+        if (Frame.CanGoBack)
+        {
+            Frame.GoBack();
+        }
+        else
+        {
+            App.MainWindowInstance?.NavigateToTag("networks");
+        }
+    }
+
     private async void StatusPage_Loaded(object sender, RoutedEventArgs e)
     {
         await RefreshFullAsync();
@@ -44,7 +102,7 @@ public sealed partial class StatusPage : Page
         RefreshProgress.IsActive = true;
         try
         {
-            var config = await ServiceApi.GetConfigYamlAsync();
+            var config = await ServiceApi.GetConfigYamlAsync(NetworkId);
             _tun = config.Ok && config.Result.ValueKind == System.Text.Json.JsonValueKind.String
                 ? ConfigYaml.ParseTunConfig(config.Result.GetString())
                 : null;
@@ -67,16 +125,14 @@ public sealed partial class StatusPage : Page
         _refreshingLocal = true;
         try
         {
-            var serviceState = ServiceControl.GetState();
-            var settings = await ServiceApi.GetSettingsAsync() ?? new NebulaSettings();
-            var status = await ServiceApi.GetStatusAsync();
-            var dnsConfigured = await ServiceApi.GetDnsConfiguredAsync();
+            var settings = await ServiceApi.GetSettingsAsync(NetworkId) ?? new NebulaSettings();
+            var status = await ServiceApi.GetStatusAsync(NetworkId);
+            var dnsConfigured = await ServiceApi.GetDnsConfiguredAsync(NetworkId);
 
             var server = string.IsNullOrWhiteSpace(settings.Server) ? "(not set)" : settings.Server;
             ServerLink.Content = server;
             ServerLink.IsEnabled = !string.IsNullOrWhiteSpace(settings.Server);
 
-            UpdateServiceCard(serviceState);
             UpdateNebulaCard(status, _tun);
             UpdateDnsCard(settings, dnsConfigured);
         }
@@ -88,23 +144,6 @@ public sealed partial class StatusPage : Page
         // panel holds interactive checkboxes/radios, and rebuilding it periodically
         // could disrupt a mid-click user. It's refreshed on load, the Refresh
         // button, and immediately after the user's own accept/reject action below.
-    }
-
-    private void UpdateServiceCard(NebulaServiceState state)
-    {
-        var (color, text) = state switch
-        {
-            NebulaServiceState.Running => (Colors.SeaGreen, "Running"),
-            NebulaServiceState.Stopped => (Colors.Firebrick, "Stopped"),
-            NebulaServiceState.Transitioning => (Colors.Goldenrod, "Starting/stopping..."),
-            _ => (Colors.Gray, "Not installed"),
-        };
-        ServiceDot.Fill = new SolidColorBrush(color);
-        ServiceStateText.Text = text;
-
-        ServiceStartButton.IsEnabled = state == NebulaServiceState.Stopped;
-        ServiceStopButton.IsEnabled = state == NebulaServiceState.Running;
-        ServiceRestartButton.IsEnabled = state == NebulaServiceState.Running;
     }
 
     private void UpdateNebulaCard(NebulaStatus status, TunConfig? tun)
@@ -159,7 +198,7 @@ public sealed partial class StatusPage : Page
     private async Task RefreshRoutingAsync()
     {
         // Fetched by the service with the device token - the app never sees it.
-        var advertised = await ServiceApi.GetAdvertisedRoutesAsync();
+        var advertised = await ServiceApi.GetAdvertisedRoutesAsync(NetworkId);
         AdvertisingText.Text = advertised.Count > 0
             ? string.Join(", ", advertised)
             : "Nothing (not acting as a gateway)";
@@ -169,8 +208,8 @@ public sealed partial class StatusPage : Page
 
     private async Task RebuildRoutesPickerAsync()
     {
-        var settings = await ServiceApi.GetSettingsAsync() ?? new NebulaSettings();
-        var available = await ServiceApi.GetAvailableRoutesAsync();
+        var settings = await ServiceApi.GetSettingsAsync(NetworkId) ?? new NebulaSettings();
+        var available = await ServiceApi.GetAvailableRoutesAsync(NetworkId);
         RefreshRoutesPicker(settings, available);
     }
 
@@ -247,6 +286,9 @@ public sealed partial class StatusPage : Page
             }
         }
         ExitAllowLanCheckBox.Visibility = exitGateways.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ExitReplaceNote.Visibility = exitGateways.Count > 0 && settings.HostExitActive == true && acceptedExitVia is null
+            ? Visibility.Visible
+            : Visibility.Collapsed;
         ExitAllowLanCheckBox.IsChecked = settings.ExitAllowLan != false;
     }
 
@@ -275,8 +317,8 @@ public sealed partial class StatusPage : Page
         // loop; on any failure the picker is rebuilt from the service's state,
         // which reverts this checkbox.
         var result = wantAccepted
-            ? await ServiceApi.AcceptRouteAsync(route.Route, route.Via)
-            : await ServiceApi.RejectRouteAsync(route.Route);
+            ? await ServiceApi.AcceptRouteAsync(route.Route, route.Via, NetworkId)
+            : await ServiceApi.RejectRouteAsync(route.Route, NetworkId);
         HandleRouteResult(result, wantAccepted
             ? $"Accepted {route.Route} via {route.Via}."
             : $"Rejected {route.Route}.");
@@ -291,8 +333,8 @@ public sealed partial class StatusPage : Page
         }
         var via = radio.Tag as string; // null for the "None" option
         var result = via is not null
-            ? await ServiceApi.AcceptExitNodeAsync(via)
-            : await ServiceApi.RejectExitNodeAsync();
+            ? await ServiceApi.AcceptExitNodeAsync(via, NetworkId)
+            : await ServiceApi.RejectExitNodeAsync(NetworkId);
         HandleRouteResult(result, via is not null ? $"Accepted exit node via {via}." : "Rejected the exit node.");
         await RebuildRoutesPickerAsync();
     }
@@ -321,7 +363,7 @@ public sealed partial class StatusPage : Page
 
     private async void ServerLink_Click(object sender, RoutedEventArgs e)
     {
-        var server = (await ServiceApi.GetSettingsAsync())?.Server;
+        var server = (await ServiceApi.GetSettingsAsync(NetworkId))?.Server;
         if (string.IsNullOrWhiteSpace(server))
         {
             return;
@@ -331,7 +373,7 @@ public sealed partial class StatusPage : Page
 
     private async void TestConnectionButton_Click(object sender, RoutedEventArgs e)
     {
-        var server = (await ServiceApi.GetSettingsAsync())?.Server;
+        var server = (await ServiceApi.GetSettingsAsync(NetworkId))?.Server;
         if (string.IsNullOrWhiteSpace(server))
         {
             TestConnectionResult.Text = "No server configured.";
@@ -350,55 +392,11 @@ public sealed partial class StatusPage : Page
         }
     }
 
-    private async void ServiceStartButton_Click(object sender, RoutedEventArgs e) =>
-        await RunServiceActionAsync(() => ServiceControl.Start(), "started");
-
-    private async void ServiceStopButton_Click(object sender, RoutedEventArgs e) =>
-        await RunServiceActionAsync(() => ServiceControl.Stop(), "stopped");
-
-    private async void ServiceRestartButton_Click(object sender, RoutedEventArgs e) =>
-        await RunServiceActionAsync(() => ServiceControl.Restart(), "restarted");
-
-    private async Task RunServiceActionAsync(Action action, string verb)
-    {
-        ServiceStartButton.IsEnabled = false;
-        ServiceStopButton.IsEnabled = false;
-        ServiceRestartButton.IsEnabled = false;
-        ServiceProgress.IsActive = true;
-        ServiceActionResult.Text = "";
-        try
-        {
-            // ServiceControl's Start/Stop/Restart block on WaitForStatus (up to
-            // 15s) - keep that off the UI thread so the page stays responsive.
-            await Task.Run(action);
-            ServiceActionResult.Text = $"Service {verb}.";
-        }
-        catch (Exception ex)
-        {
-            // Starting/stopping the service needs an elevated administrator
-            // (the service's ACL) - surfaced as an access-denied failure.
-            if (!Elevation.IsElevated)
-            {
-                App.MainWindowInstance?.ShowAdminRequired();
-                ServiceActionResult.Text = "Failed: administrator required.";
-            }
-            else
-            {
-                ServiceActionResult.Text = $"Failed: {ex.Message}";
-            }
-        }
-        finally
-        {
-            ServiceProgress.IsActive = false;
-            await RefreshLocalAsync();
-        }
-    }
-
     private async void ViewConfigButton_Click(object sender, RoutedEventArgs e)
     {
         // Served by the service with pki.key redacted - the node's private key
         // is never shown or readable outside the SYSTEM-only state folder.
-        var result = await ServiceApi.GetConfigYamlAsync();
+        var result = await ServiceApi.GetConfigYamlAsync(NetworkId);
         var content = result.Ok && result.Result.ValueKind == System.Text.Json.JsonValueKind.String
             ? result.Result.GetString() ?? ""
             : result.Unreachable
@@ -437,7 +435,7 @@ public sealed partial class StatusPage : Page
             Process.Start(new ProcessStartInfo
             {
                 FileName = "explorer.exe",
-                Arguments = $"\"{SharedPaths.Root}\"",
+                Arguments = $"\"{(NetworkId is null ? SharedPaths.Root : System.IO.Path.Combine(SharedPaths.Root, "networks", NetworkId))}\"",
                 UseShellExecute = true,
             });
         }
