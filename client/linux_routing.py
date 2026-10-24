@@ -38,6 +38,12 @@ _SYSTEM_LIBRARY_ENV_STRIP = ("LD_LIBRARY_PATH", "LD_PRELOAD", "LD_AUDIT", "LIBPA
 NFT_TABLE = "ncclient_routing"
 LEGACY_TUN_DEV = "nebula1"
 EXIT_ROUTES = ("0.0.0.0/0", "::/0")
+# `ip rule pref 32739 iif <dev> lookup main` while <dev> forwards routes: traffic this
+# host forwards for a network it's a gateway for leaves by the normal uplink, not by this
+# host's own exit node (client/exit_routing.py, prefs 32740-32742). Without it a gateway
+# that also uses an exit node in another network sends the forwarded traffic into that
+# tunnel un-NATed and the far end drops it.
+GATEWAY_RULE_PREF = 32739
 
 _DOCKER_PREFIXES = ("docker", "br-", "veth", "virbr")
 _ETHERNET_PREFIXES = ("en", "eth")
@@ -331,6 +337,23 @@ def _default_route_iface() -> Optional[str]:
         return None
 
 
+def _set_gateway_rule(tun_dev: str, on: bool) -> None:
+    """Add (on) or remove this device's GATEWAY_RULE_PREF rule, IPv4 and IPv6."""
+    for fam in ("-4", "-6"):
+        for _ in range(8):  # remove every copy, e.g. after a crash mid-update
+            r = subprocess.run(  # nosec B603 - fixed argv, tun_dev from config, shell=False
+                [_which("ip"), fam, "rule", "del", "pref", str(GATEWAY_RULE_PREF), "iif", tun_dev],
+                capture_output=True, timeout=5, env=_env_for_system_binaries(),
+            )
+            if r.returncode != 0:
+                break
+        if on:
+            subprocess.run(  # nosec B603 - fixed argv, shell=False
+                [_which("ip"), fam, "rule", "add", "pref", str(GATEWAY_RULE_PREF), "iif", tun_dev, "lookup", "main"],
+                capture_output=True, timeout=5, env=_env_for_system_binaries(),
+            )
+
+
 def _delete_table(tun_dev: str) -> None:
     """Delete this device's table (and, on LEGACY_TUN_DEV, the pre-0.8.0 shared one)."""
     tables = [nft_table(tun_dev)] + ([NFT_TABLE] if tun_dev == LEGACY_TUN_DEV else [])
@@ -410,12 +433,14 @@ def apply_routes(
     if not unsafe_routes:
         _delete_table(tun_dev)
         _docker_forward_rules([], tun_dev, debug_log)
+        _set_gateway_rule(tun_dev, False)
         return
 
     if is_foreign_interface(tun_dev):
         _log(f"Not applying subnet routing: tun device {tun_dev!r} is an existing non-tun interface", debug_log)
         _delete_table(tun_dev)
         _docker_forward_rules([], tun_dev, debug_log)
+        _set_gateway_rule(tun_dev, False)
         return
 
     if not shutil.which("nft"):
@@ -428,6 +453,7 @@ def apply_routes(
 
     _set_ip_forward(unsafe_routes, debug_log)
     _docker_forward_rules(unsafe_routes, tun_dev, debug_log)
+    _set_gateway_rule(tun_dev, True)
 
     script = _build_nft_script(unsafe_routes, tun_dev, debug_log)
     _delete_table(tun_dev)

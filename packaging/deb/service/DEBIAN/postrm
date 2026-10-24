@@ -40,6 +40,11 @@ if [ "$1" = "remove" ] || [ "$1" = "purge" ]; then
             nft delete table inet "$t" 2>/dev/null || true
         done
     fi
+    if command -v ip >/dev/null 2>&1; then
+        for fam in -4 -6; do
+            while ip "$fam" rule del pref 32739 2>/dev/null; do :; done
+        done
+    fi
     for ipt in iptables iptables-legacy; do
         command -v "$ipt" >/dev/null 2>&1 || continue
         "$ipt" -w -S DOCKER-USER 2>/dev/null | grep -E -- '--comment "?ncclient' | sed 's/^-A /-D /' |
