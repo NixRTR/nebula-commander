@@ -61,7 +61,12 @@ def timer_dropin(window_start: str, window_end: str) -> str:
 
 def _systemctl(*args: str) -> None:
     try:
-        r = subprocess.run(["systemctl", *args], capture_output=True, text=True, timeout=60)  # nosec B603 B607
+        # The system's environment, not the frozen binary's bundled-library one: with that,
+        # systemctl loads our libcrypto and fails ("OPENSSL_3.4.0 not found" on Debian 13).
+        from client.linux_routing import _env_for_system_binaries
+        r = subprocess.run(  # nosec B603 B607
+            ["systemctl", *args], capture_output=True, text=True, timeout=60, env=_env_for_system_binaries(),
+        )
     except (OSError, subprocess.SubprocessError) as e:
         raise UpdateError(f"systemctl {' '.join(args)} failed: {e}") from e
     if r.returncode != 0:

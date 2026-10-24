@@ -15,6 +15,7 @@ from __future__ import annotations
 import datetime
 import json
 import os
+import threading
 
 __all__ = ["load_status", "save_status"]
 
@@ -46,7 +47,9 @@ def save_status(path: str, state: str, message: str, **extra) -> None:
         "updated_at": datetime.datetime.utcnow().isoformat() + "Z",
     }
     data.update(extra)
-    tmp = path + ".tmp"
+    # Unique per writer: several threads (one per network, plus the supervisor) can save
+    # at the same moment, and a shared name lets one rename the other's file away.
+    tmp = f"{path}.{os.getpid()}.{threading.get_ident()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     os.replace(tmp, path)
