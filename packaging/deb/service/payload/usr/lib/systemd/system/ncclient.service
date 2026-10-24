@@ -20,10 +20,9 @@ UMask=0077
 # No ExecStartPre server-configured check: unlike `ncclient install`'s CLI-only
 # flow (which always collects NEBULA_COMMANDER_SERVER interactively before
 # writing this unit), this package supports enrolling via the desktop app
-# instead, which saves "server" into /var/lib/ncclient/settings.json rather
-# than /etc/default/ncclient. `ncclient run` itself already checks both
-# sources and exits(1) with a clear message if neither is set; Restart=on-failure
-# then just retries every 30s until the device is enrolled.
+# instead, which enrolls through this running service over D-Bus. So with
+# nothing enrolled yet `ncclient run` (0.8.0+) starts anyway and waits; it
+# starts each network as soon as one is enrolled.
 ExecStart=/usr/lib/nebula-commander/ncclient-run.sh
 Restart=on-failure
 RestartSec=30

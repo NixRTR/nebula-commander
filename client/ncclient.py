@@ -1873,10 +1873,12 @@ def main() -> None:
     from client.config import enrollments, load_settings
     server = (args.server or "").strip() or (load_settings().get("server") or "").strip() or None
     # Networks enrolled with 0.8.0+ carry their own server; --server is only needed for the
-    # first enroll (or a pre-0.8.0 enrollment whose settings never stored one).
+    # first enroll (or a pre-0.8.0 enrollment whose settings never stored one). With nothing
+    # enrolled, `run` still starts and waits: the desktop apps enroll through the running
+    # service (D-Bus / pipe), and the supervisor starts a network as soon as it's added.
     if args.cmd == "run" and not server and not enrollments(load_settings()):
-        print("Set --server or NEBULA_COMMANDER_SERVER to your Nebula Commander URL.", file=sys.stderr)
-        sys.exit(1)
+        print("Not enrolled in any network yet - waiting for one (ncclient enroll, or Add network "
+              "in the app).", file=sys.stderr)
     if args.cmd == "enroll" and not server:
         print("Set --server to your Nebula Commander URL.", file=sys.stderr)
         sys.exit(1)
