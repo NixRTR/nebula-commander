@@ -1483,6 +1483,26 @@ def run_poll_loop(
             remove_split_horizon_dns(current_tun_dev)
 
 
+def _stop_on_signal(stop_event: threading.Event):
+    """SIGTERM handler that sets stop_event exactly once.
+
+    A frozen (PyInstaller) build often gets SIGTERM twice - systemd signals the whole
+    cgroup and the bootloader forwards its own copy. Python runs the second handler in
+    the main thread, possibly while the first is inside Event.set() holding its lock, and
+    a second set() then deadlocks (the service hung until systemd's stop timeout). So
+    ignore further SIGTERMs before touching the Event: CPython drops a pending signal
+    whose handler is now SIG_IGN."""
+
+    def handler(signum, frame):
+        try:
+            signal.signal(signum, signal.SIG_IGN)
+        except (ValueError, OSError):
+            pass
+        stop_event.set()
+
+    return handler
+
+
 def cmd_run(
     server: str,
     output_dir: str,
@@ -1520,7 +1540,7 @@ def cmd_run(
             print(f"[warn] Could not write status.json: {e}", file=sys.stderr, flush=True)
 
     try:
-        signal.signal(signal.SIGTERM, lambda s, f: stop_event.set())
+        signal.signal(signal.SIGTERM, _stop_on_signal(stop_event))
     except (ValueError, OSError) as e:
         print(f"Could not register SIGTERM handler: {e}", file=sys.stderr)
 
