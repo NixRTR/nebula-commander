@@ -68,7 +68,7 @@ def env(monkeypatch, tmp_path):
     return tmp_path, calls, env_routes
 
 
-def _run(output_dir, configs: list[bytes]):
+def _run(output_dir, configs: list[bytes], config_filter=None):
     """One poll per entry in configs (each a new ETag), then stop."""
     stop = threading.Event()
     served = []
@@ -86,7 +86,7 @@ def _run(output_dir, configs: list[bytes]):
     requests.get = get
     try:
         ncclient.run_poll_loop("https://nc.example.invalid", str(output_dir), 1, "nebula", None, stop,
-                               status_callback=lambda s, m: None, accept_dns=True)
+                               status_callback=lambda s, m: None, accept_dns=True, config_filter=config_filter)
     finally:
         requests.get = original
 
@@ -129,3 +129,32 @@ def test_a_new_networks_routes_go_on_its_own_device(env):
     _run(out, [_config("nc-office")])
     applied = [dev for r, dev in calls["routes"] if r]
     assert applied and set(applied) == {"nc-office"}, calls["routes"]
+
+
+def test_a_locally_renamed_device_gets_the_routes_and_dns(env, monkeypatch):
+    """The supervisor renames a second pre-0.8.0 network's nebula1 (Supervisor._dev_filter);
+    routes and DNS must follow the renamed device, not the server's nebula1."""
+    out, calls, routes = env
+    routes["routes"] = ["0.0.0.0/0"]
+    applied_dns = []
+    import client.dns_apply as dns_apply
+    monkeypatch.setattr(dns_apply, "apply_split_horizon_dns",
+                        lambda config_dict=None, tun_dev=None, **k: applied_dns.append(tun_dev) or True)
+    rename = lambda b: b.replace(b"dev: nebula1", b"dev: nc-bbbb2222")
+    _run(out, [_config("nebula1"), _config("nebula1")], config_filter=rename)
+    assert {dev for r, dev in calls["routes"] if r} == {"nc-bbbb2222"}, calls["routes"]
+    assert b"nc-bbbb2222" in (out / "config.yaml").read_bytes()
+    assert "nebula1" not in calls["dns_remove"]
+
+
+def test_windows_tracks_the_device_after_a_write(env, monkeypatch):
+    """Windows NRPT rule names are per device. The device was only tracked on Linux, so a
+    network enrolled while the service ran used the legacy rule name - the nebula1
+    network's - and removing its DNS removed the other network's."""
+    out, calls, _ = env
+    monkeypatch.setattr(ncclient.sys, "platform", "win32")
+    monkeypatch.setattr(ncclient, "_windows_process_is_elevated", lambda: True, raising=False)
+    _run(out, [_config("nc-old"), _config("nc-new")])
+    assert "nc-old" in calls["dns_remove"], "renaming retires the old device's DNS rule"
+    assert calls["dns_remove"][-1] == "nc-new", "the loop's exit removes its own device's rule"
+    assert None not in calls["dns_remove"]

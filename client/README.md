@@ -82,6 +82,10 @@ Nebula Commander) and keeps its own token, config and DNS; the desktop apps show
 - **Listen ports.** Two networks can't share a UDP port. If they ask for the same one,
   the second network uses a port the OS picks, unless it's a lighthouse or relay
   (which need a fixed port) - give one of them another listen port in Nebula Commander.
+- **Interface names.** Each network needs its own tun device. Servers older than 0.8.0
+  call every network's device `nebula1`; when a second such network joins, ncclient
+  names its device `nc-<network id>` instead (the first network keeps `nebula1`). The
+  name sticks, so it doesn't change again when the other network is removed.
 - **Commands for one network** take `--network NAME` when there's more than one, e.g.
   `ncclient routes --network customer list`.
 - Each network's files are in `<output dir>/networks/<id>/`. A device enrolled with an

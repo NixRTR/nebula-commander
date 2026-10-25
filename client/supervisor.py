@@ -13,6 +13,9 @@ Host-wide pieces live here rather than in each loop:
 - listen ports: two networks can't bind the same UDP port. A network asking for a port
   another one already uses is moved to port 0 (the OS picks; lighthouses learn it), unless
   it's a lighthouse or relay, which peers reach at a fixed port - that one is reported;
+- tun devices: two networks can't share one. Servers before 0.8.0 give every network
+  the legacy nebula1 (or no tun.dev, which Nebula reads as nebula1), so a second such
+  network is renamed locally to nc-<its id> - see _dev_filter;
 - one status for the whole host (status_callback) on top of each network's own
   status.json, for apps and logs that show a single line.
 """
@@ -28,6 +31,9 @@ from typing import Callable, Optional
 from client import config as cfg
 
 __all__ = ["Supervisor"]
+
+# The device every network got before servers set one per network (Nebula's default).
+LEGACY_TUN_DEV = "nebula1"
 
 
 @dataclass
@@ -142,7 +148,7 @@ class Supervisor:
                 "dns_debug_log": self.dns_debug_log,
                 "enrollment_id": eid,
                 "manage_host": False,
-                "config_filter": self._port_filter(eid, name),
+                "config_filter": self._config_filter(eid, name),
             },
             name=f"network-{eid}",
             daemon=True,
@@ -214,6 +220,74 @@ class Supervisor:
         self._last_host_status = (state, message)
         if self.status_callback:
             self.status_callback(state, message)
+
+    def _config_filter(self, eid: str, name: str) -> Callable[[bytes], bytes]:
+        dev_filter, port_filter = self._dev_filter(eid, name), self._port_filter(eid, name)
+        return lambda config_bytes: port_filter(dev_filter(config_bytes))
+
+    # --- tun devices -------------------------------------------------------------------
+
+    def _dev_on_disk(self, eid: str) -> Optional[str]:
+        """tun.dev of a network's config.yaml as written: LEGACY_TUN_DEV when it has none
+        (what Nebula uses then), None when there's no config yet."""
+        try:
+            with open(os.path.join(cfg.enrollment_dir(self.output_dir, eid), "config.yaml"), "rb") as f:
+                data = f.read()
+        except OSError:
+            return None
+        from client.ncclient import _tun_dev_from_config
+        return _tun_dev_from_config(data) or LEGACY_TUN_DEV
+
+    def _dev_filter(self, eid: str, name: str) -> Callable[[bytes], bytes]:
+        """Rename this network's tun device to nc-<id> when another network on this host
+        has (or, for nebula1, will get) the one its server asks for.
+
+        Deterministic, so a restart doesn't swap names: a network keeps a device it
+        already has unless one earlier in settings has it too; nebula1 also goes to an
+        earlier network that has no config yet (two pre-0.8.0 networks enrolled at once).
+        A network renamed away from nebula1 keeps nc-<id> even after the other network is
+        removed, so it isn't renamed back and forth."""
+        own = f"nc-{eid}"
+
+        def f(config_bytes: bytes) -> bytes:
+            import yaml
+            try:
+                parsed = yaml.safe_load(config_bytes)
+            except yaml.YAMLError:
+                return config_bytes
+            if not isinstance(parsed, dict):
+                return config_bytes
+            tun = parsed.get("tun") if isinstance(parsed.get("tun"), dict) else {}
+            dev = tun.get("dev") if isinstance(tun.get("dev"), str) and tun.get("dev") else LEGACY_TUN_DEV
+            if dev == own:
+                return config_bytes
+            order = [e["id"] for e in cfg.enrollments(cfg.load_settings())]
+            mine = order.index(eid) if eid in order else len(order)
+            on_disk = self._dev_on_disk(eid)
+            holder = None
+            if dev == LEGACY_TUN_DEV and on_disk == own:
+                holder = ""  # renamed before: keep it
+            else:
+                for i, other in enumerate(order):
+                    if other == eid:
+                        continue
+                    theirs = self._dev_on_disk(other)
+                    if (theirs == dev and (on_disk != dev or i < mine)) or (
+                        dev == LEGACY_TUN_DEV and theirs is None and i < mine
+                    ):
+                        holder = other
+                        break
+            if holder is None:
+                return config_bytes
+            if holder and on_disk != own:
+                loop = self._loops.get(holder)
+                self._log(f"Network {name}: tun device {dev} belongs to network "
+                          f"{loop.name if loop else holder} on this host; using {own} instead")
+            if not isinstance(parsed.get("tun"), dict):
+                parsed["tun"] = {}
+            parsed["tun"]["dev"] = own
+            return yaml.safe_dump(parsed, default_flow_style=False, sort_keys=False).encode()
+        return f
 
     # --- listen ports ------------------------------------------------------------------
 

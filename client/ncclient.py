@@ -1035,12 +1035,13 @@ def run_poll_loop(
     os.makedirs(output_dir, exist_ok=True)
     last_etag: str | None = None
     nebula_proc: subprocess.Popen | None = None
-    # This node's own tun device, parsed from its config (Linux routing and DNS only). Seeded
-    # from the config on disk so the clean-slate DNS removal below targets the right device.
+    # This node's own tun device, parsed from its config (Linux routing, DNS on both
+    # platforms). Seeded from the config on disk so the clean-slate DNS removal below
+    # targets the right device; a config without tun.dev means nebula1 (Nebula's default).
     current_tun_dev: str | None = None
     try:
         with open(_config_path(output_dir), "rb") as f:
-            current_tun_dev = _tun_dev_from_config(f.read())
+            current_tun_dev = _tun_dev_from_config(f.read()) or "nebula1"
     except OSError:
         pass
     last_advertised_routes: list[str] | None = None  # this node's own advertised routes, for change detection (Linux routing only)
@@ -1052,10 +1053,11 @@ def run_poll_loop(
     # accept_dns is off, since turning it off (e.g. the desktop app's toggle, which restarts
     # the service without --accept-dns) must undo what an earlier run applied. Only touches
     # ncclient's own rules/files, and is a no-op without the privilege to change DNS.
-    # On Linux the files and rules are per tun device; without a config on disk this
-    # instance never applied any, and guessing a device (nebula1) would remove another
-    # instance's DNS.
-    if current_tun_dev or not sys.platform.startswith("linux"):
+    # The files (Linux) and NRPT rules (Windows) are per tun device; without a config on
+    # disk this network never applied any (DNS is applied after the config is written),
+    # and guessing a device - nebula1, or Windows' legacy rule name - would remove another
+    # network's DNS.
+    if current_tun_dev:
         if dns_debug_log:
             dns_debug_log(f"accept_dns={accept_dns}, removing any existing split-horizon on start")
         remove_split_horizon_dns(current_tun_dev)
@@ -1069,6 +1071,13 @@ def run_poll_loop(
     applied_dns_config: dict = {}
     exit_allow_lan = True
     exit_routing_failed = False
+
+    def _effective_tun_dev(config_bytes: bytes) -> str | None:
+        """The device a server config ends up using here: the supervisor may rename it
+        (two networks asking for the same one - see Supervisor._dev_filter)."""
+        if config_filter is not None:
+            config_bytes = config_filter(config_bytes)
+        return _tun_dev_from_config(config_bytes)
 
     def _final_config(config_bytes: bytes) -> bytes:
         """What goes into config.yaml after route filtering: the supervisor's rewrite
@@ -1214,7 +1223,8 @@ def run_poll_loop(
                 if dns_debug_log:
                     dns_debug_log(f"could not remove {path}: {e}")
         applied_dns_config.clear()
-        remove_split_horizon_dns(current_tun_dev)
+        if current_tun_dev:  # no config yet: nothing applied (see the start-up clean-up)
+            remove_split_horizon_dns(current_tun_dev)
         exit_routing.remove(output_dir, dns_debug_log)
         if sys.platform.startswith("linux") and last_advertised_routes:
             try:
@@ -1307,7 +1317,7 @@ def run_poll_loop(
                         # Never a guess: rules for the wrong device would NAT another
                         # network's traffic.
                         routes_tun_dev = (
-                            _tun_dev_from_config(r.content) if r.status_code == 200 else None
+                            _effective_tun_dev(r.content) if r.status_code == 200 else None
                         ) or current_tun_dev
                         if routes_tun_dev and (advertised_routes != (last_advertised_routes or []) or (
                             advertised_routes and routes_tun_dev != last_routes_tun_dev
@@ -1363,20 +1373,23 @@ def run_poll_loop(
                         dns_debug_log(f"writing available-routes.json failed: {e}")
 
                 config_path = _config_path(output_dir)
+                final_config = _final_config(filter_accepted_routes(r.content, accepted_subnet_routes, accepted_exit_node))
                 with open(config_path, "wb") as f:
-                    f.write(_final_config(filter_accepted_routes(r.content, accepted_subnet_routes, accepted_exit_node)))
+                    f.write(final_config)
                 if not status_callback:
                     print(f"Wrote {config_path}")
                 if status_callback:
                     status_callback("connected", "Config updated")
-                if sys.platform.startswith("linux"):
-                    # Only tun.dev is read from the node's own config here - its own
-                    # advertised routes never appear in its own tun.unsafe_routes (see
-                    # _fetch_advertised_routes above for why) and are fetched separately.
-                    new_tun_dev = _tun_dev_from_config(r.content) or current_tun_dev
-                    if current_tun_dev and new_tun_dev != current_tun_dev:
-                        _retire_tun_dev(current_tun_dev)
-                    current_tun_dev = new_tun_dev
+                # The device actually written (the supervisor may have renamed the
+                # server's), on every platform: Linux DNS/routing and Windows NRPT rule
+                # names are per device, so a network enrolled while the service runs must
+                # not fall back to the legacy name another network uses. Only tun.dev is
+                # read here - a node's own advertised routes never appear in its own
+                # tun.unsafe_routes (see _fetch_advertised_routes).
+                new_tun_dev = _tun_dev_from_config(final_config) or current_tun_dev
+                if current_tun_dev and new_tun_dev != current_tun_dev:
+                    _retire_tun_dev(current_tun_dev)
+                current_tun_dev = new_tun_dev
                 # Windows bypass routes go in before Nebula starts so its first handshakes
                 # already use them; on Linux this installs the kill switch, and the call
                 # after the start adds the route once the device exists.
@@ -1477,7 +1490,7 @@ def run_poll_loop(
             except Exception as e:
                 if dns_debug_log:
                     dns_debug_log(f"removing advertised routes on exit failed: {e}")
-        if accept_dns:
+        if accept_dns and current_tun_dev:  # no config yet: nothing applied
             if dns_debug_log:
                 dns_debug_log("removing split-horizon on exit")
             remove_split_horizon_dns(current_tun_dev)
