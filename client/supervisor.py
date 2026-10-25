@@ -77,18 +77,18 @@ class Supervisor:
         self._ports: dict[str, int] = {}
         self._lock = threading.Lock()
         self._last_host_status: Optional[tuple] = None
+        self._migrate_failed = False
 
     # --- lifecycle -------------------------------------------------------------------
 
     def run(self) -> None:
         """Run until stop_event is set; stops every network on the way out."""
-        try:
-            cfg.migrate_to_enrollments(self.output_dir, self._log)
-        except Exception as e:  # a failed migration must not keep the networks down
-            self._log(f"Converting settings to the multi-network layout failed: {e}")
+        # Before the conversion: a nebula.exe left running by the previous version (an
+        # MSI upgrade stops the service, not its child) keeps nebula.log open.
         if sys.platform == "win32" and self.nebula_bin:
             from client.ncclient import _stop_nebula
             _stop_nebula(None)
+        self._migrate()
         self._remove_orphan_dirs()
         try:
             while not self.stop_event.is_set():
@@ -97,8 +97,21 @@ class Supervisor:
         finally:
             self.stop_all()
 
+    def _migrate(self) -> None:
+        try:
+            cfg.migrate_to_enrollments(self.output_dir, self._log)
+        except Exception as e:  # a failed migration must not keep the networks down
+            if not self._migrate_failed:
+                self._log(f"Converting settings to the multi-network layout failed (retrying): {e}")
+            self._migrate_failed = True
+        else:
+            self._migrate_failed = False
+
     def reconcile(self) -> None:
         settings = cfg.load_settings()
+        if cfg.has_unconverted_enrollment(settings):  # a conversion that failed at start
+            self._migrate()
+            settings = cfg.load_settings()
         wanted = {e["id"]: e for e in cfg.enrollments(settings)}
         for eid, loop in list(self._loops.items()):
             e = wanted.get(eid)
@@ -169,9 +182,14 @@ class Supervisor:
         self._report_host_status()
 
     def _remove_orphan_dirs(self) -> None:
-        """Directories of networks removed while this service wasn't running."""
+        """Directories of networks removed while this service wasn't running. Not while
+        a pre-0.8.0 enrollment is still unconverted: a conversion that failed halfway
+        has already moved that network's files into a directory settings don't list."""
         base = os.path.join(self.output_dir, "networks")
-        known = {e["id"] for e in cfg.enrollments(cfg.load_settings())}
+        settings = cfg.load_settings()
+        if cfg.has_unconverted_enrollment(settings):
+            return
+        known = {e["id"] for e in cfg.enrollments(settings)}
         try:
             names = os.listdir(base)
         except OSError:

@@ -37,6 +37,11 @@ STATE_FILES = ("config.yaml", "dns-client.json", "available-routes.json", "statu
 _LEGACY_ENROLLMENT_KEYS = ("server", "node_id", "accepted_subnet_routes", "accepted_exit_node")
 
 
+def has_unconverted_enrollment(settings: dict) -> bool:
+    """settings.json still holds a pre-0.8.0 enrollment (migrate_to_enrollments not done)."""
+    return any(k in settings for k in _LEGACY_ENROLLMENT_KEYS)
+
+
 def config_dir() -> str:
     """Base directory for settings and other config (e.g. nebula downloads).
     NEBULA_COMMANDER_CONFIG_DIR overrides this when set - used by the Windows
@@ -134,6 +139,20 @@ def enrollment_view(settings: dict, enrollment_id: str) -> dict:
     return view
 
 
+def _unlisted_network_dir(output_dir: "str | None", items: list) -> "str | None":
+    """The id of a networks/<id> directory no enrollment lists - what a conversion that
+    failed halfway leaves behind - so the retry carries on in it instead of starting over."""
+    if not output_dir:
+        return None
+    base = os.path.join(os.path.expanduser(output_dir), "networks")
+    listed = {e.get("id") for e in items}
+    try:
+        names = sorted(os.listdir(base))
+    except OSError:
+        return None
+    return next((n for n in names if n not in listed and os.path.isdir(os.path.join(base, n))), None)
+
+
 def migrate_to_enrollments(output_dir: "str | None" = None, log=None) -> bool:
     """Convert pre-0.8.0 settings (one network: server/node_id/accepted_* at the top
     level, the token stored without an id, state files directly in output_dir) to the
@@ -156,7 +175,8 @@ def migrate_to_enrollments(output_dir: "str | None" = None, log=None) -> bool:
     if server or legacy_token:
         existing = next((e for e in items if e.get("server") == server and e.get("node_id") == node_id), None)
         if existing is None:
-            existing = {"id": new_enrollment_id(), "server": server, "node_id": node_id}
+            existing = {"id": _unlisted_network_dir(output_dir, items) or new_enrollment_id(),
+                        "server": server, "node_id": node_id}
             items.append(existing)
         existing.setdefault("accepted_subnet_routes", settings.get("accepted_subnet_routes") or [])
         old_exit = settings.get("accepted_exit_node")
@@ -170,8 +190,23 @@ def migrate_to_enrollments(output_dir: "str | None" = None, log=None) -> bool:
             os.makedirs(dst_dir, exist_ok=True)
             for name in STATE_FILES:
                 src = os.path.join(src_dir, name)
-                if os.path.exists(src) and not os.path.exists(os.path.join(dst_dir, name)):
-                    shutil.move(src, os.path.join(dst_dir, name))
+                dst = os.path.join(dst_dir, name)
+                if not os.path.exists(src) or os.path.exists(dst):
+                    continue
+                # A file still open elsewhere must not stop the conversion: on Windows
+                # an auto-update can leave the old nebula.exe running with nebula.log
+                # open (WinError 32), and an aborted conversion left the device with no
+                # network at all. Copy what can't be moved; the log can be left behind.
+                try:
+                    shutil.move(src, dst)
+                except OSError as e:
+                    if name == "nebula.log":
+                        continue
+                    try:
+                        shutil.copy2(src, dst)
+                    except OSError:
+                        if log:
+                            log(f"Could not move {name} to the network's directory: {e}")
     for k in _LEGACY_ENROLLMENT_KEYS:
         settings.pop(k, None)
     settings["enrollments"] = items
