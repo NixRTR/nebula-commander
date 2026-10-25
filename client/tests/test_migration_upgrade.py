@@ -94,3 +94,36 @@ def test_windows_stops_old_nebula_before_converting(old_install, monkeypatch):
     stop.set()
     Supervisor(str(old_install), 60, "nebula.exe", None, stop, log=lambda m: None).run()
     assert order[:2] == ["stop", "migrate"]
+
+
+def _broken_080_state(out):
+    """What 0.8.0 left behind on a machine whose conversion failed (seen on the VM):
+    the old settings and token.bin still there, the token's copy under an id that no
+    settings list, and that network's directory deleted."""
+    (out / "config.yaml").unlink()
+    token_store.set_token("old-token", "5a8dbde9")
+
+
+def test_a_device_broken_by_080_recovers_on_upgrade(old_install, monkeypatch):
+    _broken_080_state(old_install)
+    sup = Supervisor(str(old_install), 60, None, None, threading.Event(), log=lambda m: None)
+    sup._migrate()
+    (e,) = config.enrollments(config.load_settings())
+    assert e["server"] == "https://nc.example.com" and e["node_id"] == 2
+    assert token_store.get_token(e["id"]) == "old-token"
+    assert not config.has_unconverted_enrollment(config.load_settings())
+
+
+def test_re_enrolled_as_the_same_node_gets_no_duplicate(old_install, monkeypatch):
+    """The user's own machine: broken by 0.8.0, then enrolled again (same server and
+    node) - the old settings merge into that network instead of adding a second one."""
+    _broken_080_state(old_install)
+    settings = config.load_settings()
+    settings["enrollments"] = [{"id": "148f0d8c", "server": "https://nc.example.com", "node_id": 2, "name": "BeardedTek"}]
+    config.save_settings(settings)
+    token_store.set_token("new-token", "148f0d8c")
+    Supervisor(str(old_install), 60, None, None, threading.Event(), log=lambda m: None)._migrate()
+    (e,) = config.enrollments(config.load_settings())
+    assert e["id"] == "148f0d8c"
+    assert token_store.get_token("148f0d8c") == "new-token", "the new enrollment's token wins"
+    assert token_store.get_token() is None, "the old token is cleaned up"
