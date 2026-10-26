@@ -58,7 +58,7 @@ a = Analysis(
     hooksconfig={},
     runtime_hooks=[],
     # This is a service, not a GUI app - no need to pull in GUI toolkit deps.
-    excludes=['tkinter', 'PIL', 'pystray'],
+    excludes=['tkinter', 'PIL'],
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
