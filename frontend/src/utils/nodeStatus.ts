@@ -38,7 +38,7 @@ export type LighthouseReachability =
  * platform. "stale" means the report is old enough not to be trusted as current
  * (the lighthouse itself may be down, or may no longer be pinging this node).
  */
-export function getLighthouseReachability(node: Node): LighthouseReachability {
+function getLighthouseReachability(node: Node): LighthouseReachability {
   if (!node.lighthouse_checked_at || node.lighthouse_reachable === null) {
     return { known: false };
   }

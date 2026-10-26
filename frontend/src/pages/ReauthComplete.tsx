@@ -30,8 +30,7 @@ export interface BackupReauthState {
   action: Extract<PendingReauthAction, { kind: "instance-export" | "instance-import" }>;
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
-export function getPendingReauthAction(): PendingReauthAction | null {
+function getPendingReauthAction(): PendingReauthAction | null {
   try {
     const raw = sessionStorage.getItem(PENDING_ACTION_KEY);
     if (!raw) return null;
@@ -41,13 +40,11 @@ export function getPendingReauthAction(): PendingReauthAction | null {
   }
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
-export function setPendingReauthAction(data: PendingReauthAction): void {
+function setPendingReauthAction(data: PendingReauthAction): void {
   sessionStorage.setItem(PENDING_ACTION_KEY, JSON.stringify(data));
 }
 
-// eslint-disable-next-line react-refresh/only-export-components
-export function clearPendingReauthAction(): void {
+function clearPendingReauthAction(): void {
   sessionStorage.removeItem(PENDING_ACTION_KEY);
 }
 

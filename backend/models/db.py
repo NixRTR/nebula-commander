@@ -265,7 +265,6 @@ class NetworkPermission(Base):
 
     user: Mapped["User"] = relationship("User", back_populates="network_permissions", foreign_keys=[user_id])
     network: Mapped["Network"] = relationship("Network", back_populates="permissions")
-    invited_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[invited_by_user_id])
 
     __table_args__ = (
         UniqueConstraint("user_id", "network_id", name="uq_network_permission_user_network"),
@@ -288,7 +287,6 @@ class NodePermission(Base):
 
     user: Mapped["User"] = relationship("User", back_populates="node_permissions", foreign_keys=[user_id])
     node: Mapped["Node"] = relationship("Node", back_populates="permissions")
-    granted_by: Mapped[Optional["User"]] = relationship("User", foreign_keys=[granted_by_user_id])
 
     __table_args__ = (
         UniqueConstraint("user_id", "node_id", name="uq_node_permission_user_node"),
@@ -311,7 +309,6 @@ class AccessGrant(Base):
     reason: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     admin_user: Mapped["User"] = relationship("User", back_populates="granted_access", foreign_keys=[admin_user_id])
-    granted_by_user: Mapped["User"] = relationship("User", foreign_keys=[granted_by_user_id])
 
 
 class NetworkSettings(Base):
@@ -405,7 +402,6 @@ class Invitation(Base):
     email_error: Mapped[Optional[str]] = mapped_column(String(512), nullable=True)
 
     network: Mapped["Network"] = relationship("Network", back_populates="invitations")
-    invited_by_user: Mapped["User"] = relationship("User", foreign_keys=[invited_by_user_id])
 
 
 class AuditLog(Base):

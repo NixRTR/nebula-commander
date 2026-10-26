@@ -65,11 +65,6 @@ class DNSAliasCreate(BaseModel):
     node_id: int
 
 
-class DNSAliasUpdate(BaseModel):
-    alias: Optional[AliasLabel] = None
-    node_id: Optional[int] = None
-
-
 async def _require_owner(
     user: UserInfo,
     network_id: int,

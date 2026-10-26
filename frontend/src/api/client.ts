@@ -239,10 +239,6 @@ export async function createNetwork(body: import("../types/networks").NetworkCre
   });
 }
 
-export async function getNetwork(id: number) {
-  return apiFetch<import("../types/networks").Network>(`/networks/${id}`);
-}
-
 export async function updateNetwork(
   id: number,
   data: import("../types/networks").NetworkUpdateData
@@ -453,10 +449,6 @@ export async function getNodeConfigBlob(nodeId: number, options?: { enableDns?: 
   return apiFetchBlob(`/nodes/${nodeId}/config${query}`);
 }
 
-export async function getNodeCertsBlob(nodeId: number): Promise<Blob> {
-  return apiFetchBlob(`/nodes/${nodeId}/certs`);
-}
-
 /** With responseType "blob" the error body is a Blob too, hiding the backend's {detail}. */
 async function blobErrorMessage(error: unknown): Promise<string> {
   if (axios.isAxiosError(error) && error.response?.data instanceof Blob) {
@@ -547,28 +539,6 @@ export async function createEnrollmentCode(
   });
 }
 
-export interface SignCertificateRequest {
-  network_id: number;
-  name: string;
-  public_key: string;
-  group?: string | null;
-  suggested_ip?: string;
-  duration_days?: number;
-}
-
-export interface SignCertificateResponse {
-  ip_address: string;
-  certificate: string;
-  ca_certificate?: string;
-}
-
-export async function signCertificate(body: SignCertificateRequest) {
-  return apiFetch<SignCertificateResponse>("/certificates/sign", {
-    method: "POST",
-    body: JSON.stringify(body),
-  });
-}
-
 export interface CreateCertificateRequest {
   network_id: number;
   name: string;
@@ -602,23 +572,6 @@ export async function createCertificate(body: CreateCertificateRequest) {
     method: "POST",
     body: JSON.stringify(body),
   });
-}
-
-export interface CertificateListItem {
-  id: number;
-  node_id: number;
-  node_name: string;
-  network_id: number;
-  network_name: string;
-  ip_address: string | null;
-  issued_at: string;
-  expires_at: string;
-  revoked_at: string | null;
-}
-
-export async function listCertificates(networkId?: number) {
-  const q = networkId != null ? `?network_id=${networkId}` : "";
-  return apiFetch<CertificateListItem[]>(`/certificates${q}`);
 }
 
 /** Audit log entry (system admin only). */

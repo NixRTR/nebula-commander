@@ -12,7 +12,6 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
-from starlette.config import Config
 
 from ..config import settings
 from ..auth.oidc import get_current_user_optional, require_user, UserInfo

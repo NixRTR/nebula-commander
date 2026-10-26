@@ -37,7 +37,6 @@ class Settings(BaseSettings):
 
     # Database (SQLite by default). Use four slashes for absolute path so DB is at /var/lib/... not CWD/var/lib/...
     database_url: str = "sqlite+aiosqlite:////var/lib/nebula-commander/db.sqlite"
-    database_path: Optional[str] = None  # Override for SQLite path
 
     # Certificate store
     cert_store_path: str = "/var/lib/nebula-commander/certs"

@@ -35,7 +35,6 @@ def clean():
     """Remove build artifacts."""
     print("Cleaning build artifacts...")
     dirs_to_remove = ["build", "dist", "__pycache__"]
-    files_to_remove = ["*.spec~"]
     
     for dir_name in dirs_to_remove:
         if os.path.exists(dir_name):
@@ -67,7 +66,7 @@ def build():
     
     # Run PyInstaller (use python -m to avoid PATH issues)
     try:
-        result = subprocess.run(  # nosec B603 - sys.executable is absolute, shell=False
+        subprocess.run(  # nosec B603 - sys.executable is absolute, shell=False
             [sys.executable, "-m", "PyInstaller", "--clean", "ncclient.spec"],
             check=True,
             capture_output=False,

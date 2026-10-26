@@ -8,7 +8,6 @@ from fastapi import Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_session
 from ..models.db import AccessGrant, NetworkPermission, NodePermission, Network, Node
 from .oidc import require_user, UserInfo
 
@@ -61,60 +60,6 @@ async def check_network_permission(
         return perm.role == "owner" or perm.can_invite_users
     elif permission in ("manage_firewall", "can_manage_firewall"):
         return perm.role == "owner" or perm.can_manage_firewall
-    
-    return False
-
-
-async def check_node_permission(
-    user_id: int,
-    node_id: int,
-    permission: str,
-    session: AsyncSession,
-) -> bool:
-    """
-    Check if user has specific permission for a node.
-    
-    Args:
-        user_id: User's database ID
-        node_id: Node ID
-        permission: Permission to check (view_details, download_config, download_cert)
-        session: Database session
-    
-    Returns:
-        True if user has permission, False otherwise
-    """
-    # First check if user has network-level permission
-    stmt = select(Node).where(Node.id == node_id)
-    result = await session.execute(stmt)
-    node = result.scalar_one_or_none()
-    
-    if not node:
-        return False
-    
-    # Check network permission (owners have full access)
-    has_network_perm = await check_network_permission(
-        user_id, node.network_id, "owner", session
-    )
-    if has_network_perm:
-        return True
-    
-    # Check node-specific permission
-    stmt = select(NodePermission).where(
-        NodePermission.user_id == user_id,
-        NodePermission.node_id == node_id
-    )
-    result = await session.execute(stmt)
-    perm = result.scalar_one_or_none()
-    
-    if not perm:
-        return False
-    
-    if permission == "view_details":
-        return perm.can_view_details
-    elif permission == "download_config":
-        return perm.can_download_config
-    elif permission == "download_cert":
-        return perm.can_download_cert
     
     return False
 

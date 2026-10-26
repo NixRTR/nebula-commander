@@ -2,7 +2,7 @@
 # Node builder stage + nginx image
 
 # Stage 1: Build React app
-FROM node:20-alpine AS builder
+FROM node:24-alpine AS builder
 WORKDIR /app
 
 # Accept version as build arg (e.g. 0.1.5 from tag v0.1.5) - baked into the bundle

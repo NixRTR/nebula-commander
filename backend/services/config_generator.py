@@ -5,14 +5,12 @@ import ipaddress
 import logging
 import re
 import secrets
-from pathlib import Path
 from typing import Any, Optional
 
 import yaml
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
 from ..models import Network, Node, NetworkDNSConfig, NetworkGroupFirewall
 
 logger = logging.getLogger(__name__)
@@ -418,20 +416,6 @@ def _logging_section(node: Node) -> dict[str, Any]:
     if ts_fmt:
         section["timestamp_format"] = ts_fmt
     return section
-
-
-def _default_firewall() -> dict[str, Any]:
-    """Outbound allow all; inbound allow all (no rules)."""
-    return {
-        "conntrack": {
-            "tcp_timeout": "120h",
-            "udp_timeout": "3m",
-            "default_timeout": "10m",
-            "max_connections": 100000,
-        },
-        "outbound": [{"port": "any", "proto": "any", "host": "any"}],
-        "inbound": [{"port": "any", "proto": "any", "host": "any"}],
-    }
 
 
 def _parse_port_range(port_range: str) -> list[int] | None:
