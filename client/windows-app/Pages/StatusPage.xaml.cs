@@ -27,6 +27,10 @@ public sealed partial class StatusPage : Page
     // Unchecked events it triggers aren't mistaken for user actions.
     private bool _rebuildingRoutes;
     private TunConfig? _tun;
+    // Fallback for this node's IP: Windows services up to 0.8.1 can leave list_networks'
+    // overlay_ip empty (recorded only at the moment of connecting), so ask once per full
+    // refresh instead - get_connectivity pings the lighthouses, too slow for the timer.
+    private string? _connectivityIp;
 
     public StatusPage()
     {
@@ -108,6 +112,8 @@ public sealed partial class StatusPage : Page
                 : null;
             await RefreshLocalAsync();
             await RefreshRoutingAsync();
+            _connectivityIp = (await ServiceApi.GetConnectivityAsync(NetworkId))?.OverlayIp;
+            await RefreshLocalAsync();
         }
         finally
         {
@@ -128,6 +134,15 @@ public sealed partial class StatusPage : Page
             var settings = await ServiceApi.GetSettingsAsync(NetworkId) ?? new NebulaSettings();
             var status = await ServiceApi.GetStatusAsync(NetworkId);
             var dnsConfigured = await ServiceApi.GetDnsConfiguredAsync(NetworkId);
+            var networks = await ServiceApi.ListNetworksAsync();
+            var overlayIp = networks?.FirstOrDefault(n => n.Id == NetworkId)?.OverlayIp
+                ?? (NetworkId is null ? networks?.FirstOrDefault()?.OverlayIp : null);
+            if (string.IsNullOrWhiteSpace(overlayIp))
+            {
+                overlayIp = _connectivityIp;
+            }
+            OverlayIpText.Text = string.IsNullOrWhiteSpace(overlayIp) ? "—" : overlayIp;
+            CopyIpButton.IsEnabled = !string.IsNullOrWhiteSpace(overlayIp);
 
             var server = string.IsNullOrWhiteSpace(settings.Server) ? "(not set)" : settings.Server;
             ServerLink.Content = server;
@@ -359,6 +374,13 @@ public sealed partial class StatusPage : Page
         RoutesResultBar.Title = severity == InfoBarSeverity.Error ? "Routes" : "";
         RoutesResultBar.Message = message;
         RoutesResultBar.IsOpen = true;
+    }
+
+    private void CopyIpButton_Click(object sender, RoutedEventArgs e)
+    {
+        var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+        package.SetText(OverlayIpText.Text);
+        Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
     }
 
     private async void ServerLink_Click(object sender, RoutedEventArgs e)

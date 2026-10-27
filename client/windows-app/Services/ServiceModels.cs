@@ -57,6 +57,13 @@ public sealed class NebulaSettings
     public bool? HostExitActive { get; set; }
 }
 
+/// <summary>client/connectivity.py's get_connectivity (only the fields the app shows).</summary>
+public sealed class ConnectivityInfo
+{
+    [JsonPropertyName("overlay_ip")]
+    public string? OverlayIp { get; set; }
+}
+
 /// <summary>One enrolled network - client/service_api.py's list_networks.</summary>
 public sealed class NetworkInfo
 {

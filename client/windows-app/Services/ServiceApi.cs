@@ -72,6 +72,11 @@ public static class ServiceApi
     public static Task<PipeClient.PipeResponse> GetConfigYamlAsync(string? network = null) =>
         PipeClient.SendAsync("get_config_yaml", Net(network));
 
+    /// <summary>Live interface/lighthouse check (pings, so seconds - not for timers);
+    /// null when the service isn't reachable.</summary>
+    public static async Task<ConnectivityInfo?> GetConnectivityAsync(string? network = null) =>
+        As<ConnectivityInfo>(await PipeClient.SendAsync("get_connectivity", Net(network), timeoutMs: 20000));
+
     public static async Task<bool> GetDnsConfiguredAsync(string? network = null) =>
         As<bool>(await PipeClient.SendAsync("get_dns_configured", Net(network)));
 

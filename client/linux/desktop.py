@@ -62,7 +62,7 @@ import gi
 
 gi.require_version("Gtk", "4.0")
 gi.require_version("Adw", "1")
-from gi.repository import Adw, Gio, GLib, Gtk  # noqa: E402
+from gi.repository import Adw, Gdk, Gio, GLib, Gtk  # noqa: E402
 
 
 def _ensure_path() -> None:
@@ -87,6 +87,36 @@ from client.linux import autostart, dbus_client, notify, service_control  # noqa
 APP_ID = "org.beardedtek.NebulaCommander"
 POLL_MS = 3000
 _NONE_EXIT_NODE = "None"
+CLOUD_URL = "https://cloud.nebulacdr.net/pricing"
+
+# Nebula Commander Cloud ad: fixed brand colours (purple 700-950, gold 300/400) so it
+# looks the same in light and dark style.
+_CLOUD_PROMO_CSS = """
+button.nc-cloud-promo {
+  background-image: linear-gradient(115deg, #4d0c7d 0%, #33055d 45%, #14051f 100%);
+  border-radius: 12px;
+  padding: 14px 16px;
+  box-shadow: inset 0 0 0 1px rgba(208, 184, 74, 0.18);
+}
+button.nc-cloud-promo .eyebrow { color: #d0b84a; font-weight: 800; font-size: 0.75em; letter-spacing: 0.14em; }
+button.nc-cloud-promo .head { color: #f4eefb; font-weight: 700; font-size: 1.07em; }
+button.nc-cloud-promo .sub { color: #cdbfe0; font-size: 0.86em; font-weight: normal; }
+button.nc-cloud-promo .cta {
+  background-color: #d0b84a; color: #14051f; border-radius: 999px; padding: 5px 14px; font-weight: 700;
+}
+button.nc-cloud-promo:hover .cta, button.nc-cloud-promo:focus-visible .cta { background-color: #dfcc73; }
+"""
+
+
+def _install_css() -> None:
+    provider = Gtk.CssProvider()
+    if hasattr(provider, "load_from_string"):  # GTK 4.12+
+        provider.load_from_string(_CLOUD_PROMO_CSS)
+    else:
+        provider.load_from_data(_CLOUD_PROMO_CSS.encode("utf-8"), -1)
+    display = Gdk.Display.get_default()
+    if display is not None:
+        Gtk.StyleContext.add_provider_for_display(display, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
 
 
 def _action_row_with_suffix(group: Adw.PreferencesGroup, title: str, widget: Gtk.Widget, activatable: bool = True) -> Adw.ActionRow:
@@ -144,6 +174,34 @@ class MainWindow(Adw.ApplicationWindow):
         GLib.timeout_add(POLL_MS, self._poll_tick)
         self._poll_tick()
 
+    # ---- Nebula Commander Cloud ad ----
+
+    def _build_cloud_promo(self) -> Gtk.Widget:
+        """Clickable gradient card linking to Nebula Commander Cloud's pricing page."""
+        button = Gtk.Button(css_classes=["nc-cloud-promo"], tooltip_text="cloud.nebulacdr.net/pricing")
+        button.update_property([Gtk.AccessibleProperty.LABEL],
+                               ["Nebula Commander Cloud: your mesh, without the maintenance. Learn more"])
+        button.connect("clicked", lambda _b: self._open_uri(CLOUD_URL))
+        box = Gtk.Box(spacing=14)
+        display = Gdk.Display.get_default()
+        if display is not None and Gtk.IconTheme.get_for_display(display).has_icon(APP_ID):
+            box.append(Gtk.Image(icon_name=APP_ID, pixel_size=40, valign=Gtk.Align.CENTER))
+        text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1, hexpand=True, valign=Gtk.Align.CENTER)
+        for label, css in (("NEBULA COMMANDER CLOUD", "eyebrow"),
+                           ("Your mesh, without the maintenance.", "head"),
+                           ("Hosted, backed up and kept up to date for you.", "sub")):
+            text.append(Gtk.Label(label=label, xalign=0, wrap=True, css_classes=[css]))
+        box.append(text)
+        box.append(Gtk.Label(label="Learn more →", valign=Gtk.Align.CENTER, css_classes=["cta"]))
+        button.set_child(box)
+        return button
+
+    def _open_uri(self, uri: str) -> None:
+        if hasattr(Gtk, "UriLauncher"):  # GTK 4.10+
+            Gtk.UriLauncher(uri=uri).launch(self, None, None, None)
+        else:
+            Gio.AppInfo.launch_default_for_uri(uri, None)
+
     # ---- Networks page ----
 
     def _build_networks_page(self) -> Gtk.Widget:
@@ -172,6 +230,11 @@ class MainWindow(Adw.ApplicationWindow):
         add_btn.connect("clicked", lambda b: self.view_stack.set_visible_child_name("enroll"))
         self.networks_group.set_header_suffix(add_btn)
         page.add(self.networks_group)
+
+        # Only while no network is enrolled (see _refresh_networks).
+        self.networks_promo_group = Adw.PreferencesGroup(visible=False)
+        self.networks_promo_group.add(self._build_cloud_promo())
+        page.add(self.networks_promo_group)
         return page
 
     def _refresh_networks(self, svc_state: str) -> None:
@@ -183,6 +246,7 @@ class MainWindow(Adw.ApplicationWindow):
             networks = [{"id": None, "name": "This device", "server": "", "overlay_ip": "", "exit_node": None,
                          "status": status}] if status.get("state") not in (None, "unknown") else []
         self._networks = networks
+        self.networks_promo_group.set_visible(not networks)
         fingerprint = json.dumps(networks, sort_keys=True, default=str)
         if fingerprint == self._networks_fingerprint:
             return
@@ -220,6 +284,17 @@ class MainWindow(Adw.ApplicationWindow):
         self.remove_network_btn.set_visible(network is not None)
         self.networks_stack.set_visible_child_name("detail")
         self._refresh_detail()
+
+    def _on_copy_ip(self, _button: Gtk.Button) -> None:
+        ip = self.ip_row.get_subtitle() or ""
+        if not ip or ip == "—":
+            return
+        clipboard = self.get_clipboard()
+        try:
+            clipboard.set(ip)
+        except (AttributeError, TypeError):  # older PyGObject without the Gdk.Clipboard.set override
+            clipboard.set_content(Gdk.ContentProvider.new_for_value(ip))
+        self.toast_overlay.add_toast(Adw.Toast(title="IP address copied"))
 
     def _show_network_list(self) -> None:
         self.networks_stack.set_visible_child_name("list")
@@ -278,6 +353,14 @@ class MainWindow(Adw.ApplicationWindow):
         page.add(conn_group)
         self.status_row = Adw.ActionRow(title="Unknown")
         conn_group.add(self.status_row)
+        self.ip_row = Adw.ActionRow(title="This node's IP", subtitle="—")
+        if hasattr(self.ip_row, "set_subtitle_selectable"):  # libadwaita 1.3+
+            self.ip_row.set_subtitle_selectable(True)
+        self.copy_ip_btn = Gtk.Button(icon_name="edit-copy-symbolic", valign=Gtk.Align.CENTER,
+                                      tooltip_text="Copy IP address", css_classes=["flat"], sensitive=False)
+        self.copy_ip_btn.connect("clicked", self._on_copy_ip)
+        self.ip_row.add_suffix(self.copy_ip_btn)
+        conn_group.add(self.ip_row)
 
         self.routes_group = Adw.PreferencesGroup(title="Subnet routes offered to this node")
         page.add(self.routes_group)
@@ -487,6 +570,10 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _build_enroll_page(self) -> Gtk.Widget:
         page = Adw.PreferencesPage()
+
+        promo_group = Adw.PreferencesGroup()
+        promo_group.add(self._build_cloud_promo())
+        page.add(promo_group)
 
         info_group = Adw.PreferencesGroup()
         page.add(info_group)
@@ -796,6 +883,10 @@ class MainWindow(Adw.ApplicationWindow):
 
     def _refresh_detail(self) -> None:
         self._refresh_status_labels()
+        n = next((x for x in self._networks if x.get("id") == self.current_network), {})
+        ip = n.get("overlay_ip") or ""
+        self.ip_row.set_subtitle(ip or "—")
+        self.copy_ip_btn.set_sensitive(bool(ip))
         available = dbus_client.get_available_routes(self.current_network)
         self._maybe_notify_new_routes(available)
         self._refresh_routes_picker(available)
@@ -821,6 +912,7 @@ class NebulaCommanderApp(Adw.Application):
 
     def do_activate(self) -> None:
         if self.window is None:
+            _install_css()
             self.window = MainWindow(self)
         self.window.present()
 

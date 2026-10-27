@@ -50,6 +50,14 @@
                         <TextBlock Text="Server:" VerticalAlignment="Center" />
                         <HyperlinkButton x:Name="ServerLink" Padding="0" Click="ServerLink_Click" />
                     </StackPanel>
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <TextBlock Text="This node's IP:" VerticalAlignment="Center" />
+                        <TextBlock x:Name="OverlayIpText" Text="—" IsTextSelectionEnabled="True" VerticalAlignment="Center" FontFamily="Consolas" />
+                        <Button x:Name="CopyIpButton" Click="CopyIpButton_Click" Padding="6,2" IsEnabled="False"
+                                ToolTipService.ToolTip="Copy IP address" AutomationProperties.Name="Copy IP address">
+                            <FontIcon Glyph="&#xE8C8;" FontSize="12" />
+                        </Button>
+                    </StackPanel>
                     <StackPanel Orientation="Horizontal" Spacing="12">
                         <Button x:Name="TestConnectionButton" Content="Test Connection" Click="TestConnectionButton_Click" />
                         <TextBlock x:Name="TestConnectionResult" VerticalAlignment="Center" Style="{StaticResource MutedTextStyle}" />

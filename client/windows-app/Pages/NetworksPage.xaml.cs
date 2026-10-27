@@ -71,6 +71,7 @@ public sealed partial class NetworksPage : Page
         _fingerprint = fingerprint;
         NetworksPanel.Children.Clear();
         NoNetworksBar.IsOpen = networks is { Count: 0 };
+        CloudPromo.Visibility = networks is { Count: 0 } ? Visibility.Visible : Visibility.Collapsed;
         if (networks is null)
         {
             NetworksPanel.Children.Add(new TextBlock
