@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import settings
 from ..models import Network, Node, Certificate, AllocatedIP
 from ..utils.nebula_cert import _check_path_under_roots, ca_generate, cert_sign, keygen
-from .cert_store import read_cert_store_file, write_cert_store_file
+from .cert_store import host_cert_path, host_key_path, read_cert_store_file, write_cert_store_file
 from .ip_allocator import IPAllocator
 from .revocation import block_host_cert_file, unblock_issued_cert
 
@@ -92,14 +92,13 @@ class CertManager:
         await self.ensure_ca(network)
         duration_days = duration_days or settings.default_cert_expiry_days
         duration_hours = duration_days * 24
+        out_crt = host_cert_path(network.id, name)
 
         ip = await self.ip_allocator.allocate(
             network.id, network.subnet_cidr, suggested_ip
         )
 
-        base = Path(settings.cert_store_path) / str(network.id) / "hosts"
-        base.mkdir(parents=True, exist_ok=True)
-        out_crt = base / f"{name}.crt"
+        out_crt.parent.mkdir(parents=True, exist_ok=True)
         # Any certificate this replaces must stop being trusted (see revocation.py).
         await block_host_cert_file(self.session, network.id, name, "superseded")
 
@@ -154,13 +153,14 @@ class CertManager:
         await self.ensure_ca(network)
         duration_days = duration_days or settings.default_cert_expiry_days
         duration_hours = duration_days * 24
+        out_crt = host_cert_path(network.id, name)
+        key_file = host_key_path(network.id, name)
 
         ip = await self.ip_allocator.allocate(
             network.id, network.subnet_cidr, suggested_ip
         )
 
-        base = Path(settings.cert_store_path) / str(network.id) / "hosts"
-        base.mkdir(parents=True, exist_ok=True)
+        out_crt.parent.mkdir(parents=True, exist_ok=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -191,9 +191,8 @@ class CertManager:
 
         # Persist encrypted - blocklisting any certificate this replaces first
         await block_host_cert_file(self.session, network.id, name, "superseded")
-        write_cert_store_file(base / f"{name}.crt", cert_pem)
+        write_cert_store_file(out_crt, cert_pem)
         await unblock_issued_cert(self.session, network.id, cert_pem)
-        key_file = base / f"{name}.key"
         write_cert_store_file(key_file, private_key_pem)
 
         ca_pem = ""
@@ -231,9 +230,8 @@ class CertManager:
         duration_days = duration_days or settings.default_cert_expiry_days
         duration_hours = duration_days * 24
 
-        base = Path(settings.cert_store_path) / str(network.id) / "hosts"
-        base.mkdir(parents=True, exist_ok=True)
-        out_crt = base / f"{node.hostname}.crt"
+        out_crt = host_cert_path(network.id, node.hostname)
+        out_crt.parent.mkdir(parents=True, exist_ok=True)
 
         with tempfile.NamedTemporaryFile(mode="w", suffix=".pub", delete=False) as f:
             f.write(node.public_key)
@@ -297,14 +295,15 @@ class CertManager:
         await self.ensure_ca(network)
         duration_days = duration_days or settings.default_cert_expiry_days
         duration_hours = duration_days * 24
+        name = node.hostname
+        out_crt = host_cert_path(network.id, name)
+        key_file = host_key_path(network.id, name)
 
         ip = await self.ip_allocator.allocate(
             network.id, network.subnet_cidr, suggested_ip, node_id=node.id
         )
 
-        base = Path(settings.cert_store_path) / str(network.id) / "hosts"
-        base.mkdir(parents=True, exist_ok=True)
-        name = node.hostname
+        out_crt.parent.mkdir(parents=True, exist_ok=True)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             tmp = Path(tmpdir)
@@ -335,9 +334,8 @@ class CertManager:
             public_key_pem = pub_path.read_text()
 
         await block_host_cert_file(self.session, network.id, name, "superseded", node_id=node.id)
-        write_cert_store_file(base / f"{name}.crt", cert_pem)
+        write_cert_store_file(out_crt, cert_pem)
         await unblock_issued_cert(self.session, network.id, cert_pem)
-        key_file = base / f"{name}.key"
         write_cert_store_file(key_file, private_key_pem)
 
         node.ip_address = ip

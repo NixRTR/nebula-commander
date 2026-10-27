@@ -16,28 +16,18 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Optional
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..config import settings
 from ..models import BlockedCertificate
-from ..utils.nebula_cert import _check_path_under_roots, cert_info
-from .cert_store import read_cert_store_file
+from ..utils.nebula_cert import cert_info
+from .cert_store import host_cert_path, read_cert_store_file
 
 logger = logging.getLogger(__name__)
 
 __all__ = ["block_cert_pem", "block_host_cert_file", "unblock_issued_cert", "host_cert_path", "active_blocklist"]
-
-
-def host_cert_path(network_id: int, hostname: str) -> Path:
-    """Where a host's current certificate lives in the cert store."""
-    root = Path(settings.cert_store_path)
-    path = root / str(network_id) / "hosts" / f"{hostname}.crt"
-    _check_path_under_roots(path, [root])
-    return path
 
 
 async def block_cert_pem(

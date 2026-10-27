@@ -16,11 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.oidc import require_user, UserInfo
 from ..auth.permissions import get_user_nodes
 from ..auth.reauth import clear_reauth_challenge, decode_reauth_token, verify_reauth
-from ..config import settings
 from ..database import get_session
 from ..models import AllocatedIP, Certificate, EnrollmentCode, Network, Node, User
 from ..services.audit import get_client_ip, log_audit
-from ..services.cert_store import read_cert_store_file
+from ..services.cert_store import host_cert_path, host_key_path, read_cert_store_file
 from ..services.config_generator import (
     DEFAULT_LISTEN_PORT,
     generate_config_for_node,
@@ -196,17 +195,17 @@ async def get_node_config(
     network = result.scalar_one_or_none()
     if not network or not network.ca_cert_path:
         raise HTTPException(status_code=404, detail="Network or CA not found")
-    host_cert_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.crt"
-    if not host_cert_path.exists():
+    host_cert_file = host_cert_path(node.network_id, node.hostname)
+    if not host_cert_file.exists():
         raise HTTPException(status_code=404, detail="Host certificate not found")
-    host_key_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.key"
+    host_key_file = host_key_path(node.network_id, node.hostname)
     ca_path = Path(network.ca_cert_path)
     if not ca_path.exists():
         raise HTTPException(status_code=404, detail="CA certificate not found")
     ca_content = read_cert_store_file(ca_path)
-    host_cert_content = read_cert_store_file(host_cert_path)
-    if host_key_path.exists():
-        host_key_content = read_cert_store_file(host_key_path)
+    host_cert_content = read_cert_store_file(host_cert_file)
+    if host_key_file.exists():
+        host_key_content = read_cert_store_file(host_key_file)
         inline_pki = (ca_content, host_cert_content, host_key_content)
     else:
         inline_pki = None
@@ -276,17 +275,17 @@ async def get_node_certs(
     network = result.scalar_one_or_none()
     if not network or not network.ca_cert_path:
         raise HTTPException(status_code=404, detail="Network or CA not found")
-    host_cert_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.crt"
-    if not host_cert_path.exists():
+    host_cert_file = host_cert_path(node.network_id, node.hostname)
+    if not host_cert_file.exists():
         raise HTTPException(status_code=404, detail="Host certificate file not found")
-    host_key_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.key"
+    host_key_file = host_key_path(node.network_id, node.hostname)
     ca_path = Path(network.ca_cert_path)
     if not ca_path.exists():
         raise HTTPException(status_code=404, detail="CA certificate file not found")
     ca_content = read_cert_store_file(ca_path)
-    host_cert_content = read_cert_store_file(host_cert_path)
-    if host_key_path.exists():
-        host_key_content = read_cert_store_file(host_key_path)
+    host_cert_content = read_cert_store_file(host_cert_file)
+    if host_key_file.exists():
+        host_key_content = read_cert_store_file(host_key_file)
         readme = "host.key is included in this zip.\n"
     else:
         host_key_content = None
@@ -839,11 +838,10 @@ async def _retire_node_certificate(
             quarantine_until=not_after,
             node_id=node.id if reclaimable_by_node else None,
         )
-    hosts_dir = Path(settings.cert_store_path) / str(node.network_id) / "hosts"
-    for ext in (".crt", ".key"):
+    for path_fn in (host_cert_path, host_key_path):
         try:
-            (hosts_dir / f"{node.hostname}{ext}").unlink(missing_ok=True)
-        except OSError:
+            path_fn(node.network_id, node.hostname).unlink(missing_ok=True)
+        except (OSError, ValueError):
             pass
     node.ip_address = None
     node.public_key = None

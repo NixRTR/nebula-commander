@@ -19,13 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import require_user, require_device_token, UserInfo, create_device_token
 from ..auth.permissions import get_user_nodes
-from ..config import settings
 from ..database import get_session
 from ..models import Network, Node, EnrollmentCode, User
 from ..services.audit import get_client_ip, log_audit
 from ..services.config_generator import get_dns_client_config
 from ..api.dns import get_dnsmasq_config_for_node
-from ..services.cert_store import read_cert_store_file
+from ..services.cert_store import host_cert_path, host_key_path, read_cert_store_file
 from ..services.config_generator import client_supports_tun_dev, generate_config_for_node
 
 logger = logging.getLogger(__name__)
@@ -380,11 +379,11 @@ async def device_config(
     network = result.scalar_one_or_none()
     if not network or not network.ca_cert_path:
         raise HTTPException(status_code=404, detail="Network or CA not found")
-    host_cert_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.crt"
-    if not host_cert_path.exists():
+    host_cert_file = host_cert_path(node.network_id, node.hostname)
+    if not host_cert_file.exists():
         raise HTTPException(status_code=404, detail="Host certificate not found")
-    host_key_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.key"
-    if not host_key_path.exists():
+    host_key_file = host_key_path(node.network_id, node.hostname)
+    if not host_key_file.exists():
         raise HTTPException(
             status_code=404,
             detail="Host key not stored. Create the certificate in the UI so the key is stored for inline config.",
@@ -393,8 +392,8 @@ async def device_config(
     if not ca_path.exists():
         raise HTTPException(status_code=404, detail="CA certificate not found")
     ca_content = read_cert_store_file(ca_path)
-    host_cert_content = read_cert_store_file(host_cert_path)
-    host_key_content = read_cert_store_file(host_key_path)
+    host_cert_content = read_cert_store_file(host_cert_file)
+    host_key_content = read_cert_store_file(host_key_file)
     inline_pki = (ca_content, host_cert_content, host_key_content)
     features = request.headers.get("X-Ncclient-Features")
     yaml_config = await generate_config_for_node(
@@ -439,17 +438,17 @@ async def device_certs(
     network = result.scalar_one_or_none()
     if not network or not network.ca_cert_path:
         raise HTTPException(status_code=404, detail="Network or CA not found")
-    host_cert_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.crt"
-    if not host_cert_path.exists():
+    host_cert_file = host_cert_path(node.network_id, node.hostname)
+    if not host_cert_file.exists():
         raise HTTPException(status_code=404, detail="Host certificate file not found")
-    host_key_path = Path(settings.cert_store_path) / str(node.network_id) / "hosts" / f"{node.hostname}.key"
+    host_key_file = host_key_path(node.network_id, node.hostname)
     ca_path = Path(network.ca_cert_path)
     if not ca_path.exists():
         raise HTTPException(status_code=404, detail="CA certificate file not found")
     ca_content = read_cert_store_file(ca_path)
-    host_cert_content = read_cert_store_file(host_cert_path)
-    if host_key_path.exists():
-        host_key_content = read_cert_store_file(host_key_path)
+    host_cert_content = read_cert_store_file(host_cert_file)
+    if host_key_file.exists():
+        host_key_content = read_cert_store_file(host_key_file)
         readme = "host.key is included in this zip.\n"
     else:
         host_key_content = None

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from ..auth.oidc import require_user, UserInfo
@@ -14,7 +14,7 @@ from ..database import get_session
 from pathlib import Path
 from ..models import Network, Node, Certificate, User
 from ..services.audit import get_client_ip, log_audit
-from ..services.cert_store import read_cert_store_file
+from ..services.cert_store import read_cert_store_file, validate_node_name
 from ..services.cert_manager import CertManager
 from ..services.config_generator import normalize_public_endpoint
 from ..services.ip_allocator import IPAllocator
@@ -63,6 +63,11 @@ class SignRequest(BaseModel):
     suggested_ip: Optional[str] = None
     duration_days: Optional[int] = None
 
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, v: str) -> str:
+        return validate_node_name(v)
+
 
 class SignResponse(BaseModel):
     ip_address: str
@@ -84,6 +89,11 @@ class CreateRequest(BaseModel):
     lighthouse_options: Optional[dict[str, Any]] = None  # interval_seconds; DNS is via ncclient dnsmasq only
     punchy_options: Optional[dict[str, Any]] = None  # respond, delay, respond_delay
     platform: Optional[str] = "desktop"  # desktop, ios, android - mobile nodes skip enrollment
+
+    @field_validator("name")
+    @classmethod
+    def _check_name(cls, v: str) -> str:
+        return validate_node_name(v)
 
 
 class CreateResponse(BaseModel):
