@@ -170,11 +170,18 @@ apiClient.interceptors.response.use(
   }
 );
 
-/** Extract the backend's `{ detail }` error message, falling back to the axios error message. */
+/** Extract the backend's `{ detail }` error message, falling back to the axios error message.
+ * FastAPI validation errors (422) carry `detail` as a list of `{ msg }` objects instead. */
 function axiosErrorMessage(error: unknown): string {
   if (axios.isAxiosError(error)) {
-    const detail = (error.response?.data as { detail?: string } | undefined)?.detail;
-    return detail || error.message;
+    const detail = (error.response?.data as { detail?: unknown } | undefined)?.detail;
+    if (Array.isArray(detail)) {
+      const msgs = detail
+        .map((d) => (d && typeof d === 'object' && 'msg' in d ? String(d.msg) : String(d)))
+        .map((m) => m.replace(/^Value error, /, ''));
+      if (msgs.length) return msgs.join('; ');
+    }
+    return (typeof detail === 'string' && detail) || error.message;
   }
   return error instanceof Error ? error.message : String(error);
 }

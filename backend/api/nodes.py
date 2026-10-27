@@ -9,7 +9,7 @@ from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,6 +20,7 @@ from ..database import get_session
 from ..models import AllocatedIP, Certificate, EnrollmentCode, Network, Node, User
 from ..services.audit import get_client_ip, log_audit
 from ..services.cert_store import host_cert_path, host_key_path, read_cert_store_file
+from ..utils.names import validate_group_name
 from ..services.config_generator import (
     DEFAULT_LISTEN_PORT,
     generate_config_for_node,
@@ -72,6 +73,11 @@ class NodeUpdate(BaseModel):
     punchy_options: Optional[dict[str, Any]] = None
     platform: Optional[str] = None  # desktop, ios, android - for converting pre-existing nodes
     unsafe_routes: Optional[list[dict[str, Any]]] = None  # [{route, source, interface}] - subnet-router/exit-node CIDRs
+
+    @field_validator("group")
+    @classmethod
+    def _check_group(cls, v: Optional[str]) -> Optional[str]:
+        return validate_group_name(v)
 
 
 class NodeResponse(BaseModel):
@@ -495,6 +501,11 @@ async def update_node(
             consumer_groups = sorted(
                 {g.strip() for g in (r.get("consumer_groups") or []) if isinstance(g, str) and g.strip()}
             )
+            for g in consumer_groups:
+                try:
+                    validate_group_name(g)
+                except ValueError as e:
+                    raise HTTPException(status_code=400, detail=f"Invalid consumer group {g!r}: {e}") from e
             validated_routes.append(
                 {
                     "route": route,

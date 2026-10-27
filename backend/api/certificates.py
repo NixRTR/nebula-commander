@@ -14,10 +14,11 @@ from ..database import get_session
 from pathlib import Path
 from ..models import Network, Node, Certificate, User
 from ..services.audit import get_client_ip, log_audit
-from ..services.cert_store import read_cert_store_file, validate_node_name
+from ..services.cert_store import read_cert_store_file
 from ..services.cert_manager import CertManager
 from ..services.config_generator import normalize_public_endpoint
 from ..services.ip_allocator import IPAllocator
+from ..utils.names import validate_group_name, validate_node_name
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,11 @@ class SignRequest(BaseModel):
     def _check_name(cls, v: str) -> str:
         return validate_node_name(v)
 
+    @field_validator("group")
+    @classmethod
+    def _check_group(cls, v: Optional[str]) -> Optional[str]:
+        return validate_group_name(v)
+
 
 class SignResponse(BaseModel):
     ip_address: str
@@ -94,6 +100,11 @@ class CreateRequest(BaseModel):
     @classmethod
     def _check_name(cls, v: str) -> str:
         return validate_node_name(v)
+
+    @field_validator("group")
+    @classmethod
+    def _check_group(cls, v: Optional[str]) -> Optional[str]:
+        return validate_group_name(v)
 
 
 class CreateResponse(BaseModel):

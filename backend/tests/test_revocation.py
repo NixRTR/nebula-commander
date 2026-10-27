@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from backend.api import certificates as certificates_api
 from backend.api import device as device_api
+from backend.api import networks as networks_api
 from backend.api import nodes as nodes_api
 from backend.auth.oidc import UserInfo, create_device_token, require_user
 from backend.config import settings
@@ -69,7 +70,7 @@ async def api(tmp_path, monkeypatch):
                 raise
 
     app = FastAPI()
-    for router in (certificates_api.router, nodes_api.router, device_api.router):
+    for router in (certificates_api.router, nodes_api.router, device_api.router, networks_api.router):
         app.include_router(router)
     app.dependency_overrides[require_user] = lambda: OWNER
     app.dependency_overrides[get_session] = _session

@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..models import Network, Node, Certificate, AllocatedIP
+from ..utils.names import ca_name
 from ..utils.nebula_cert import _check_path_under_roots, ca_generate, cert_sign, keygen
 from .cert_store import host_cert_path, host_key_path, read_cert_store_file, write_cert_store_file
 from .ip_allocator import IPAllocator
@@ -62,7 +63,7 @@ class CertManager:
             return
         _cert_store_root = Path(settings.cert_store_path)
         ca_generate(
-            network.name,
+            ca_name(network.name, network.id),
             ca_crt,
             ca_key,
             version=network.cert_version,

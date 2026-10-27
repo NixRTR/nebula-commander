@@ -244,6 +244,11 @@ def cert_sign(
         "-out-crt", _path_arg(out_crt),
         "-duration", f"{duration_hours}h",
     ]
+    # Both are comma-joined into one argument, so a comma inside an item would silently
+    # turn it into several (e.g. group "web,admin" -> a cert with groups web AND admin).
+    for item in (*(groups or []), *(unsafe_subnets or [])):
+        if "," in item:
+            raise ValueError(f"Comma in a -groups/-subnets item: {item!r}")
     if groups:
         args.extend(["-groups", ",".join(groups)])
     if unsafe_subnets:

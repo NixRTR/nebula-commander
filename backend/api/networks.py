@@ -33,6 +33,7 @@ from ..services.config_generator import (
     validate_tun_dev,
 )
 from ..services.ip_allocator import IPAllocator
+from ..utils.names import validate_group_name
 
 logger = logging.getLogger(__name__)
 
@@ -628,6 +629,10 @@ async def update_group_firewall(
     group_name = (group_name or "").strip()
     if not group_name:
         raise HTTPException(status_code=400, detail="Group name is required")
+    try:
+        validate_group_name(group_name)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     result = await session.execute(select(Network).where(Network.id == network_id))
     if not result.scalar_one_or_none():
         raise HTTPException(status_code=404, detail="Network not found")

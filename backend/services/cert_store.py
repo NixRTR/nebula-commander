@@ -2,31 +2,16 @@
 Read/write cert store files with encryption at rest. All files under cert_store_path
 are stored encrypted (magic + Fernet).
 """
-import re
 from pathlib import Path
 
 from ..config import settings
 from ..utils.nebula_cert import _check_path_under_roots
 from .encryption import decrypt, encrypt
 
-# Names accepted for new nodes: a DNS-style label set, usable as one path segment.
-NODE_NAME_RE = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,62})$")
-
-
-def validate_node_name(name: str) -> str:
-    """Strip and validate a node name supplied by a client; raises ValueError."""
-    name = (name or "").strip()
-    if not NODE_NAME_RE.fullmatch(name):
-        raise ValueError(
-            "Node name must be 1-63 characters of letters, digits, '.', '_' or '-', "
-            "starting with a letter or digit"
-        )
-    return name
-
 
 def host_file_path(network_id: int, hostname: str, ext: str) -> Path:
     """cert_store/<network_id>/hosts/<hostname><ext>, refusing any hostname that would
-    land outside that network's hosts directory. Looser than validate_node_name so
+    land outside that network's hosts directory. Looser than utils.names.validate_node_name so
     nodes created before it existed keep working."""
     if not hostname or "/" in hostname or "\\" in hostname or "\0" in hostname or hostname.startswith("."):
         raise ValueError(f"Unsafe node name for a cert store path: {hostname!r}")
