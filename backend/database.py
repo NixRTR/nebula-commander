@@ -477,7 +477,7 @@ def _run_sqlite_migrations() -> None:
             "invitations",
         ):
             cur.execute(
-                f"DELETE FROM {table} WHERE network_id NOT IN (SELECT id FROM networks)"
+                f"DELETE FROM {table} WHERE network_id NOT IN (SELECT id FROM networks)"  # nosec B608 - table names come from the fixed tuple above
             )
             if cur.rowcount:
                 logger.info(

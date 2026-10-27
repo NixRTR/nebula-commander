@@ -161,7 +161,7 @@ def load_jwt_secret(settings_obj: Settings) -> str:
                     secret = file_secret
         except Exception as e:
             print(f"Warning: Could not read JWT secret: {e}")
-    if secret == "change-this-in-production":
+    if secret == "change-this-in-production":  # nosec B105 - rejects the insecure default, not a credential
         raise SystemExit(
             "NEBULA_COMMANDER_JWT_SECRET_KEY is using the insecure default. Set "
             "NEBULA_COMMANDER_JWT_SECRET_KEY or NEBULA_COMMANDER_JWT_SECRET_FILE. "

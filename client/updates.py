@@ -226,9 +226,9 @@ def verify_manifest(body: bytes, signature: bytes, keys: "list[bytes] | None" = 
         url = (asset or {}).get("url", "") if isinstance(asset, dict) else ""
         sha = (asset or {}).get("sha256", "") if isinstance(asset, dict) else ""
         if not url.startswith(prefixes) or ".." in url:
-            raise UpdateError(f"Update manifest asset {name!r} points outside the official releases")
+            raise UpdateError(f"Update manifest asset {name!r} points outside the official releases")  # nosec B608 - error message, not SQL
         if not re.fullmatch(r"[0-9a-f]{64}", sha):
-            raise UpdateError(f"Update manifest asset {name!r} has no valid SHA-256")
+            raise UpdateError(f"Update manifest asset {name!r} has no valid SHA-256")  # nosec B608 - error message, not SQL
     return manifest
 
 

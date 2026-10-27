@@ -743,7 +743,7 @@ class MainWindow(Adw.ApplicationWindow):
                 content = f'#!/bin/sh\ncd "{repo_root}"\nexec "{sys.executable}" -m client.linux.desktop\n'
                 with open(script_path, "w", encoding="utf-8") as f:
                     f.write(content)
-                os.chmod(script_path, 0o755)
+                os.chmod(script_path, 0o700)
                 target = script_path
             ok = autostart.enable_autostart(target)
             if not ok:

@@ -1608,7 +1608,7 @@ def _notify_service_poll_now() -> None:
     try:
         from client.windows.pipe_protocol import CMD_POLL_NOW, send_command
         send_command(CMD_POLL_NOW)
-    except Exception:
+    except Exception:  # nosec B110 - best-effort nudge; the service re-polls on its interval anyway
         pass
 
 

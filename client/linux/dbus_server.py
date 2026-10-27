@@ -312,7 +312,7 @@ class _DBusServerThread(threading.Thread):
             try:
                 if conn is not None:
                     conn.close()
-            except Exception:
+            except Exception:  # nosec B110 - best-effort close on shutdown
                 pass
 
     def _dispatch(self, msg) -> None:

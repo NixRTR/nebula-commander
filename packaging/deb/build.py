@@ -80,7 +80,7 @@ def get_version(explicit: str | None) -> str:
     if explicit:
         return explicit.lstrip("v")
     try:
-        out = subprocess.run(
+        out = subprocess.run(  # nosec B603 B607 - build script, fixed git command
             ["git", "describe", "--tags", "--always"],
             cwd=REPO_ROOT,
             capture_output=True,
@@ -105,7 +105,7 @@ def copy_tree(src: Path, dst: Path) -> None:
 
 def build_deb(stage_dir: Path, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
-    subprocess.run(  # nosec B603
+    subprocess.run(  # nosec B603 B607 - build script, fixed dpkg-deb command
         ["dpkg-deb", "--build", "--root-owner-group", str(stage_dir), str(output_path)],
         check=True,
     )

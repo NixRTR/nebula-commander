@@ -71,7 +71,7 @@ def get_version(explicit: str | None) -> str:
         version = explicit.lstrip("v")
     else:
         try:
-            out = subprocess.run(
+            out = subprocess.run(  # nosec B603 B607 - build script, fixed git command
                 ["git", "describe", "--tags", "--always"],
                 cwd=REPO_ROOT,
                 capture_output=True,

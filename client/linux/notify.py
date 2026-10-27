@@ -27,7 +27,7 @@ app window (desktop.py), not in the notification itself.
 from __future__ import annotations
 
 import shutil
-import subprocess
+import subprocess  # nosec B404 - notify-send via shutil.which, shell=False
 
 __all__ = ["notify"]
 
@@ -75,7 +75,7 @@ def _notify_via_notify_send(summary: str, body: str, urgency: str, timeout_ms: i
     if not exe:
         return False
     try:
-        subprocess.run(
+        subprocess.run(  # nosec B603 - notify-send resolved via shutil.which, argv list, no shell
             [
                 exe,
                 "--app-name", _APP_NAME,

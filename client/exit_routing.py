@@ -85,7 +85,7 @@ class ExitPlan:
     tun_dev: str
     listen_port: int
     route_v6: bool  # the exit gateway routes ::/0 too
-    listen_host: str = "0.0.0.0"
+    listen_host: str = "0.0.0.0"  # nosec B104 - Nebula's listen.host default, read from config; nothing binds here
 
 
 def _which(name: str) -> str:
@@ -144,7 +144,7 @@ def plan_from_config(config_bytes: bytes) -> Optional[ExitPlan]:
         port = int(listen.get("port", 4242))
     except (TypeError, ValueError):
         port = 4242
-    host = str(listen.get("host") or "0.0.0.0")
+    host = str(listen.get("host") or "0.0.0.0")  # nosec B104 - Nebula's listen.host default
     return ExitPlan(tun_dev=dev, listen_port=port, route_v6=EXIT_V6 in routes, listen_host=host)
 
 
@@ -156,7 +156,7 @@ def with_listen_host(config_bytes: bytes, host: str) -> bytes:
     if not isinstance(parsed, dict):
         return config_bytes
     listen = parsed.get("listen") or {}
-    if str(listen.get("host") or "0.0.0.0") == host:
+    if str(listen.get("host") or "0.0.0.0") == host:  # nosec B104 - Nebula's listen.host default
         return config_bytes
     parsed["listen"] = {**listen, "host": host}
     return yaml.dump(parsed, default_flow_style=False, sort_keys=False, allow_unicode=True).encode("utf-8")
