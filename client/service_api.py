@@ -34,7 +34,6 @@ from __future__ import annotations
 import ipaddress
 import json
 import os
-import sys
 import threading
 
 from client.config import (
@@ -195,8 +194,10 @@ def list_networks(output_dir: str) -> list[dict]:
             "server": e.get("server") or "",
             "node_id": e.get("node_id"),
             "tun_dev": tun_dev or "",
-            # Windows: recorded by the service (a PowerShell call per network is too slow here).
-            "overlay_ip": (status.get("overlay_ip") if sys.platform == "win32" else _overlay_ip(tun_dev)) or "",
+            # Looked up live (milliseconds on every platform since Windows uses
+            # GetAdaptersAddresses); the address the service recorded on connecting is
+            # only a fallback, since it can predate the interface getting its IP.
+            "overlay_ip": _overlay_ip(tun_dev) or status.get("overlay_ip") or "",
             "status": {k: status.get(k) for k in ("state", "message", "updated_at")},
             "exit_node": (exit_node or {}).get("via") if (exit_node or {}).get("enrollment") == e["id"] else None,
             "accepted_subnet_routes": e.get("accepted_subnet_routes") or [],

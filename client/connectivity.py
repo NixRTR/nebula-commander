@@ -49,6 +49,10 @@ def interface_ipv4(dev: str) -> str | None:
         return None
     try:
         if sys.platform == "win32":
+            try:
+                return _windows_interface_ipv4(dev)
+            except OSError:
+                pass  # fall back to PowerShell (seconds, not milliseconds)
             out = subprocess.run(  # nosec B603 B607 - fixed argv; dev validated above
                 ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
                  f"Get-NetIPAddress -InterfaceAlias '{dev}' -AddressFamily IPv4 -ErrorAction SilentlyContinue"
@@ -65,6 +69,68 @@ def interface_ipv4(dev: str) -> str | None:
     except (subprocess.SubprocessError, OSError):
         return None
     return out if re.fullmatch(r"\d+\.\d+\.\d+\.\d+", out or "") else None
+
+
+def _windows_interface_ipv4(dev: str) -> str | None:
+    """IPv4 address of the adapter whose friendly name is dev, via GetAdaptersAddresses:
+    milliseconds, where a PowerShell Get-NetIPAddress takes about a second - so
+    list_networks can look addresses up live on every call. Raises OSError if the API
+    call itself fails."""
+    import ctypes
+    from ctypes import wintypes
+
+    class SOCKADDR_IN(ctypes.Structure):
+        _fields_ = [("family", ctypes.c_ushort), ("port", ctypes.c_ushort), ("addr", ctypes.c_ubyte * 4)]
+
+    class SOCKET_ADDRESS(ctypes.Structure):
+        _fields_ = [("lpSockaddr", ctypes.c_void_p), ("iSockaddrLength", ctypes.c_int)]
+
+    class UNICAST(ctypes.Structure):
+        pass
+
+    UNICAST._fields_ = [("Length", wintypes.ULONG), ("Flags", wintypes.DWORD),
+                        ("Next", ctypes.POINTER(UNICAST)), ("Address", SOCKET_ADDRESS)]
+
+    class ADAPTER(ctypes.Structure):  # leading fields of IP_ADAPTER_ADDRESSES only
+        pass
+
+    ADAPTER._fields_ = [("Length", wintypes.ULONG), ("IfIndex", wintypes.DWORD),
+                        ("Next", ctypes.POINTER(ADAPTER)), ("AdapterName", ctypes.c_char_p),
+                        ("FirstUnicastAddress", ctypes.POINTER(UNICAST)),
+                        ("FirstAnycastAddress", ctypes.c_void_p), ("FirstMulticastAddress", ctypes.c_void_p),
+                        ("FirstDnsServerAddress", ctypes.c_void_p), ("DnsSuffix", ctypes.c_wchar_p),
+                        ("Description", ctypes.c_wchar_p), ("FriendlyName", ctypes.c_wchar_p)]
+
+    af_inet = 2
+    flags = 0x2 | 0x4 | 0x8  # GAA_FLAG_SKIP_ANYCAST | SKIP_MULTICAST | SKIP_DNS_SERVER
+    get_adapters = ctypes.WinDLL("iphlpapi.dll").GetAdaptersAddresses
+    size = wintypes.ULONG(16 * 1024)
+    for _ in range(3):
+        buf = ctypes.create_string_buffer(size.value)
+        rc = get_adapters(af_inet, flags, None, buf, ctypes.byref(size))
+        if rc == 0:
+            break
+        if rc == 232:  # ERROR_NO_DATA: no IPv4 adapters at all
+            return None
+        if rc != 111:  # ERROR_BUFFER_OVERFLOW: retry with the size it asked for
+            raise OSError(f"GetAdaptersAddresses failed: {rc}")
+    else:
+        raise OSError("GetAdaptersAddresses: buffer kept growing")
+
+    adapter = ctypes.cast(buf, ctypes.POINTER(ADAPTER))
+    while adapter:
+        if (adapter.contents.FriendlyName or "").lower() == dev.lower():
+            unicast = adapter.contents.FirstUnicastAddress
+            while unicast:
+                sa = unicast.contents.Address
+                if sa.lpSockaddr and sa.iSockaddrLength >= ctypes.sizeof(SOCKADDR_IN):
+                    sin = ctypes.cast(sa.lpSockaddr, ctypes.POINTER(SOCKADDR_IN)).contents
+                    if sin.family == af_inet:
+                        return ".".join(str(b) for b in sin.addr)
+                unicast = unicast.contents.Next
+            return None
+        adapter = adapter.contents.Next
+    return None
 
 
 def ping(ip: str) -> float | None:

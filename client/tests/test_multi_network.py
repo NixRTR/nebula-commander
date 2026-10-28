@@ -174,6 +174,21 @@ def test_list_networks(host):
     assert "token" not in json.dumps(nets)
 
 
+def test_list_networks_overlay_ip_is_live_with_recorded_fallback(host, monkeypatch):
+    """The live interface address wins; the one recorded on connecting (which can be
+    missing if the interface had no IP yet at that moment) is only a fallback."""
+    _enrolled("home", "office")
+    for eid, dev, recorded in (("id0", "nc-home", None), ("id1", "nc-office", "10.1.0.9")):
+        d = host / "networks" / eid
+        d.mkdir(parents=True)
+        (d / "config.yaml").write_text(f"tun:\n  dev: {dev}\n")
+        (d / "status.json").write_text(json.dumps({"state": "connected", "message": "ok", "overlay_ip": recorded}))
+    monkeypatch.setattr(service_api, "_overlay_ip", lambda dev: "10.0.0.5" if dev == "nc-home" else None)
+    nets = {n["id"]: n for n in service_api.list_networks(str(host))}
+    assert nets["id0"]["overlay_ip"] == "10.0.0.5"
+    assert nets["id1"]["overlay_ip"] == "10.1.0.9"
+
+
 def test_poll_now_reaches_every_loop():
     a, b = [service_api.poll_now_generation()], [service_api.poll_now_generation()]
     service_api.request_poll_now()

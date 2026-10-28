@@ -1,5 +1,8 @@
 """client/connectivity.py and its pipe command (get_connectivity)."""
 import subprocess
+import sys
+
+import pytest
 
 from client import connectivity
 
@@ -83,3 +86,21 @@ def test_interface_name_is_validated_before_reaching_a_shell(monkeypatch):
     monkeypatch.setattr(connectivity.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("must not run")))
     assert connectivity.interface_ipv4(r"x'; Remove-Item C:\ -Recurse; '") is None
     assert connectivity.interface_ipv4("") is None
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="GetAdaptersAddresses is Windows-only")
+def test_windows_interface_ipv4_reads_adapters_natively():
+    assert connectivity._windows_interface_ipv4("Loopback Pseudo-Interface 1") == "127.0.0.1"
+    assert connectivity._windows_interface_ipv4("no-such-adapter-here") is None
+
+
+def test_windows_interface_ipv4_falls_back_to_powershell(monkeypatch):
+    monkeypatch.setattr(connectivity.sys, "platform", "win32")
+
+    def broken(dev):
+        raise OSError("GetAdaptersAddresses failed")
+
+    monkeypatch.setattr(connectivity, "_windows_interface_ipv4", broken)
+    monkeypatch.setattr(connectivity.subprocess, "run",
+                        lambda *a, **k: subprocess.CompletedProcess(a, 0, "10.100.0.2\n", ""))
+    assert connectivity.interface_ipv4("nebula1") == "10.100.0.2"
