@@ -115,6 +115,7 @@ Edit `docker/env.d/backend` for all backend-specific settings:
 | `NEBULA_COMMANDER_OIDC_REDIRECT_URI` | OIDC callback (optional; derived from PUBLIC_URL if unset) | — |
 | `NEBULA_COMMANDER_CORS_ORIGINS` | Allowed CORS origins (include public URL) | — |
 | `NEBULA_COMMANDER_DEBUG` | Enable debug mode | `false` |
+| `NEBULA_COMMANDER_API_DOCS_ENABLED` | Serve API docs at `/api/docs` and `/api/redoc` (schema at `/api/openapi.json`) | `true` |
 | **Analytics (optional)** | | |
 | `NEBULA_COMMANDER_PLAUSIBLE_DOMAIN` | Plausible domain (e.g. `nebulacdr.net`); enables Plausible | — |
 | `NEBULA_COMMANDER_PLAUSIBLE_SCRIPT_SRC` | Plausible script URL (e.g. proxy); default plausible.io if unset | — |

@@ -113,6 +113,12 @@ in
       description = "Set to true in production when served over HTTPS.";
     };
 
+    apiDocs = mkOption {
+      type = types.bool;
+      default = true;
+      description = "Serve the interactive API docs at /api/docs and /api/redoc (schema at /api/openapi.json).";
+    };
+
     allowedRedirectHosts = mkOption {
       type = types.str;
       default = "";
@@ -226,6 +232,7 @@ in
         NEBULA_COMMANDER_DEBUG = if cfg.debug then "true" else "false";
         NEBULA_COMMANDER_CORS_ORIGINS = cfg.corsOrigins;
         NEBULA_COMMANDER_SESSION_HTTPS_ONLY = if cfg.sessionHttpsOnly then "true" else "false";
+        NEBULA_COMMANDER_API_DOCS_ENABLED = if cfg.apiDocs then "true" else "false";
         NEBULA_COMMANDER_STANDALONE_ADMIN_BOOTSTRAP = if cfg.standaloneAdminBootstrap then "true" else "false";
       }
       // optionalAttrs (cfg.publicUrl != null) { NEBULA_COMMANDER_PUBLIC_URL = cfg.publicUrl; }

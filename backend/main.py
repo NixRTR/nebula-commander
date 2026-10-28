@@ -76,8 +76,11 @@ app = FastAPI(
     version=VERSION,
     description="Self-hosted Nebula control plane",
     lifespan=lifespan,
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
+    # Served under /api so the reverse proxy routes them to the backend; the default
+    # /openapi.json would hit the frontend and the docs pages would get its HTML.
+    docs_url="/api/docs" if settings.api_docs_enabled else None,
+    redoc_url="/api/redoc" if settings.api_docs_enabled else None,
+    openapi_url="/api/openapi.json" if settings.api_docs_enabled else None,
 )
 
 # Rate limiting middleware (applied first to catch attacks early)

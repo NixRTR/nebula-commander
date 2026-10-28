@@ -91,6 +91,10 @@ class Settings(BaseSettings):
 
     # Session security
     session_https_only: bool = False  # Set to True in production with HTTPS
+
+    # Interactive API docs (/api/docs, /api/redoc) and the schema (/api/openapi.json).
+    # Every endpoint still requires auth; disabling hides the endpoint list and version.
+    api_docs_enabled: bool = True
     
     # Redirect security - allowed hosts for OAuth/OIDC redirects
     # Prevents open redirect vulnerabilities by validating redirect URLs
