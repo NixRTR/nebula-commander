@@ -77,7 +77,17 @@
                 <StackPanel Orientation="Horizontal" Spacing="12">
                     <Button x:Name="SaveUpdatesButton" Content="Save" Style="{StaticResource AccentButtonStyle}" Click="SaveUpdatesButton_Click" />
                     <Button x:Name="CheckNowButton" Content="Check now" Click="CheckNowButton_Click" />
+                    <Button x:Name="InstallNowButton" Content="Install now" Click="InstallNowButton_Click" Visibility="Collapsed" />
                     <ProgressRing x:Name="UpdatesProgress" IsActive="False" Width="18" Height="18" />
+                </StackPanel>
+                <!-- While an update downloads and installs (see RenderInstall). -->
+                <StackPanel x:Name="InstallProgressPanel" Spacing="6" Visibility="Collapsed" MaxWidth="480" HorizontalAlignment="Left">
+                    <TextBlock x:Name="InstallProgressText" TextWrapping="Wrap" />
+                    <ProgressBar x:Name="InstallProgressBar" Minimum="0" Maximum="100" Width="480" />
+                </StackPanel>
+                <StackPanel x:Name="RestartPanel" Orientation="Horizontal" Spacing="12" Visibility="Collapsed">
+                    <TextBlock Text="Download complete. Please restart the app or click Restart App." TextWrapping="Wrap" VerticalAlignment="Center" />
+                    <Button Content="Restart App" Style="{StaticResource AccentButtonStyle}" Click="RestartAppButton_Click" />
                 </StackPanel>
                 <TextBlock x:Name="UpdateStatusText" TextWrapping="Wrap" Opacity="0.85" />
                 <InfoBar x:Name="UpdatesResultBar" IsOpen="False" IsClosable="False" />

@@ -186,8 +186,10 @@ def apt_update_problem(output: str) -> "str | None":
 def run_upgrade(log=print) -> dict:
     """Upgrade the installed Nebula Commander packages from the official repo and
     record the outcome in update-status.json. Returns the status."""
-    from client.updates import _now_iso, load_status, save_status
+    from client.updates import _now_iso, clear_phase, load_status, save_status, set_phase
 
+    status = load_status()
+    set_phase("installing", status.get("available_version"))
     status = load_status()
     status["last_install_attempt"] = _now_iso()
     try:
@@ -219,5 +221,5 @@ def run_upgrade(log=print) -> dict:
     except (UpdateError, OSError, subprocess.SubprocessError) as e:
         status.update(last_install_result="error", last_install_error=str(e))
         log(f"Auto-update failed: {e}")
-    save_status(status)
+    save_status(clear_phase(status))
     return status

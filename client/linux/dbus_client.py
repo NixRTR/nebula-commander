@@ -40,6 +40,7 @@ __all__ = [
     "get_update_status",
     "set_auto_update",
     "check_for_updates_now",
+    "install_update_now",
     "list_networks",
     "enroll_network",
     "remove_network",
@@ -163,6 +164,13 @@ def set_auto_update(enabled: bool, window_start: "str | None" = None, window_end
 
 def check_for_updates_now() -> dict:
     (payload,) = _call("CheckForUpdatesNow", timeout=90)
+    return json.loads(payload)
+
+
+def install_update_now() -> dict:
+    """Start installing an available update (a service from before 0.8.3 has no such
+    method: DBusServiceError)."""
+    (payload,) = _call("InstallUpdateNow", timeout=90)
     return json.loads(payload)
 
 

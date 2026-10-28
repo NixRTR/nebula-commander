@@ -146,6 +146,12 @@ class MainWindow(Adw.ApplicationWindow):
         self._exit_node_vias: list[str | None] = [None]
         self._suspend_exit_signal = False
         self._update_ticks = 0
+        # The service's version when this app started: a different one later means an
+        # update was installed underneath it, and this process is the old app.
+        self._service_version_at_start: "str | None" = None
+        self._update_installed = False
+        self._install_poll_id = 0
+        self._installing_target: "str | None" = None
 
         self.toast_overlay = Adw.ToastOverlay()
 
@@ -179,6 +185,7 @@ class MainWindow(Adw.ApplicationWindow):
     def _build_cloud_promo(self) -> Gtk.Widget:
         """Clickable gradient card linking to Nebula Commander Cloud's pricing page."""
         button = Gtk.Button(css_classes=["nc-cloud-promo"], tooltip_text="cloud.nebulacdr.net/pricing")
+        button.set_cursor_from_name("pointer")
         button.update_property([Gtk.AccessibleProperty.LABEL],
                                ["Nebula Commander Cloud: your mesh, without the maintenance. Learn more"])
         button.connect("clicked", lambda _b: self._open_uri(CLOUD_URL))
@@ -696,11 +703,27 @@ class MainWindow(Adw.ApplicationWindow):
         buttons = Adw.ActionRow()
         self.updates_check_btn = Gtk.Button(label="Check now", valign=Gtk.Align.CENTER)
         self.updates_check_btn.connect("clicked", self._on_check_updates)
+        self.updates_install_btn = Gtk.Button(label="Install now", valign=Gtk.Align.CENTER, visible=False)
+        self.updates_install_btn.connect("clicked", self._on_install_update)
         apply_btn = Gtk.Button(label="Apply", css_classes=["suggested-action"], valign=Gtk.Align.CENTER)
         apply_btn.connect("clicked", self._on_apply_updates)
         buttons.add_suffix(self.updates_check_btn)
+        buttons.add_suffix(self.updates_install_btn)
         buttons.add_suffix(apply_btn)
         self.updates_group.add(buttons)
+
+        # While an update installs: a progress bar (the package manager reports no
+        # byte counts, so it pulses), then the restart prompt.
+        self.updates_progress_row = Adw.ActionRow(title="Installing...", visible=False)
+        self.updates_progress_bar = Gtk.ProgressBar(valign=Gtk.Align.CENTER, hexpand=True)
+        self.updates_progress_row.add_suffix(self.updates_progress_bar)
+        self.updates_group.add(self.updates_progress_row)
+        self.updates_restart_row = Adw.ActionRow(
+            title="Download complete. Please restart the app or click Restart App.", visible=False)
+        restart_btn = Gtk.Button(label="Restart App", valign=Gtk.Align.CENTER, css_classes=["suggested-action"])
+        restart_btn.connect("clicked", lambda _b: self._restart_app())
+        self.updates_restart_row.add_suffix(restart_btn)
+        self.updates_group.add(self.updates_restart_row)
         self._refresh_updates(load_settings=True)
 
     def _refresh_updates(self, load_settings: bool = False, st: "dict | None" = None) -> None:
@@ -709,11 +732,21 @@ class MainWindow(Adw.ApplicationWindow):
                 st = dbus_client.get_update_status()
             except dbus_client.DBusServiceError:
                 st = None
+        if not st and self._installing_target:
+            # The package upgrade restarts the service: keep showing progress.
+            self._render_install(None)
+            return
         if not st or not st.get("supported"):
             # Service stopped or too old, or an install without automatic updates.
             self.updates_group.set_visible(False)
             return
         self.updates_group.set_visible(True)
+        installed_now = st.get("installed_version")
+        if installed_now and not st.get("dev_build"):
+            if self._service_version_at_start is None:
+                self._service_version_at_start = installed_now
+            elif installed_now != self._service_version_at_start:
+                self._update_installed = True
         nixos = st.get("install_kind") == "nixos"
         installed = st.get("installed_version") or ""
         if installed.startswith("0.0.0+git."):
@@ -750,7 +783,86 @@ class MainWindow(Adw.ApplicationWindow):
                 outcome = st.get("last_install_error") or "failed"
             lines.append(f"Last install {st['last_install_attempt']}: {outcome}")
         self.updates_status_row.set_subtitle("\n".join(line for line in lines if line))
+        self._render_install(st)
         self._maybe_notify_update(st)
+
+    def _render_install(self, st: "dict | None") -> None:
+        """Install now / progress / restart prompt from the latest status (None: the
+        service is restarting mid-upgrade)."""
+        if self._update_installed:
+            self._installing_target = None
+            self._stop_install_poll()
+            self.updates_install_btn.set_visible(False)
+            self.updates_progress_row.set_visible(False)
+            self.updates_restart_row.set_visible(True)
+            return
+        self.updates_restart_row.set_visible(False)
+        phase = (st or {}).get("install_phase")
+        if phase or (st is None and self._installing_target):
+            target = (st or {}).get("install_target") or self._installing_target or (st or {}).get("available_version")
+            self.updates_install_btn.set_visible(False)
+            self.updates_progress_row.set_title(f"Installing v{target}..." if target else "Installing...")
+            self.updates_progress_row.set_visible(True)
+            self.updates_progress_bar.pulse()
+            self._start_install_poll()
+            return
+        self.updates_progress_row.set_visible(False)
+        if self._installing_target and st and st.get("last_install_result") == "error":
+            self._show_error("Update failed", st.get("last_install_error") or "The install failed.")
+        if self._installing_target and st and st.get("last_install_result") in ("error", "up_to_date"):
+            self._installing_target = None
+        self.updates_install_btn.set_visible(bool(
+            st and st.get("last_result") == "update_available" and st.get("install_kind") == "package"
+            and not st.get("dev_build") and not self._installing_target))
+        if not self._installing_target:
+            self._stop_install_poll()
+
+    def _start_install_poll(self) -> None:
+        if not self._install_poll_id:
+            def tick() -> bool:
+                self._refresh_updates()
+                return GLib.SOURCE_CONTINUE if self._install_poll_id else GLib.SOURCE_REMOVE
+            self._install_poll_id = GLib.timeout_add(1000, tick)
+
+    def _stop_install_poll(self) -> None:
+        if self._install_poll_id:
+            GLib.source_remove(self._install_poll_id)
+            self._install_poll_id = 0
+
+    def _on_install_update(self, _button: Gtk.Button) -> None:
+        self.updates_install_btn.set_sensitive(False)
+
+        def work() -> None:
+            try:
+                st, err = dbus_client.install_update_now(), None
+            except dbus_client.DBusServiceError as e:
+                st, err = None, e.message
+            GLib.idle_add(done, st, err)
+
+        def done(st, err) -> bool:
+            self.updates_install_btn.set_sensitive(True)
+            if err:
+                self._show_error("Updates", err)
+            elif st.get("install_started"):
+                self._installing_target = st.get("install_target") or st.get("available_version") or ""
+            else:
+                self._toast("Already up to date.")
+            self._refresh_updates(st=st if not err else None)
+            return GLib.SOURCE_REMOVE
+
+        threading.Thread(target=work, name="update-install", daemon=True).start()
+
+    def _restart_app(self) -> None:
+        """Start the (updated) app again and quit this one. The new process waits a
+        moment so this one has released the application id first."""
+        import subprocess  # nosec B404 - fixed argv: this interpreter and this file
+
+        argv = [sys.executable] if getattr(sys, "frozen", False) else [sys.executable, os.path.abspath(__file__)]
+        subprocess.Popen(  # nosec B603 B607
+            ["sh", "-c", 'sleep 1; exec "$@"', "sh", *argv], start_new_session=True, close_fds=True)
+        app = self.get_application()
+        if app is not None:
+            app.quit()
 
     def _maybe_notify_update(self, st: dict) -> None:
         """Once per new version, per user (remembered across app restarts)."""
@@ -809,8 +921,10 @@ class MainWindow(Adw.ApplicationWindow):
                 self._refresh_updates()
             else:
                 self._refresh_updates(st=st)
-                if st.get("install_started"):
-                    self._toast(f"Installing v{st.get('available_version')} now...")
+                if st.get("available_version"):
+                    self._toast(f"v{st.get('available_version')} is available - click Install now.")
+                else:
+                    self._toast("Up to date.")
             return GLib.SOURCE_REMOVE
 
         threading.Thread(target=work, name="update-check", daemon=True).start()

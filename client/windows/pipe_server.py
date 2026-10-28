@@ -78,6 +78,9 @@ class ServiceHooks:
     def update_check_now(self) -> None:  # pragma: no cover - interface
         raise NotImplementedError
 
+    def update_install_now(self) -> None:  # pragma: no cover - interface
+        raise NotImplementedError
+
 
 def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], Any], str]]":
     out_dir = shared_root()
@@ -182,9 +185,14 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         return status
 
     def update_check_now(_a):
-        # Runs on the updater thread (check, then install if automatic updates are
-        # on); poll get_update_status for the outcome.
+        # Runs on the updater thread and only checks; poll get_update_status for the result.
         hooks.update_check_now()
+        return None
+
+    def update_install_now(_a):
+        # Runs on the updater thread: check, download, install. Poll get_update_status
+        # for progress; the MSI then restarts this service.
+        hooks.update_install_now()
         return None
 
     return {
@@ -213,6 +221,7 @@ def _build_commands(hooks: ServiceHooks) -> "dict[str, tuple[Callable[[dict], An
         proto.CMD_POLL_NOW: (poll_now, MANAGE),
         proto.CMD_RELOAD_SETTINGS: (reload_settings, MANAGE),
         proto.CMD_SET_AUTO_UPDATE: (set_auto_update, MANAGE),
+        proto.CMD_UPDATE_INSTALL_NOW: (update_install_now, MANAGE),
         proto.CMD_UPDATE_CHECK_NOW: (update_check_now, MANAGE),
     }
 

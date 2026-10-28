@@ -179,6 +179,21 @@ public sealed class UpdateStatus
 
     [JsonPropertyName("last_install_error")]
     public string? LastInstallError { get; set; }
+
+    /// <summary>downloading / installing while an install runs, else null.</summary>
+    [JsonPropertyName("install_phase")]
+    public string? InstallPhase { get; set; }
+
+    /// <summary>The version being installed.</summary>
+    [JsonPropertyName("install_target")]
+    public string? InstallTarget { get; set; }
+
+    [JsonPropertyName("download_done")]
+    public long DownloadDone { get; set; }
+
+    /// <summary>0 when the size isn't known.</summary>
+    [JsonPropertyName("download_total")]
+    public long DownloadTotal { get; set; }
 }
 
 public sealed class EnrollmentState

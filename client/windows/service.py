@@ -175,6 +175,10 @@ class NebulaCommanderService(win32serviceutil.ServiceFramework, ServiceHooks):
         if self.updater:
             self.updater.check_now()
 
+    def update_install_now(self) -> None:
+        if self.updater:
+            self.updater.install_now()
+
     def _first_run_install(self) -> None:
         """No Nebula yet (fresh install, or the upgrade that removed the old
         user-writable copy): install the latest release once, in the

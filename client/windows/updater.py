@@ -3,7 +3,8 @@ Automatic updates for the Windows install (install kind "windows", client/update
 
 A thread in the service (service.py) sleeps until a random moment in the configured
 window, checks the signed manifest and, if there's a newer release and automatic
-updates are on:
+updates are on - or right away when an administrator clicks "Install now" (a plain
+"Check now" only checks):
   1. downloads the MSI named in the manifest into %ProgramData%\\nebula-commander\\
      updates\\ (SYSTEM/Administrators-only, see harden.py),
   2. checks its SHA-256 against the signed manifest,
@@ -12,6 +13,9 @@ updates are on:
      service's job), because the MSI stops this service while it upgrades it.
 When the upgraded service starts, record_pending_result() compares the running
 version with what was being installed and records success or failure.
+
+Progress (install_phase "downloading" with byte counts, then "installing") goes into
+update-status.json for the desktop app's progress bar - see updates.set_phase().
 """
 from __future__ import annotations
 
@@ -21,7 +25,8 @@ import json
 import os
 import subprocess  # nosec B404 - fixed msiexec argv, no shell
 import threading
-from typing import Callable
+import time
+from typing import Callable, Optional
 
 from client import updates
 from client.config import config_dir
@@ -30,6 +35,7 @@ from client.version import VERSION, is_dev_build
 ASSET_KEY = "windows-amd64"  # the only MSI there is; it also runs on ARM64
 _HTTP_TIMEOUT = 60
 _IDLE_RECHECK = 3600  # seconds; re-read settings at least this often while off
+_PROGRESS_EVERY = 0.5  # seconds between download-progress writes
 
 # Process creation flags for a child that must outlive this service.
 _DETACHED_PROCESS = 0x00000008
@@ -53,8 +59,10 @@ def _sha256_file(path: str) -> str:
     return h.hexdigest()
 
 
-def download_verified(url: str, sha256: str, dest: str) -> None:
-    """Stream url to dest, keeping it only if its SHA-256 matches the signed manifest."""
+def download_verified(url: str, sha256: str, dest: str,
+                      progress: "Optional[Callable[[int, int], None]]" = None) -> None:
+    """Stream url to dest, keeping it only if its SHA-256 matches the signed manifest.
+    progress(done, total) is called now and then (total is 0 when unknown)."""
     import requests
 
     part = dest + ".part"
@@ -62,10 +70,21 @@ def download_verified(url: str, sha256: str, dest: str) -> None:
     try:
         with requests.get(url, headers={"User-Agent": f"ncclient/{VERSION}"}, timeout=_HTTP_TIMEOUT, stream=True) as r:
             r.raise_for_status()
+            try:
+                total = int(r.headers.get("Content-Length") or 0)
+            except ValueError:
+                total = 0
+            done, last = 0, 0.0
             with open(part, "wb") as f:
                 for chunk in r.iter_content(chunk_size=1 << 16):
                     h.update(chunk)
                     f.write(chunk)
+                    done += len(chunk)
+                    if progress and time.monotonic() - last >= _PROGRESS_EVERY:
+                        last = time.monotonic()
+                        progress(done, total)
+            if progress:
+                progress(done, total or done)
     except Exception as e:
         _unlink(part)
         raise updates.UpdateError(f"Download failed ({url}): {e}") from e
@@ -106,8 +125,12 @@ def start_install(manifest: dict, log: Callable[[str], None]) -> dict:
     version = manifest["version"]
     msi = os.path.join(updates_dir(), f"NebulaCommander-{version}.msi")
     if not (os.path.isfile(msi) and _sha256_file(msi) == asset["sha256"]):
-        download_verified(asset["url"], asset["sha256"], msi)
+        updates.set_phase("downloading", version, download_done=0, download_total=0)
+        download_verified(asset["url"], asset["sha256"], msi, progress=lambda done, total: updates.set_phase(
+            "downloading", version, download_done=done, download_total=total))
     _clean_old_installers(keep=msi)
+    # From here the MSI stops this service; the upgraded one records the outcome.
+    updates.set_phase("installing", version)
     msi_log = os.path.join(updates_dir(), f"install-{version}.log")
     pending = {"version": version, "from_version": VERSION, "msi": msi, "log": msi_log,
                "started": updates._now_iso()}
@@ -136,7 +159,7 @@ def record_pending_result(log: Callable[[str], None]) -> None:
             pending = json.load(f)
     except (OSError, ValueError):
         return
-    status = updates.load_status()
+    status = updates.clear_phase(updates.load_status())
     target = pending.get("version")
     if VERSION == target:
         status.update(last_install_result="updated", last_install_error=None,
@@ -165,7 +188,7 @@ class Updater(threading.Thread):
         self._stop_event = stop_event
         self._log = log
         self._wake = threading.Event()
-        self._run_now = False
+        self._run_now: "str | None" = None
         self._lock = threading.Lock()
 
     # --- ServiceHooks side -----------------------------------------------------------
@@ -174,8 +197,18 @@ class Updater(threading.Thread):
         self._wake.set()
 
     def check_now(self) -> None:
+        """Check only - an available update is installed by install_now() or in the window."""
+        self._request("check")
+
+    def install_now(self) -> None:
+        """Check, then install an available update right away (automatic updates on or off)."""
+        self._request("install")
+
+    def _request(self, action: str) -> None:
         with self._lock:
-            self._run_now = True
+            # "install" wins over a "check" that hasn't run yet.
+            if self._run_now != "install":
+                self._run_now = action
         self._wake.set()
 
     # --- thread ------------------------------------------------------------------------
@@ -185,6 +218,11 @@ class Updater(threading.Thread):
             record_pending_result(self._log)
         except Exception as e:  # never let bookkeeping stop updates
             self._log(f"Auto-update: could not record the last install: {e}")
+        try:
+            if updates.load_status().get("install_phase"):
+                updates.clear_phase()  # left over from a run this service never finished
+        except Exception:
+            pass
         not_before: "_dt.datetime | None" = None
         while not self._stop_event.is_set():
             try:
@@ -199,15 +237,16 @@ class Updater(threading.Thread):
         self._wake.clear()
         return woke or self._stop_event.is_set()
 
-    def _take_run_now(self) -> bool:
+    def _take_run_now(self) -> "str | None":
         with self._lock:
-            run_now, self._run_now = self._run_now, False
+            run_now, self._run_now = self._run_now, None
         return run_now
 
     def _tick(self, not_before: "_dt.datetime | None") -> "_dt.datetime | None":
         settings = updates.auto_update_settings()
-        if self._take_run_now():
-            self.run_once(install=settings["enabled"])
+        run_now = self._take_run_now()
+        if run_now:
+            self.run_once(install=run_now == "install")
             return not_before
         if not settings["enabled"]:
             self._sleep(_IDLE_RECHECK)
@@ -232,8 +271,10 @@ class Updater(threading.Thread):
         status["last_install_attempt"] = updates._now_iso()
         try:
             start_install(manifest, self._log)
+            status = {**updates.load_status(), "last_install_attempt": status["last_install_attempt"]}
             status.update(last_install_result="installing", last_install_error=None)
         except (updates.UpdateError, OSError) as e:
+            status = updates.clear_phase({**updates.load_status(), "last_install_attempt": status["last_install_attempt"]})
             status.update(last_install_result="error", last_install_error=str(e))
             self._log(f"Auto-update install failed: {e}")
         updates.save_status(status)

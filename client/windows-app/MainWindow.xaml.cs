@@ -37,7 +37,25 @@ public sealed partial class MainWindow : Window
         SessionEnd.Hook(WinRT.Interop.WindowNative.GetWindowHandle(this), ExitFromTray);
         SessionEnd.RegisterRestart(inTray: false);
         WatchForUpdate();
+        // The service reporting a newer version also means this app is the old one;
+        // Settings shows that in its Updates section, every other page gets the bar.
+        UpdateState.InstalledChanged += () => DispatcherQueue.TryEnqueue(ShowUpdatedBar);
+        _ = ObserveServiceVersionAsync();
     }
+
+    private static async Task ObserveServiceVersionAsync() =>
+        UpdateState.Observe(await ServiceApi.GetUpdateStatusAsync());
+
+    private void ShowUpdatedBar()
+    {
+        if (NavFrame.Content is not SettingsPage)
+        {
+            UpdatedBar.IsOpen = true;
+        }
+    }
+
+    /// <summary>Settings shows its own "Restart App" for the update.</summary>
+    public void HideUpdatedBar() => UpdatedBar.IsOpen = false;
 
     // An automatic update installs while the app may be running. Windows Installer
     // moves the running exe aside and installs the new one, but the installer
@@ -67,14 +85,17 @@ public sealed partial class MainWindow : Window
             var now = Stamp();
             if (now is not null && now != startedWith)
             {
-                UpdatedBar.IsOpen = true;
                 timer.Stop();
+                UpdateState.MarkInstalled();
             }
         };
         timer.Start();
     }
 
-    private void RestartUpdated_Click(object sender, RoutedEventArgs e)
+    private void RestartUpdated_Click(object sender, RoutedEventArgs e) => RestartApp();
+
+    /// <summary>Start the (updated) exe again and exit this one.</summary>
+    public void RestartApp()
     {
         var exe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(exe))

@@ -65,12 +65,12 @@
                     IsOpen="False"
                     IsClosable="True"
                     Title="Nebula Commander was updated"
-                    Message="Restart the app to use the new version.">
+                    Message="Download complete. Please restart the app or click Restart App.">
                     <Button
                         x:Name="RestartUpdatedButton"
                         Margin="0,0,0,12"
                         AccessKey="U"
-                        Content="Restart now"
+                        Content="Restart App"
                         Click="RestartUpdated_Click" />
                 </InfoBar>
                 <!-- Shown while unelevated: reading works for everyone, but every

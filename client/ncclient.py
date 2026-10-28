@@ -1713,13 +1713,13 @@ def _auto_update_call(action: str, **kwargs) -> dict:
         from client.windows import pipe_protocol as proto
 
         cmd = {"status": proto.CMD_GET_UPDATE_STATUS, "set": proto.CMD_SET_AUTO_UPDATE,
-               "check": proto.CMD_UPDATE_CHECK_NOW}[action]
+               "check": proto.CMD_UPDATE_CHECK_NOW, "install": proto.CMD_UPDATE_INSTALL_NOW}[action]
         reply = proto.send_request(cmd, kwargs or None, timeout_ms=5000)
         if not reply.get("ok"):
             if reply.get("code") == proto.ERR_ADMIN_REQUIRED:
                 raise SystemExit("Run this from an elevated (Administrator) prompt.")
             raise SystemExit(f"Nebula Commander service: {reply.get('error')}")
-        if action == "check":  # runs on the service's updater thread
+        if action in ("check", "install"):  # runs on the service's updater thread
             return {"started": True}
         return reply.get("result") or {}
 
@@ -1732,6 +1732,8 @@ def _auto_update_call(action: str, **kwargs) -> dict:
             return service_api.get_update_status()
         if action == "set":
             return service_api.set_auto_update(kwargs["enabled"], kwargs.get("window_start"), kwargs.get("window_end"))
+        if action == "install":
+            return service_api.install_update_now()
         return service_api.check_updates_now()
     except service_api.ServiceApiError as e:
         raise SystemExit(e.message)
@@ -1791,6 +1793,14 @@ def cmd_auto_update(args) -> None:
         st = _auto_update_call("check")
         if st.get("started"):
             print("Checking for updates in the service; see `ncclient auto-update status` shortly.")
+        else:
+            _print_update_status(st)
+            if st.get("available_version"):
+                print("Install it with `ncclient auto-update install-now`, or let the update window do it.")
+    elif sub == "install-now":
+        st = _auto_update_call("install")
+        if st.get("started"):
+            print("Installing any available update in the service; see `ncclient auto-update status`.")
         else:
             _print_update_status(st)
             if st.get("install_started"):
@@ -1898,7 +1908,8 @@ def main() -> None:
     p_au_enable = au_sub.add_parser("enable", help="Turn automatic updates on (on NixOS: check and notify only)")
     p_au_enable.add_argument("--window", metavar="START-END", help="Daily local-time window to install in (default 02:00-05:00)")
     au_sub.add_parser("disable", help="Turn automatic updates off")
-    au_sub.add_parser("check-now", help="Check for an update now (and install it, if automatic updates are on)")
+    au_sub.add_parser("check-now", help="Check for an update now (doesn't install it)")
+    au_sub.add_parser("install-now", help="Check for an update and install it right away")
     au_sub.add_parser("run-upgrade", help=argparse.SUPPRESS)
 
     args = ap.parse_args()

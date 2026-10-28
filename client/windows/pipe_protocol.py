@@ -64,6 +64,9 @@ CMD_RELOAD_SETTINGS = "reload_settings"
 # Automatic updates (client/updates.py, client/windows/updater.py).
 CMD_SET_AUTO_UPDATE = "set_auto_update"
 CMD_UPDATE_CHECK_NOW = "update_check_now"
+# Check, then download and install an available update right away (with progress
+# in get_update_status: install_phase / download_done / download_total).
+CMD_UPDATE_INSTALL_NOW = "update_install_now"
 
 ERR_ADMIN_REQUIRED = "administrator_required"
 ERR_UNKNOWN_COMMAND = "unknown_command"

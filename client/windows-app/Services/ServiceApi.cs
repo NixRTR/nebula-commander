@@ -100,10 +100,16 @@ public static class ServiceApi
             ["window_end"] = windowEnd,
         }, timeoutMs: 30000);
 
-    /// <summary>Starts a check on the service's updater thread (and an install, if
-    /// automatic updates are on); poll <see cref="GetUpdateStatusAsync"/> for the outcome.</summary>
+    /// <summary>Starts a check on the service's updater thread (never installs);
+    /// poll <see cref="GetUpdateStatusAsync"/> for the outcome.</summary>
     public static Task<PipeClient.PipeResponse> UpdateCheckNowAsync() =>
         PipeClient.SendAsync("update_check_now", timeoutMs: 30000);
+
+    /// <summary>Starts check + download + install on the service's updater thread;
+    /// poll <see cref="GetUpdateStatusAsync"/> for progress (InstallPhase and the
+    /// download counts). The installer restarts the service along the way.</summary>
+    public static Task<PipeClient.PipeResponse> UpdateInstallNowAsync() =>
+        PipeClient.SendAsync("update_install_now", timeoutMs: 30000);
 
     /// <summary>Settings for every network (each keeps the server it enrolled with).</summary>
     public static Task<PipeClient.PipeResponse> SetSettingsAsync(int interval, bool acceptDns) =>

@@ -54,6 +54,9 @@ __all__ = [
     "load_status",
     "save_status",
     "update_status_path",
+    "set_phase",
+    "clear_phase",
+    "current_phase",
     "nixos_update_commands",
 ]
 
@@ -69,6 +72,9 @@ _HTTP_TIMEOUT = 30
 _HHMM_RE = re.compile(r"^([01]\d|2[0-3]):([0-5]\d)$")
 # Stable releases only: no pre-releases, no build metadata.
 _VERSION_RE = re.compile(r"^v?(\d+)\.(\d+)\.(\d+)$")
+# An install_phase not refreshed for this long is left over from a run that died.
+PHASE_STALE_SECONDS = 30 * 60
+_PHASE_KEYS = ("install_phase", "install_target", "phase_at", "download_done", "download_total")
 
 
 class UpdateError(Exception):
@@ -337,3 +343,40 @@ def save_status(status: dict) -> None:
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump({k: v for k, v in status.items() if k != "manifest"}, f, indent=2)
     os.replace(tmp, path)
+
+
+# --- install progress (shown by the desktop apps while an update installs) ----------
+
+def set_phase(phase: str, target: "str | None" = None, **fields) -> dict:
+    """Record what an install is doing now: "downloading" (with download_done /
+    download_total in bytes) or "installing". Returns the saved status."""
+    status = load_status()
+    status.update(install_phase=phase, phase_at=_now_iso(), **fields)
+    if target:
+        status["install_target"] = target
+    save_status(status)
+    return status
+
+
+def clear_phase(status: "dict | None" = None) -> dict:
+    """Drop the progress fields (in `status`, or in the saved status, which is saved)."""
+    save = status is None
+    status = load_status() if save else status
+    for key in _PHASE_KEYS:
+        status.pop(key, None)
+    if save:
+        save_status(status)
+    return status
+
+
+def current_phase(status: dict, now: "_dt.datetime | None" = None) -> "str | None":
+    """The status's install_phase, unless it's stale (its writer died mid-install)."""
+    phase = status.get("install_phase")
+    if not phase:
+        return None
+    try:
+        at = _dt.datetime.fromisoformat(str(status.get("phase_at")).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    now = now or _dt.datetime.now(_dt.timezone.utc)
+    return phase if (now - at).total_seconds() < PHASE_STALE_SECONDS else None

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Microsoft.UI.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Input;
@@ -17,6 +18,8 @@ public sealed partial class CloudPromo : UserControl
     public CloudPromo()
     {
         InitializeComponent();
+        // Hand cursor over the whole card: it's a link.
+        ProtectedCursor = InputSystemCursor.Create(InputSystemCursorShape.Hand);
     }
 
     private void PromoButton_Click(object sender, RoutedEventArgs e) =>

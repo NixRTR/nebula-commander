@@ -147,6 +147,10 @@ def _h_check_for_updates_now(output_dir: str, msg) -> "tuple[str, tuple]":
     return "s", (json.dumps(service_api.check_updates_now()),)
 
 
+def _h_install_update_now(output_dir: str, msg) -> "tuple[str, tuple]":
+    return "s", (json.dumps(service_api.install_update_now()),)
+
+
 # --- one network of several (0.8.0+): the first argument is the network's id ---------
 # The methods above without a network act on the first network, so an app from before
 # 0.8.0 (e.g. an older Flatpak) keeps working against this service.
@@ -245,6 +249,7 @@ _METHODS = {
     "GetUpdateStatus": (_h_get_update_status, ACTION_READ),
     "SetAutoUpdate": (_h_set_auto_update, ACTION_MANAGE),
     "CheckForUpdatesNow": (_h_check_for_updates_now, ACTION_MANAGE),
+    "InstallUpdateNow": (_h_install_update_now, ACTION_MANAGE),
     "ListNetworks": (_h_list_networks, ACTION_READ),
     "EnrollNetwork": (_h_enroll_network, ACTION_MANAGE),
     "RemoveNetwork": (_h_remove_network, ACTION_MANAGE),

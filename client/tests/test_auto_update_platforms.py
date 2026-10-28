@@ -153,16 +153,36 @@ def test_set_auto_update_package_arms_timer_or_refuses(state, monkeypatch):
     assert applied == [(True, "02:00", "04:00")]
 
 
-def test_check_now_starts_package_upgrade_only_when_on(state, monkeypatch):
+def test_check_now_never_installs_install_now_does(state, monkeypatch):
     monkeypatch.setattr(updates, "install_kind", lambda: "package")
-    monkeypatch.setattr(updates, "check", lambda kind=None: {"available_version": "0.7.1", "manifest": {}})
+    monkeypatch.setattr(updates, "check", lambda kind=None: {"available_version": "0.7.1", "manifest": {"version": "0.7.1"}})
+    monkeypatch.setattr("client.version.is_dev_build", lambda: False)
     started = []
     monkeypatch.setattr(auto_update, "run_now", lambda: started.append(1))
-    st = service_api.check_updates_now()
-    assert started == [] and "manifest" not in st  # off: check only
     monkeypatch.setattr(auto_update, "apply", lambda *a: None)
     service_api.set_auto_update(True)
-    assert service_api.check_updates_now()["install_started"] and started == [1]
+    st = service_api.check_updates_now()
+    assert started == [] and "manifest" not in st  # on or off: a check only checks
+    st = service_api.install_update_now()
+    assert st["install_started"] and started == [1]
+    assert st["install_phase"] == "installing" and updates.load_status()["install_target"] == "0.7.1"
+
+
+def test_install_now_refused_where_the_app_cant_install(state, monkeypatch):
+    monkeypatch.setattr(updates, "install_kind", lambda: "nixos")
+    with pytest.raises(service_api.UpdateSettingsError):
+        service_api.install_update_now()
+
+
+def test_stale_install_phase_is_ignored(state):
+    import datetime as dt
+
+    updates.set_phase("downloading", "0.9.0", download_done=1, download_total=2)
+    st = updates.load_status()
+    assert updates.current_phase(st) == "downloading"
+    later = dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=updates.PHASE_STALE_SECONDS + 1)
+    assert updates.current_phase(st, now=later) is None
+    assert "install_phase" not in updates.clear_phase()
 
 
 # --- heartbeat -----------------------------------------------------------------------
@@ -181,6 +201,7 @@ def test_heartbeat_fields(state, monkeypatch):
 class _Resp:
     def __init__(self, data):
         self._data = data
+        self.headers = {"Content-Length": str(len(data))}
 
     def __enter__(self):
         return self
@@ -206,8 +227,28 @@ def test_download_verified_discards_mismatch(tmp_path, monkeypatch):
         updater.download_verified("https://x", hashlib.sha256(b"good").hexdigest(), str(dest))
     assert not dest.exists() and not (tmp_path / "x.msi.part").exists()
     monkeypatch.setattr(requests, "get", lambda *a, **k: _Resp(b"good"))
-    updater.download_verified("https://x", hashlib.sha256(b"good").hexdigest(), str(dest))
-    assert dest.read_bytes() == b"good"
+    seen = []
+    updater.download_verified("https://x", hashlib.sha256(b"good").hexdigest(), str(dest),
+                              progress=lambda done, total: seen.append((done, total)))
+    assert dest.read_bytes() == b"good" and seen[-1] == (4, 4)
+
+
+def test_updater_check_only_unless_install_requested(state, monkeypatch):
+    import threading
+
+    from client.windows import updater
+
+    calls = []
+    u = updater.Updater(threading.Event(), lambda m: None)
+    monkeypatch.setattr(u, "run_once", lambda install: calls.append(install) or {})
+    monkeypatch.setattr(updates, "auto_update_settings",
+                        lambda: {"enabled": True, "window_start": "02:00", "window_end": "05:00"})
+    u.check_now()
+    u._tick(None)
+    u.install_now()
+    u.check_now()  # doesn't downgrade a pending install to a check
+    u._tick(None)
+    assert calls == [False, True]
 
 
 def test_msiexec_is_quiet_and_logged():

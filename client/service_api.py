@@ -555,6 +555,8 @@ def get_update_status() -> dict:
         "install_kind": kind,
         "supported": kind in updates.SUPPORTED_KINDS,
         "mode": updates.mode(kind=kind),
+        # Progress of an install under way, if any (stale leftovers dropped).
+        "install_phase": updates.current_phase(status),
         **settings,
     }
 
@@ -587,21 +589,39 @@ def set_auto_update(enabled: bool, window_start: "str | None" = None, window_end
 
 
 def check_updates_now() -> dict:
-    """Check the signed manifest now (never installs by itself). On a deb/rpm install
-    with automatic updates on, an available update is then installed right away by
-    ncclient-update.service. The Windows service does its own install step instead
-    (client/windows/updater.py)."""
+    """Check the signed manifest now. Never installs: an available update is installed
+    by install_update_now() or during the automatic-update window."""
     from client import updates
 
-    kind = updates.install_kind()
-    result = updates.check(kind)
+    result = updates.check(updates.install_kind())
     result.pop("manifest", None)
-    if kind == "package" and updates.mode(kind=kind) == "install" and result.get("available_version"):
+    return {**get_update_status(), **result}
+
+
+def install_update_now() -> dict:
+    """Check, and on a deb/rpm install start upgrading right away in
+    ncclient-update.service (whether or not automatic updates are on). The Windows
+    service does this on its updater thread instead (CMD_UPDATE_INSTALL_NOW)."""
+    from client import updates
+    from client.version import is_dev_build
+
+    kind = updates.install_kind()
+    if kind != "package":
+        raise UpdateSettingsError("Installing from the app isn't available for this kind of install")
+    if is_dev_build():
+        raise UpdateSettingsError("Development builds are never updated")
+    result = updates.check(kind)
+    manifest = result.pop("manifest", None)
+    if result.get("last_result") == "error":
+        raise UpdateSettingsError(result.get("last_error") or "The update check failed")
+    if manifest:
         from client.linux import auto_update
 
+        updates.set_phase("installing", manifest["version"])
         try:
             auto_update.run_now()
-            result["install_started"] = True
         except updates.UpdateError as e:
+            updates.clear_phase()
             raise UpdateSettingsError(str(e)) from e
+        result["install_started"] = True
     return {**get_update_status(), **result}

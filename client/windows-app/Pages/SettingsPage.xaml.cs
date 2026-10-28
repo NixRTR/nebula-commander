@@ -8,12 +8,26 @@ public sealed partial class SettingsPage : Page
 {
     private bool _loading;
     private string? _latestNebulaTag;
+    // Install progress: polled while an install runs (started here, or by the service
+    // in the update window). _installTarget is set once "Install now" was clicked here.
+    private readonly DispatcherTimer _installTimer = new() { Interval = TimeSpan.FromSeconds(1) };
+    private string? _installTarget;
+    private bool _pollingInstall;
 
     public SettingsPage()
     {
         InitializeComponent();
         Loaded += async (_, _) => await LoadSettingsAsync();
+        _installTimer.Tick += async (_, _) => await PollInstallAsync();
+        UpdateState.InstalledChanged += OnUpdateInstalled;
+        Unloaded += (_, _) =>
+        {
+            _installTimer.Stop();
+            UpdateState.InstalledChanged -= OnUpdateInstalled;
+        };
     }
+
+    private void OnUpdateInstalled() => DispatcherQueue.TryEnqueue(() => RenderInstall(null));
 
     private async Task LoadSettingsAsync()
     {
@@ -186,6 +200,13 @@ public sealed partial class SettingsPage : Page
     private async Task<UpdateStatus?> RefreshUpdateStatusAsync(bool loadSettings)
     {
         var st = await ServiceApi.GetUpdateStatusAsync();
+        UpdateState.Observe(st);
+        if (st is null && (_installTarget is not null || UpdateState.Installed))
+        {
+            // The installer stops the service while it upgrades: keep showing progress.
+            RenderInstall(null);
+            return null;
+        }
         if (st is null || !st.Supported)
         {
             UpdatesSection.Visibility = Visibility.Collapsed;
@@ -223,8 +244,134 @@ public sealed partial class SettingsPage : Page
         }
         UpdateStatusText.Text = string.Join(Environment.NewLine, lines);
         UpdateStatusText.Visibility = lines.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        RenderInstall(st);
         return st;
     }
+
+    private static string Megabytes(long bytes) => $"{bytes / 1048576.0:0.0} MB";
+
+    /// <summary>Install now / progress bar / "Restart App", from the latest status
+    /// (null: the service is restarting mid-install, or unreachable).</summary>
+    private void RenderInstall(UpdateStatus? st)
+    {
+        var target = st?.InstallTarget ?? _installTarget ?? st?.AvailableVersion;
+        var phase = st?.InstallPhase;
+        if (UpdateState.Installed)
+        {
+            StopInstallPolling();
+            InstallNowButton.Visibility = Visibility.Collapsed;
+            InstallProgressPanel.Visibility = Visibility.Collapsed;
+            RestartPanel.Visibility = Visibility.Visible;
+            App.MainWindowInstance?.HideUpdatedBar();
+            return;
+        }
+        RestartPanel.Visibility = Visibility.Collapsed;
+
+        if (phase is not null || (st is null && _installTarget is not null))
+        {
+            InstallNowButton.Visibility = Visibility.Collapsed;
+            InstallProgressPanel.Visibility = Visibility.Visible;
+            if (phase == "downloading")
+            {
+                var known = st!.DownloadTotal > 0;
+                InstallProgressBar.IsIndeterminate = !known;
+                InstallProgressBar.Value = known ? 100.0 * st.DownloadDone / st.DownloadTotal : 0;
+                InstallProgressText.Text = known
+                    ? $"Downloading v{target}: {Megabytes(st.DownloadDone)} of {Megabytes(st.DownloadTotal)}"
+                    : $"Downloading v{target}...";
+            }
+            else
+            {
+                InstallProgressBar.IsIndeterminate = true;
+                InstallProgressText.Text = st is null
+                    ? $"Installing v{target}. The service restarts while it upgrades..."
+                    : $"Installing v{target}...";
+            }
+            StartInstallPolling();
+            return;
+        }
+
+        InstallProgressPanel.Visibility = Visibility.Collapsed;
+        if (_installTarget is not null && st?.LastInstallResult == "error")
+        {
+            _installTarget = null;
+            StopInstallPolling();
+            ShowUpdatesResult(InfoBarSeverity.Error, "Update failed", st.LastInstallError ?? "The install failed.");
+        }
+        InstallNowButton.Visibility =
+            st is { LastResult: "update_available", DevBuild: false, Mode: "install" } && _installTarget is null
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        if (_installTarget is null)
+        {
+            StopInstallPolling();
+        }
+    }
+
+    private void StartInstallPolling()
+    {
+        if (!_pollingInstall)
+        {
+            _pollingInstall = true;
+            _installTimer.Start();
+        }
+    }
+
+    private void StopInstallPolling()
+    {
+        _pollingInstall = false;
+        _installTimer.Stop();
+    }
+
+    private async Task PollInstallAsync()
+    {
+        _installTimer.Stop();
+        try
+        {
+            await RefreshUpdateStatusAsync(loadSettings: false);
+        }
+        finally
+        {
+            if (_pollingInstall)
+            {
+                _installTimer.Start();
+            }
+        }
+    }
+
+    private async void InstallNowButton_Click(object sender, RoutedEventArgs e)
+    {
+        InstallNowButton.IsEnabled = false;
+        UpdatesResultBar.IsOpen = false;
+        try
+        {
+            var before = await ServiceApi.GetUpdateStatusAsync();
+            var result = await ServiceApi.UpdateInstallNowAsync();
+            if (!result.Ok)
+            {
+                if (result.AdministratorRequired)
+                {
+                    App.MainWindowInstance?.ShowAdminRequired();
+                }
+                ShowUpdatesResult(InfoBarSeverity.Error, "Not installed", ServiceApi.Describe(result));
+                return;
+            }
+            _installTarget = before?.AvailableVersion ?? "";
+            RenderInstall(before is null ? null : new UpdateStatus
+            {
+                InstalledVersion = before.InstalledVersion,
+                InstallPhase = "downloading",
+                InstallTarget = before.AvailableVersion,
+            });
+        }
+        finally
+        {
+            InstallNowButton.IsEnabled = true;
+        }
+    }
+
+    private void RestartAppButton_Click(object sender, RoutedEventArgs e) =>
+        App.MainWindowInstance?.RestartApp();
 
     private void ShowUpdatesResult(InfoBarSeverity severity, string title, string message)
     {
@@ -290,10 +437,12 @@ public sealed partial class SettingsPage : Page
                 var st = await RefreshUpdateStatusAsync(loadSettings: false);
                 if (st?.LastCheck is not null && st.LastCheck != before)
                 {
-                    if (st.LastResult == "update_available" && st.Enabled && !st.DevBuild)
+                    if (st.LastResult == "update_available" && st.Mode == "install" && !st.DevBuild)
                     {
-                        ShowUpdatesResult(InfoBarSeverity.Informational, "Installing",
-                            $"Installing v{st.AvailableVersion}. This app closes and reopens while it upgrades.");
+                        ShowUpdatesResult(InfoBarSeverity.Informational, $"v{st.AvailableVersion} is available",
+                            st.Enabled
+                                ? $"Click Install now, or it installs automatically between {st.WindowStart} and {st.WindowEnd}."
+                                : "Click Install now to install it.");
                     }
                     return;
                 }
