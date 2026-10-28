@@ -221,7 +221,7 @@ class Updater(threading.Thread):
         try:
             if updates.load_status().get("install_phase"):
                 updates.clear_phase()  # left over from a run this service never finished
-        except Exception:
+        except Exception:  # nosec B110 - best-effort cleanup; a stale phase is ignored after 30 min anyway
             pass
         not_before: "_dt.datetime | None" = None
         while not self._stop_event.is_set():
