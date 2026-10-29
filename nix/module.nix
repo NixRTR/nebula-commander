@@ -119,6 +119,18 @@ in
       description = "Serve the interactive API docs at /api/docs and /api/redoc (schema at /api/openapi.json).";
     };
 
+    requireMfa = mkOption {
+      type = types.bool;
+      default = false;
+      description = "Require every user to set up and use a two-factor (TOTP) code at login. Off: two-factor is optional per user.";
+    };
+
+    movedOnlyFile = mkOption {
+      type = types.nullOr types.path;
+      default = null;
+      description = "Moved-only mode after a server move: path to the move-responder.json downloaded from the Move page. When set, the backend only tells devices where the server moved (no database, no web UI).";
+    };
+
     allowedRedirectHosts = mkOption {
       type = types.str;
       default = "";
@@ -233,9 +245,11 @@ in
         NEBULA_COMMANDER_CORS_ORIGINS = cfg.corsOrigins;
         NEBULA_COMMANDER_SESSION_HTTPS_ONLY = if cfg.sessionHttpsOnly then "true" else "false";
         NEBULA_COMMANDER_API_DOCS_ENABLED = if cfg.apiDocs then "true" else "false";
+        NEBULA_COMMANDER_REQUIRE_MFA = if cfg.requireMfa then "true" else "false";
         NEBULA_COMMANDER_STANDALONE_ADMIN_BOOTSTRAP = if cfg.standaloneAdminBootstrap then "true" else "false";
       }
       // optionalAttrs (cfg.publicUrl != null) { NEBULA_COMMANDER_PUBLIC_URL = cfg.publicUrl; }
+      // optionalAttrs (cfg.movedOnlyFile != null) { NEBULA_COMMANDER_MOVED_ONLY_FILE = toString cfg.movedOnlyFile; }
       // optionalAttrs (cfg.allowedRedirectHosts != "") { NEBULA_COMMANDER_ALLOWED_REDIRECT_HOSTS = cfg.allowedRedirectHosts; }
       // optionalAttrs (cfg.oidc.issuerUrl != null) { NEBULA_COMMANDER_OIDC_ISSUER_URL = cfg.oidc.issuerUrl; }
       // optionalAttrs (cfg.oidc.publicIssuerUrl != null) { NEBULA_COMMANDER_OIDC_PUBLIC_ISSUER_URL = cfg.oidc.publicIssuerUrl; }
