@@ -21,6 +21,7 @@ from ..auth.oidc import require_user, require_device_token, UserInfo, create_dev
 from ..auth.permissions import get_user_nodes
 from ..database import get_session
 from ..models import Network, Node, EnrollmentCode, User
+from ..services import instance_identity
 from ..services.audit import get_client_ip, log_audit
 from ..services.config_generator import get_dns_client_config
 from ..api.dns import get_dnsmasq_config_for_node
@@ -113,6 +114,9 @@ class EnrollResponse(BaseModel):
     hostname: str
     # Shown by ncclient 0.8.0+ to tell enrolled networks apart (one client, many networks).
     network_name: Optional[str] = None
+    # This instance's public key; ncclient 0.9.0+ pins it and only follows a server move
+    # signed with it (backend/services/instance_identity.py).
+    instance_key: Optional[str] = None
 
 
 @router.post("/enroll", response_model=EnrollResponse)
@@ -192,6 +196,7 @@ async def enroll(
         node_id=node.id,
         hostname=node.hostname,
         network_name=network.name if network else None,
+        instance_key=await instance_identity.public_key(session),
     )
 
 
@@ -304,6 +309,7 @@ class DeviceInfoResponse(BaseModel):
     hostname: str
     network_id: int
     network_name: str
+    instance_key: Optional[str] = None
 
 
 @router.get("/info", response_model=DeviceInfoResponse)
@@ -323,7 +329,49 @@ async def device_info(
         hostname=node.hostname,
         network_id=node.network_id,
         network_name=network.name if network else "",
+        instance_key=await instance_identity.public_key(session),
     )
+
+
+# --- Server move (backend/api/move.py) ---
+
+class MoveProofRequest(BaseModel):
+    nonce: str
+    new_url: str
+
+
+class MoveProofResponse(BaseModel):
+    public_key: str
+    signature: str
+
+
+@router.post("/move-proof", response_model=MoveProofResponse)
+async def device_move_proof(
+    body: MoveProofRequest,
+    node_id: int = Depends(require_device_token),
+    session: AsyncSession = Depends(get_session),
+):
+    """Asked of the instance a device is moving to: sign the device's nonce with this
+    instance's key. The device checks the key against the fingerprint in the move
+    statement, and that this instance knows its token (it got here), before switching."""
+    nonce = (body.nonce or "").strip()
+    if not (16 <= len(nonce) <= 128) or not all(c.isalnum() or c in "-_" for c in nonce):
+        raise HTTPException(status_code=400, detail="Invalid nonce")
+    new_url = (body.new_url or "").strip()
+    if not new_url or len(new_url) > 512:
+        raise HTTPException(status_code=400, detail="Invalid new_url")
+    signature = await instance_identity.sign(session, instance_identity.proof_message(nonce, node_id, new_url))
+    return MoveProofResponse(public_key=await instance_identity.public_key(session), signature=signature)
+
+
+@router.get("/move")
+async def device_move(session: AsyncSession = Depends(get_session)):
+    """The active move statement (no auth: it is signed, and devices check the signature
+    against the key they pinned), or 204 when this instance isn't moving."""
+    value = await instance_identity.move_header_value(session)
+    if value is None:
+        return Response(status_code=204)
+    return PlainTextResponse(content=value)
 
 
 @router.get("/dnsmasq.conf")

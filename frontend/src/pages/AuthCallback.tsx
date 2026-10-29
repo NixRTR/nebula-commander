@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { exchangeAuthCode } from '../api/client';
+import { exchangeLoginCode, isPendingMfa, setPendingMfaToken } from '../api/client';
 
 const AuthCallback: React.FC = () => {
   const { setToken } = useAuth();
@@ -17,8 +17,14 @@ const AuthCallback: React.FC = () => {
       return;
     }
 
-    exchangeAuthCode(code)
-      .then((token) => {
+    exchangeLoginCode(code)
+      .then(({ token, mfa }) => {
+        if (isPendingMfa(mfa)) {
+          // A second factor is owed (or has to be set up) before this login counts.
+          setPendingMfaToken(token);
+          navigate('/login/2fa', { replace: true });
+          return;
+        }
         setToken(token);
         const returnUrl = localStorage.getItem('invitation_return_url');
         if (returnUrl) {

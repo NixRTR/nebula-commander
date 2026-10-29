@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Badge, Button, Modal, Label, Select, TextInput } from 'flowbite-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Alert, Card, Badge, Button, Modal, Label, Select, TextInput } from 'flowbite-react';
 import { HiPencil, HiTrash } from 'react-icons/hi';
 import { RequireSystemAdmin } from '../components/permissions/RequireSystemAdmin';
-import { apiClient } from '../api/client';
-import { startReauthFlow } from './ReauthComplete';
+import { CodeInput } from '../components/settings/TwoFactor';
+import { useToast } from '../contexts/ToastContext';
+import { apiClient, resetUserTwoFactor } from '../api/client';
+import { startReauthFlow, type HandedOffReauthState } from './ReauthComplete';
 
 interface User {
   id: number;
@@ -11,6 +14,7 @@ interface User {
   system_role: string;
   network_count: number;
   created_at: string;
+  two_factor_enabled?: boolean;
 }
 
 interface UserDetail extends User {
@@ -38,6 +42,40 @@ export const Users: React.FC = () => {
   const [typedEmail, setTypedEmail] = useState('');
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // Resetting another user's two-factor: back from reauth, the admin's own code is asked for.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { showToast } = useToast();
+  const [reset, setReset] = useState<HandedOffReauthState<'2fa-reset'> | null>(null);
+  const [resetCode, setResetCode] = useState('');
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+
+  useEffect(() => {
+    const state = location.state as HandedOffReauthState<'2fa-reset'> | null;
+    if (state?.reauthToken && state.action.kind === '2fa-reset') {
+      setReset(state);
+      navigate(location.pathname, { replace: true, state: null });
+    }
+  }, [location.state, location.pathname, navigate]);
+
+  const submitReset = async () => {
+    if (!reset) return;
+    setResetting(true);
+    setResetError(null);
+    try {
+      await resetUserTwoFactor(reset.action.userId, resetCode, reset.reauthToken);
+      showToast('success', 'Two-factor reset', `${reset.action.email} sets it up again at their next sign-in.`);
+      setReset(null);
+      setUsers((prev) => prev.map((u) => (u.id === reset.action.userId ? { ...u, two_factor_enabled: false } : u)));
+    } catch (e) {
+      setResetError(e instanceof Error ? e.message : String(e));
+      setReset(null);
+    } finally {
+      setResetting(false);
+      setResetCode('');
+    }
+  };
 
   useEffect(() => {
     fetchUsers();
@@ -169,6 +207,11 @@ export const Users: React.FC = () => {
                     {user.system_role}
                   </Badge>
                 </div>
+                <div className="mt-1">
+                  <Badge color={user.two_factor_enabled ? 'success' : 'warning'} size="sm">
+                    {user.two_factor_enabled ? '2FA on' : 'No 2FA'}
+                  </Badge>
+                </div>
                 <div className="mt-auto">
                   <div className="text-xs text-gray-500 dark:text-gray-400">Networks</div>
                   <div className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)]">{user.network_count}</div>
@@ -260,6 +303,18 @@ export const Users: React.FC = () => {
             <Button color="gray" onClick={() => setShowDetailsModal(false)}>
               Close
             </Button>
+            {selectedUser && users.find((u) => u.id === selectedUser.id)?.two_factor_enabled && (
+              <Button
+                color="gray"
+                onClick={() =>
+                  startReauthFlow({ kind: '2fa-reset', userId: selectedUser.id, email: selectedUser.email }).catch(
+                    (e: Error) => showToast('error', 'Could not start reauthentication', e.message)
+                  )
+                }
+              >
+                Reset 2FA
+              </Button>
+            )}
             {selectedUser && (
               <Button
                 color="failure"
@@ -273,6 +328,28 @@ export const Users: React.FC = () => {
               </Button>
             )}
           </Modal.Footer>
+        </Modal>
+
+        <Modal show={reset !== null || resetError !== null} onClose={() => { setReset(null); setResetError(null); }} size="md">
+          <Modal.Header>Reset two-factor</Modal.Header>
+          <Modal.Body>
+            <form className="space-y-4" onSubmit={(e) => { e.preventDefault(); submitReset(); }}>
+              {resetError && <Alert color="failure">{resetError}</Alert>}
+              {reset && (
+                <>
+                  <p className="text-gray-700 dark:text-gray-300">
+                    Remove two-factor from <strong>{reset.action.email}</strong>, e.g. after they lost their phone.
+                    Enter <em>your own</em> code to confirm.
+                  </p>
+                  <CodeInput id="totp-reset-code" value={resetCode} onChange={setResetCode} allowRecovery autoFocus />
+                  <Button type="submit" color="failure" isProcessing={resetting}
+                          disabled={resetting || resetCode.trim().length < 6}>
+                    Reset two-factor
+                  </Button>
+                </>
+              )}
+            </form>
+          </Modal.Body>
         </Modal>
 
         {/* Delete Confirmation Modal */}

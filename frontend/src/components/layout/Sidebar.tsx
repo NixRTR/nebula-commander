@@ -17,6 +17,8 @@ import {
   HiInformationCircle,
   HiColorSwatch,
   HiArchive,
+  HiShieldCheck,
+  HiSwitchHorizontal,
 } from 'react-icons/hi';
 import { FaGithub, FaComments } from 'react-icons/fa';
 import { AboutModal } from '../AboutModal';
@@ -137,6 +139,16 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
               </FlowbiteSidebar.Item>
 
               <FlowbiteSidebar.Item
+                as={Link}
+                to="/settings/security"
+                icon={HiShieldCheck}
+                active={location.pathname === '/settings/security'}
+                onClick={handleItemClick}
+              >
+                Security
+              </FlowbiteSidebar.Item>
+
+              <FlowbiteSidebar.Item
                 href="https://nebulacommander.com/docs/"
                 target="_blank"
                 rel="noreferrer"
@@ -175,6 +187,15 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                     onClick={handleItemClick}
                   >
                     Backup &amp; export
+                  </FlowbiteSidebar.Item>
+                  <FlowbiteSidebar.Item
+                    as={Link}
+                    to="/settings/move"
+                    icon={HiSwitchHorizontal}
+                    active={location.pathname === '/settings/move'}
+                    onClick={handleItemClick}
+                  >
+                    Move server
                   </FlowbiteSidebar.Item>
                 </>
               )}

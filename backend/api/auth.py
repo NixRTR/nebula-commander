@@ -14,10 +14,12 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 
 from ..config import settings
+from ..auth import mfa
 from ..auth.oidc import get_current_user_optional, require_user, UserInfo
 from ..auth.reauth import create_reauth_challenge, mark_reauth_completed, create_reauth_token
 from ..database import get_session
 from ..models.db import AuthExchangeCode, User
+from ..services import instance_identity
 from ..services.audit import get_client_ip, log_audit
 from jose import jwt
 from sqlalchemy import func, select
@@ -165,6 +167,7 @@ async def _get_discovery_metadata() -> dict:
 class DevTokenResponse(BaseModel):
     token: str
     expires_in: int
+    mfa: Optional[str] = None
 
 
 @router.get("/dev-token", response_model=DevTokenResponse)
@@ -202,19 +205,14 @@ async def dev_token(
         "DEV-TOKEN accessed from %s - granting admin access without authentication",
         request.client.host if request.client else "unknown"
     )
-    expires = datetime.utcnow() + timedelta(minutes=settings.jwt_expiration_minutes)
-    payload = {
+    claims = {
         "sub": "dev",
         "email": "dev@localhost",
         "role": "system-admin",
         "system_role": "system-admin",
-        "exp": expires,
     }
-    token = jwt.encode(
-        payload,
-        settings.jwt_secret_key,
-        algorithm=settings.jwt_algorithm,
-    )
+    mfa_state = await mfa.login_mfa_state(session, "dev")
+    token = mfa.mint_session_token(claims, mfa_state)
     await log_audit(
         session,
         "auth_dev_token",
@@ -224,7 +222,8 @@ async def dev_token(
     await session.commit()
     return DevTokenResponse(
         token=token,
-        expires_in=settings.jwt_expiration_minutes * 60,
+        expires_in=(mfa.PENDING_MINUTES if mfa_state in mfa.PENDING_STATES else settings.jwt_expiration_minutes) * 60,
+        mfa=mfa_state,
     )
 
 
@@ -234,6 +233,9 @@ class ExchangeRequest(BaseModel):
 
 class ExchangeResponse(BaseModel):
     token: str
+    # mfa state of a login token (backend/auth/mfa.py): "verify"/"setup" = a second
+    # factor is still owed before the token works anywhere but /api/auth/2fa/*.
+    mfa: Optional[str] = None
 
 
 @router.post("/exchange", response_model=ExchangeResponse)
@@ -251,20 +253,31 @@ async def exchange_code(body: ExchangeRequest, session: AsyncSession = Depends(g
 
     row.used_at = datetime.utcnow()
     await session.flush()
-    return ExchangeResponse(token=row.token)
+    try:
+        state = jwt.get_unverified_claims(row.token).get("mfa")
+    except Exception:
+        state = None
+    return ExchangeResponse(token=row.token, mfa=state)
 
 
 @router.get("/me")
-async def me(current_user: UserInfo = Depends(get_current_user_optional)):
+async def me(
+    current_user: UserInfo = Depends(get_current_user_optional),
+    session: AsyncSession = Depends(get_session),
+):
     """Return current user info if authenticated."""
     if current_user is None:
-        return {"authenticated": False}
+        return {"authenticated": False, "require_mfa": settings.require_mfa}
     return {
         "authenticated": True,
         "sub": current_user.sub,
         "email": current_user.email,
         "role": current_user.role,
         "system_role": current_user.system_role,
+        "two_factor_enabled": await mfa.enabled_for_sub(session, current_user.sub),
+        "require_mfa": settings.require_mfa,
+        # The UI shows a read-only banner while this instance is moving (backend/api/move.py).
+        "moving_to": move.new_url if (move := await instance_identity.active_move(session)) else None,
     }
 
 
@@ -356,23 +369,14 @@ async def callback(request: Request, session: AsyncSession = Depends(get_session
             if settings.oidc_admin_role_value in client_roles:
                 system_role = "system-admin"
         
-        # Create our own JWT for the frontend
-        expires = datetime.utcnow() + timedelta(minutes=settings.jwt_expiration_minutes)
-        payload = {
+        claims = {
             "sub": user_info.get("sub"),
             "email": user_info.get("email"),
             "name": user_info.get("name", user_info.get("preferred_username")),
             "role": system_role,  # Legacy field for backward compatibility
             "system_role": system_role,
-            "exp": expires,
         }
-        
-        our_token = jwt.encode(
-            payload,
-            settings.jwt_secret_key,
-            algorithm=settings.jwt_algorithm,
-        )
-        
+
         # Get or create user and log login success
         oidc_sub = user_info.get("sub")
         email = user_info.get("email") or user_info.get("preferred_username") or "unknown"
@@ -394,7 +398,11 @@ async def callback(request: Request, session: AsyncSession = Depends(get_session
             client_ip=client_ip,
         )
         await session.commit()
-        
+
+        # Our own JWT for the frontend - a pending one while a second factor is owed
+        # (backend/auth/mfa.py); /api/auth/2fa/verify or /confirm swaps it for a full one.
+        our_token = mfa.mint_session_token(claims, await mfa.login_mfa_state(session, oidc_sub))
+
         # Redirect to frontend with a one-time exchange code, not the token itself -
         # avoids the JWT ending up in the URL/browser history/referrer/logs.
         # Use validated redirect URL to prevent open redirect attacks

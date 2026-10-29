@@ -197,3 +197,26 @@ NEBULA_COMMANDER_DEBUG=false
 # for air-gapped or privacy-conscious deployments).
 NEBULA_COMMANDER_UPDATE_CHECK_ENABLED=true
 
+
+# =============================================================================
+# Two-factor login
+# =============================================================================
+
+# Two-factor (TOTP, any authenticator app) is optional per user and set up on
+# Settings > Security. Set to true to require it for every account: users
+# without it are asked to set it up at their next sign-in.
+# NEBULA_COMMANDER_REQUIRE_MFA=true
+
+# =============================================================================
+# Server move (Settings > Move server)
+# =============================================================================
+
+# Shortest wait (hours) an admin may pick before devices switch to a new server.
+# ncclient adds its own minimum on top (1 h same domain, 24 h another domain/IP).
+# NEBULA_COMMANDER_MOVE_MIN_WAIT_HOURS=1
+
+# After a move: point this at the move-responder.json downloaded from the Move
+# page and restart. The backend then only answers devices with "moved to ..."
+# (no database or OIDC needed) and emails the admins once the recommended
+# period is over (needs the SMTP settings above).
+# NEBULA_COMMANDER_MOVED_ONLY_FILE=/var/lib/nebula-commander/move-responder.json

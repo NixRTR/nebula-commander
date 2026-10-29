@@ -30,8 +30,11 @@ from .api import (
     dns,
     version_check,
     backup,
+    two_factor,
+    move,
 )
-from .middleware import RateLimitMiddleware
+from .database import AsyncSessionLocal
+from .middleware import MoveMiddleware, RateLimitMiddleware
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -83,6 +86,9 @@ app = FastAPI(
     openapi_url="/api/openapi.json" if settings.api_docs_enabled else None,
 )
 
+# Server move: statement header on device responses, read-only while moving
+app.add_middleware(MoveMiddleware, session_factory=AsyncSessionLocal)
+
 # Rate limiting middleware (applied first to catch attacks early)
 app.add_middleware(RateLimitMiddleware)
 
@@ -125,6 +131,9 @@ app.include_router(public_config.router)
 app.include_router(dns.router)
 app.include_router(version_check.router)
 app.include_router(backup.router)
+app.include_router(two_factor.router)
+app.include_router(move.router)
+app.include_router(move.instance_router)
 
 
 @app.get("/api")
@@ -141,6 +150,16 @@ async def root():
 async def health():
     """Health check."""
     return {"status": "healthy"}
+
+
+# Moved-only mode replaces the whole app: no database, no OIDC (backend/moved_only.py).
+_moved_only = None
+if settings.moved_only_file:
+    from .moved_only import create_app, moved_only_path
+
+    _moved_only = moved_only_path()
+if _moved_only:
+    app = create_app(_moved_only)  # noqa: F811
 
 
 if __name__ == "__main__":

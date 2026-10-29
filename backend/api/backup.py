@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..auth.oidc import UserInfo
 from ..auth.permissions import require_system_admin
-from ..auth.reauth import clear_reauth_challenge, decode_reauth_token, verify_reauth
+from ..auth.reauth import require_reauth
 from ..config import settings
 from ..database import get_session
 from ..models.db import User
@@ -45,12 +45,7 @@ class ExportRequest(BaseModel):
 
 
 async def _require_reauth(admin: UserInfo, reauth_token: str, session: AsyncSession) -> None:
-    payload = decode_reauth_token(reauth_token)
-    if not payload or payload.get("sub") != admin.sub:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired reauthentication")
-    if not await verify_reauth(admin.sub, payload.get("challenge"), session):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Reauthentication required")
-    await clear_reauth_challenge(admin.sub, session)  # single use
+    await require_reauth(admin.sub, reauth_token, session)
 
 
 def _check_passphrase(passphrase: str) -> None:

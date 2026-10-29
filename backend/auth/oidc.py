@@ -116,29 +116,66 @@ class UserInfo(BaseModel):
     system_role: str = "user"  # system-admin or user; network ownership is per-network in backend
 
 
-async def get_current_user_optional(
-    credentials: Annotated[
-        Optional[HTTPAuthorizationCredentials], Depends(security)
-    ] = None,
-) -> Optional[UserInfo]:
-    """
-    Dependency: optional current user from Bearer token.
-    Returns None if no token or invalid token.
-    """
+def _user_payload(credentials: Optional[HTTPAuthorizationCredentials]) -> Optional[dict]:
+    """A decoded token that may stand for a user: not a device token (sub=device), not a
+    step-up reauth token."""
     if not credentials or not credentials.credentials:
         return None
     payload = decode_token(credentials.credentials)
-    if not payload:
+    if not payload or not payload.get("sub") or payload.get("reauth") or payload.get("sub") == "device":
         return None
-    sub = payload.get("sub")
-    if not sub:
-        return None
+    return payload
+
+
+def _user_info(payload: dict) -> UserInfo:
     return UserInfo(
-        sub=sub,
+        sub=payload["sub"],
         email=payload.get("email"),
         role=payload.get("role", "user"),
         system_role=payload.get("system_role", payload.get("role", "user")),
     )
+
+
+async def get_current_user_optional(
+    credentials: Annotated[
+        Optional[HTTPAuthorizationCredentials], Depends(security)
+    ] = None,
+    session: AsyncSession = Depends(get_session),
+) -> Optional[UserInfo]:
+    """
+    Dependency: optional current user from Bearer token.
+    Returns None if no token or invalid token, and for a login that still owes its
+    second factor (backend/auth/mfa.py): a pending token, or one without "mfa": "ok"
+    when 2FA is required or the user has turned it on.
+    """
+    from . import mfa
+
+    payload = _user_payload(credentials)
+    if payload is None:
+        return None
+    state = payload.get("mfa") or "none"
+    if state in mfa.PENDING_STATES:
+        return None
+    if state != "ok" and (settings.require_mfa or await mfa.enabled_for_sub(session, payload["sub"])):
+        return None
+    return _user_info(payload)
+
+
+async def get_login_in_progress(
+    credentials: Annotated[
+        Optional[HTTPAuthorizationCredentials], Depends(security)
+    ] = None,
+) -> tuple[UserInfo, str, dict]:
+    """Dependency for /api/auth/2fa/*: any user token, pending ones included. Returns
+    (user, mfa state, claims); the endpoints decide what each state may do."""
+    payload = _user_payload(credentials)
+    if payload is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return _user_info(payload), payload.get("mfa") or "none", payload
 
 
 async def require_user(

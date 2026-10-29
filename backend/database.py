@@ -114,6 +114,10 @@ def _run_sqlite_migrations() -> None:
             ("client_version", "ALTER TABLE nodes ADD COLUMN client_version VARCHAR(32)"),
             ("auto_update", "ALTER TABLE nodes ADD COLUMN auto_update VARCHAR(16)"),
             ("update_available", "ALTER TABLE nodes ADD COLUMN update_available VARCHAR(32)"),
+            ("move_ready", "ALTER TABLE nodes ADD COLUMN move_ready BOOLEAN"),
+            ("move_state", "ALTER TABLE nodes ADD COLUMN move_state VARCHAR(16)"),
+            ("move_state_at", "ALTER TABLE nodes ADD COLUMN move_state_at DATETIME"),
+            ("move_error", "ALTER TABLE nodes ADD COLUMN move_error VARCHAR(255)"),
         ]:
             if col not in node_columns:
                 cur.execute(sql)

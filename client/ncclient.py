@@ -159,6 +159,12 @@ def cmd_networks_list(output_dir: str) -> None:
         exit_note = f"  (exit node {n['exit_node']})" if n.get("exit_node") else ""
         print(f"{n['id']:<10} {(n['name'] or '-'):<20} {(n['tun_dev'] or '-'):<15} {(n['overlay_ip'] or '-'):<16} "
               f"{state:<10} {n['server']}{exit_note}")
+        pm = n.get("pending_move")
+        if pm:
+            from datetime import datetime as _dt
+            when = _dt.fromtimestamp(pm.get("switch_after") or 0).strftime("%Y-%m-%d %H:%M")
+            kind = "a different provider: " if pm.get("cross_domain") else ""
+            print(f"{'':<10} moving to {kind}{pm['new_url']} (after {when})")
 
 
 def cmd_networks_remove(output_dir: str, network: str) -> None:
@@ -788,6 +794,7 @@ def _send_heartbeat(
     status_callback: Callable[[str, str], None] | None = None,
     peer_reachability: dict[int, bool] | None = None,
     tun_dev: str | None = None,
+    extra_fields: dict | None = None,
 ) -> None:
     """Best-effort liveness ping. Failures are reported (via status_callback if provided,
     else debug_log) rather than silently swallowed - a node that goes dark should leave a
@@ -806,6 +813,8 @@ def _send_heartbeat(
     """
     body: dict = {"interval_seconds": interval, "os_platform": _detect_os_platform()}
     body.update(_update_heartbeat_fields())
+    if extra_fields:
+        body.update(extra_fields)
     if peer_reachability:
         body["peer_reachability"] = peer_reachability
     if sys.platform.startswith("linux"):
@@ -1048,6 +1057,10 @@ def run_poll_loop(
     last_routes_tun_dev: str | None = None  # the tun device last_advertised_routes was applied to (its nft rules match it by name)
     last_route_selection_fingerprint = None  # locally accepted subnet routes/exit node - see _route_selection_fingerprint
     details_known = False  # this network's name is in settings (see _fill_enrollment_details)
+    # Following a server move (client/server_move.py); per enrolled network only.
+    from client.server_move import MOVE_HEADER, MoveTracker
+    mover = MoveTracker(enrollment_id, dns_debug_log) if enrollment_id else None
+    last_move_notice: str | None = None
 
     # Clean slate on start: remove any split-horizon from a previous crash - and also when
     # accept_dns is off, since turning it off (e.g. the desktop app's toggle, which restarts
@@ -1274,6 +1287,35 @@ def run_poll_loop(
                 if last_etag is not None:
                     headers["If-None-Match"] = last_etag
                 r = requests.get(url, headers=headers, timeout=30)
+                # A move statement comes first: a moved server answers 410 with it, and
+                # nothing below may treat that as an error (or, for 401, as revoked).
+                # No header only means "not moving (any more)" on a real answer from the
+                # server; a proxy's error page must not cancel a move and restart the wait.
+                move_header = r.headers.get(MOVE_HEADER)
+                if mover is not None and (move_header or r.status_code in (200, 304)):
+                    def _switching_heartbeat() -> None:
+                        if node_id:
+                            _send_heartbeat(base, token, node_id, interval, dns_debug_log,
+                                            tun_dev=current_tun_dev, extra_fields=mover.heartbeat_fields())
+
+                    switched = mover.observe(move_header, base, token, node_id, _switching_heartbeat)
+                    if switched:
+                        # settings.json now names the new server: the supervisor starts
+                        # this network again against it.
+                        if status_callback:
+                            status_callback("idle", f"Server moved to {switched}; reconnecting")
+                        break
+                    notice = mover.notice()
+                    if notice != last_move_notice and (r.ok or r.status_code in (304, 410)) and status_callback:
+                        status_callback("connected", notice or "Server move cancelled")
+                    last_move_notice = notice
+                    if r.status_code == 410 and move_header:
+                        # The old address only points at the new server now; keep running.
+                        nebula_proc = _start_from_last_config(nebula_proc, "Waiting to move to the new server")
+                        _ensure_exit()
+                        _ensure_dns()
+                        _sleep()
+                        continue
                 if r.status_code == 401:
                     _tear_down_revoked()
                     if status_callback:
@@ -1294,6 +1336,8 @@ def run_poll_loop(
                         file=sys.stderr,
                     )
                     sys.exit(1)
+                if r.ok and mover is not None:
+                    mover.pin_if_needed(base, token)
                 if r.ok and enrollment_id and not details_known:
                     details_known = bool(load_settings().get("name")) or _fill_enrollment_details(
                         base, token, enrollment_id, dns_debug_log
@@ -1309,6 +1353,7 @@ def run_poll_loop(
                         status_callback=status_callback,
                         peer_reachability=peer_reachability,
                         tun_dev=current_tun_dev,
+                        extra_fields=mover.heartbeat_fields() if mover is not None else None,
                     )
                     if sys.platform.startswith("linux"):
                         advertised_routes = _fetch_advertised_routes(base, token, dns_debug_log)

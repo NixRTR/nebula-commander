@@ -201,8 +201,17 @@ def list_networks(output_dir: str) -> list[dict]:
             "status": {k: status.get(k) for k in ("state", "message", "updated_at")},
             "exit_node": (exit_node or {}).get("via") if (exit_node or {}).get("enrollment") == e["id"] else None,
             "accepted_subnet_routes": e.get("accepted_subnet_routes") or [],
+            # A server move this network is waiting out (client/server_move.py), else None.
+            "pending_move": _pending_move_view(e),
         })
     return out
+
+
+def _pending_move_view(e: dict) -> "dict | None":
+    pm = e.get("pending_move")
+    if not isinstance(pm, dict) or not pm.get("new_url"):
+        return None
+    return {"new_url": pm["new_url"], "switch_after": pm.get("earliest"), "cross_domain": bool(pm.get("cross_domain"))}
 
 
 def _tun_dev(state_dir: str) -> "str | None":
@@ -282,6 +291,12 @@ def enroll_network(server: str, code: str) -> dict:
             e["name"] = data["network_name"]
         if data.get("hostname"):
             e["hostname"] = data["hostname"]
+        if data.get("instance_key"):
+            # Pinned: only a move signed with this key is ever followed (client/server_move.py).
+            from client.server_move import host_of, registrable_domain
+            e["instance_key"] = data["instance_key"]
+            e["pinned_domain"] = registrable_domain(host_of(base))
+            e.pop("pending_move", None)
         set_token(token, e["id"])
         settings["enrollments"] = items
         save_settings(settings)
@@ -446,6 +461,21 @@ def _update_enrollment(settings: dict, enrollment_id: str, **fields) -> None:
     for e in enrollments(settings):
         if e["id"] == enrollment_id:
             e.update(fields)
+
+
+def update_enrollment(enrollment_id: str, **fields) -> None:
+    """Set fields on one enrollment; a None value removes the field. Used by the poll
+    loop for server-move state (client/server_move.py)."""
+    with _lock:
+        settings = load_settings()
+        for e in enrollments(settings):
+            if e["id"] == enrollment_id:
+                for k, v in fields.items():
+                    if v is None:
+                        e.pop(k, None)
+                    else:
+                        e[k] = v
+        save_settings(settings)
 
 
 def set_enrollment_details(enrollment_id: str, name: str, hostname: str) -> None:

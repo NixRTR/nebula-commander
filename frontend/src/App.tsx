@@ -2,6 +2,7 @@ import { lazy, Suspense, useState, useEffect } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { Sidebar } from "./components/layout/Sidebar";
 import { Navbar } from "./components/layout/Navbar";
+import { Banners } from "./components/layout/Banners";
 import { OnboardingProvider } from "./contexts/OnboardingContext";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { PermissionProvider } from "./contexts/PermissionContext";
@@ -26,6 +27,9 @@ const AcceptInvitation = lazy(() => import("./pages/AcceptInvitation").then(m =>
 const ReauthComplete = lazy(() => import("./pages/ReauthComplete").then(m => ({ default: m.ReauthComplete })));
 const Appearance = lazy(() => import("./pages/Appearance").then(m => ({ default: m.Appearance })));
 const Backup = lazy(() => import("./pages/Backup").then(m => ({ default: m.Backup })));
+const Security = lazy(() => import("./pages/Security").then(m => ({ default: m.Security })));
+const Move = lazy(() => import("./pages/Move").then(m => ({ default: m.Move })));
+const TwoFactorLogin = lazy(() => import("./pages/TwoFactorLogin"));
 const Login = lazy(() => import("./pages/Login"));
 const AuthCallback = lazy(() => import("./pages/AuthCallback"));
 // Loading fallback component
@@ -69,6 +73,7 @@ function AppContent() {
             />
 
             <main className="flex-1 overflow-y-auto p-6 bg-[var(--nc-bg-light)] dark:bg-[var(--nc-bg-dark)]">
+              <Banners />
               <Suspense fallback={<PageLoader />}>
                 <Routes>
                   <Route path="/" element={<Home />} />
@@ -85,6 +90,8 @@ function AppContent() {
                   <Route path="/auth/reauth/complete" element={<ReauthComplete />} />
                   <Route path="/settings/appearance" element={<Appearance />} />
                   <Route path="/settings/backup" element={<Backup />} />
+                  <Route path="/settings/security" element={<Security />} />
+                  <Route path="/settings/move" element={<Move />} />
                   <Route path="/settings/oidc" element={<Home />} />
                   <Route path="/settings/system" element={<Home />} />
                 </Routes>
@@ -109,6 +116,7 @@ export default function App() {
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/auth/callback" element={<AuthCallback />} />
+            <Route path="/login/2fa" element={<TwoFactorLogin />} />
             <Route path="/invitations/accept/:token" element={<AcceptInvitation />} />
             
             {/* Protected routes */}

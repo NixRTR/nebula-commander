@@ -182,7 +182,8 @@ export const Backup: React.FC = () => {
                         onChange={(e) => setIncludeDeviceKey(e.target.checked)} />
               <Label htmlFor="include-device-key" className="font-normal">
                 Keep enrolled devices working after a move. This includes the key that signs device credentials, so
-                devices only need the new server address. Leave it off for a plain backup you won't import elsewhere.
+                devices only need the new server address, which <a className="underline" href="/settings/move">Move server</a> can
+                hand them. Leave it off for a plain backup you won't import elsewhere.
               </Label>
             </div>
             <div>

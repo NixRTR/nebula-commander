@@ -26,10 +26,15 @@ class HeartbeatRequest(BaseModel):
     client_version: Optional[str] = None
     auto_update: Optional[str] = None
     update_available: Optional[str] = None
+    # Server move (backend/api/move.py), sent by ncclient 0.9.0+
+    move_ready: Optional[bool] = None
+    move_state: Optional[str] = None
+    move_error: Optional[str] = None
 
 
 _VERSION_RE = re.compile(r"^[0-9A-Za-z.+-]{1,32}$")
 _AUTO_UPDATE_MODES = ("off", "install", "notify")
+_MOVE_STATES = ("pending", "failed", "switching")
 
 
 def _clean_version(value: Optional[str]) -> Optional[str]:
@@ -81,6 +86,14 @@ async def node_heartbeat(
         node.auto_update = body.auto_update if body.auto_update in _AUTO_UPDATE_MODES else None
     if "update_available" in body.model_fields_set:
         node.update_available = _clean_version(body.update_available)
+    if "move_ready" in body.model_fields_set:
+        node.move_ready = bool(body.move_ready)
+    if "move_state" in body.model_fields_set:
+        state = body.move_state if body.move_state in _MOVE_STATES else None
+        if state != node.move_state:
+            node.move_state_at = datetime.utcnow()
+        node.move_state = state
+        node.move_error = (body.move_error or "").strip()[:255] or None if state == "failed" else None
     if body.interval_seconds is not None:
         node.checkin_interval_seconds = max(
             MIN_INTERVAL_SECONDS, min(MAX_INTERVAL_SECONDS, body.interval_seconds)

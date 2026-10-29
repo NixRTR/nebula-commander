@@ -128,6 +128,18 @@ def _action_row_with_suffix(group: Adw.PreferencesGroup, title: str, widget: Gtk
     return row
 
 
+
+def _move_text(pending_move: dict) -> str:
+    """'Moving to <host> after <time>' for a network's pending server move."""
+    import datetime
+    from urllib.parse import urlparse
+
+    host = urlparse(pending_move.get("new_url") or "").hostname or pending_move.get("new_url") or "?"
+    when = datetime.datetime.fromtimestamp(pending_move.get("switch_after") or 0).strftime("%Y-%m-%d %H:%M")
+    if pending_move.get("cross_domain"):
+        return f"Moving to a different provider: {host} after {when}"
+    return f"Moving to {host} after {when}"
+
 class MainWindow(Adw.ApplicationWindow):
     def __init__(self, app: Adw.Application) -> None:
         super().__init__(application=app, title="Nebula Commander", default_width=680, default_height=620)
@@ -140,6 +152,7 @@ class MainWindow(Adw.ApplicationWindow):
         self._networks_fingerprint: object = None
         self._network_rows: list[Gtk.Widget] = []
         self._prev_network_states: dict = {}
+        self._prev_moves: dict = {}
         self._prev_route_keys: set[tuple] = set()
         self._routes_fingerprint: object = None
         self._route_rows: list[Adw.ActionRow] = []
@@ -270,6 +283,8 @@ class MainWindow(Adw.ApplicationWindow):
             details = [x for x in (n.get("overlay_ip"), n.get("server")) if x]
             if n.get("exit_node"):
                 details.append(f"exit node via {n['exit_node']}")
+            if n.get("pending_move"):
+                details.append(_move_text(n["pending_move"]))
             row = Adw.ActionRow(title=n.get("name") or n.get("id") or "Network", subtitle=" - ".join(details),
                                 activatable=True)
             row.add_suffix(Gtk.Label(label=state, css_classes=["dim-label"]))
@@ -461,6 +476,13 @@ class MainWindow(Adw.ApplicationWindow):
                 urgency = "critical" if state == "error" else "normal"
                 notify.notify(n.get("name") or "Nebula Commander", st.get("message") or f"Status: {state}", urgency=urgency)
             self._prev_network_states[key] = state
+            # A server move announced (client/server_move.py): say so once per move, so a
+            # move nobody here expected gets noticed during the wait.
+            move = (n.get("pending_move") or {}).get("new_url")
+            if move and self._prev_moves.get(key) != move:
+                notify.notify(n.get("name") or "Nebula Commander", _move_text(n["pending_move"]),
+                              urgency="critical" if n["pending_move"].get("cross_domain") else "normal")
+            self._prev_moves[key] = move
 
     def _maybe_notify_new_routes(self, available: list[dict]) -> None:
         keys = {(r.get("route"), r.get("via"), r.get("kind")) for r in available}

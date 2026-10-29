@@ -78,7 +78,13 @@ async function tryDevToken(): Promise<boolean> {
   try {
     const res = await fetch(`${API_BASE}/auth/dev-token`);
     if (!res.ok) return false;
-    const data = (await res.json()) as { token: string };
+    const data = (await res.json()) as { token: string; mfa?: string | null };
+    if (data.token && isPendingMfa(data.mfa)) {
+      // A second factor is owed first (backend/auth/mfa.py): finish on /login/2fa.
+      setPendingMfaToken(data.token);
+      if (window.location.pathname !== "/login/2fa") window.location.href = "/login/2fa";
+      return false;
+    }
     if (data.token) {
       localStorage.setItem(TOKEN_KEY, data.token);
       // Schedule automatic refresh for the new token
@@ -97,6 +103,12 @@ async function tryDevToken(): Promise<boolean> {
  * rather than the authed apiClient instance.
  */
 export async function exchangeAuthCode(code: string): Promise<string> {
+  return (await exchangeLoginCode(code)).token;
+}
+
+/** exchangeAuthCode(), plus the login's mfa state: "verify"/"setup" mean the token only
+ * works for /api/auth/2fa/* until a code is given (see pages/TwoFactorLogin.tsx). */
+export async function exchangeLoginCode(code: string): Promise<{ token: string; mfa: string | null }> {
   const res = await fetch(`${API_BASE}/auth/exchange`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -105,8 +117,40 @@ export async function exchangeAuthCode(code: string): Promise<string> {
   if (!res.ok) {
     throw new Error("Invalid or expired code");
   }
-  const data = (await res.json()) as { token: string };
-  return data.token;
+  const data = (await res.json()) as { token: string; mfa?: string | null };
+  return { token: data.token, mfa: data.mfa ?? null };
+}
+
+// --- Two-factor login (pending login tokens live only in this tab) ---
+
+const PENDING_MFA_KEY = "nebula_commander_pending_mfa_token";
+
+export function isPendingMfa(state: string | null | undefined): boolean {
+  return state === "verify" || state === "setup";
+}
+
+export function setPendingMfaToken(token: string): void {
+  try {
+    sessionStorage.setItem(PENDING_MFA_KEY, token);
+  } catch {
+    // private mode etc.: the login page then just asks to sign in again
+  }
+}
+
+export function getPendingMfaToken(): string | null {
+  try {
+    return sessionStorage.getItem(PENDING_MFA_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingMfaToken(): void {
+  try {
+    sessionStorage.removeItem(PENDING_MFA_KEY);
+  } catch {
+    // ignore
+  }
 }
 
 /**
@@ -135,7 +179,8 @@ apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     const token = localStorage.getItem(TOKEN_KEY);
     console.log('Axios interceptor - token exists:', !!token, 'for URL:', config.url);
-    if (token) {
+    // An explicit Authorization (a pending two-factor login token) wins.
+    if (token && !config.headers.Authorization) {
       config.headers.Authorization = `Bearer ${token}`;
       console.log('Added Authorization header');
     }
@@ -615,4 +660,126 @@ export async function listAuditLogs(params: AuditLogParams = {}): Promise<AuditE
   if (params.to_date) sp.set("to_date", params.to_date);
   const qs = sp.toString();
   return apiFetch<AuditEntry[]>(`/audit${qs ? `?${qs}` : ""}`);
+}
+
+
+// --- Two-factor authentication (backend/api/two_factor.py) ---
+
+export interface TwoFactorStatus {
+  enabled: boolean;
+  required: boolean;
+  login_state: string;
+  recovery_codes_left: number;
+}
+
+export interface TwoFactorSetup {
+  secret: string;
+  otpauth_uri: string;
+}
+
+/** `token`: a pending login token (TwoFactorLogin); omitted, the signed-in session. */
+function withToken(token?: string) {
+  return token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+}
+
+async function twoFactorCall<T>(method: "get" | "post", path: string, body?: unknown, token?: string): Promise<T> {
+  try {
+    const res = method === "get"
+      ? await apiClient.get<T>(`/auth/2fa${path}`, withToken(token))
+      : await apiClient.post<T>(`/auth/2fa${path}`, body ?? {}, withToken(token));
+    return res.data;
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
+  }
+}
+
+export const getTwoFactorStatus = (token?: string) => twoFactorCall<TwoFactorStatus>("get", "/status", undefined, token);
+export const startTwoFactorSetup = (token?: string) => twoFactorCall<TwoFactorSetup>("post", "/setup", undefined, token);
+export const confirmTwoFactor = (code: string, token?: string) =>
+  twoFactorCall<{ recovery_codes: string[]; token: string }>("post", "/confirm", { code }, token);
+export const verifyTwoFactor = (code: string, token: string) =>
+  twoFactorCall<{ token: string; recovery_codes_left: number }>("post", "/verify", { code }, token);
+export const newRecoveryCodes = (code: string) =>
+  twoFactorCall<{ recovery_codes: string[] }>("post", "/recovery-codes", { code });
+export const disableTwoFactor = (code: string, reauthToken: string) =>
+  twoFactorCall<{ token: string }>("post", "/disable", { code, reauth_token: reauthToken });
+export const resetUserTwoFactor = (userId: number, code: string, reauthToken: string) =>
+  twoFactorCall<{ ok: boolean }>("post", `/reset/${userId}`, { code, reauth_token: reauthToken });
+
+// --- Server move (backend/api/move.py; system admins) ---
+
+export interface MoveInfo {
+  move_id: string;
+  new_url: string;
+  new_key_fp: string;
+  wait_hours: number;
+  keep_days: number;
+  created_at: string;
+  switch_at: string;
+  expires_at: string;
+  recommended_until: string;
+  status: string;
+}
+
+export interface MoveNode {
+  id: number;
+  hostname: string;
+  network: string;
+  client_version: string | null;
+  last_seen: string | null;
+  move_ready: boolean;
+  move_state: string | null;
+  move_state_at: string | null;
+  move_error: string | null;
+}
+
+export interface MoveStatus {
+  fingerprint: string;
+  public_url: string;
+  move: MoveInfo | null;
+  nodes: MoveNode[];
+  min_wait_hours: number;
+  max_wait_hours: number;
+  default_wait_hours: number;
+  client_foreign_floor_hours: number;
+  move_client_version: string;
+  two_factor_enabled: boolean;
+}
+
+export interface StartMoveForm {
+  new_url: string;
+  new_key_fp: string;
+  wait_hours: number;
+  keep_days: number;
+  expires_days: number;
+}
+
+export async function getMoveStatus(): Promise<MoveStatus> {
+  return apiFetch<MoveStatus>("/admin/move");
+}
+
+export async function startMove(form: StartMoveForm, reauthToken: string, totpCode: string): Promise<MoveInfo> {
+  try {
+    const res = await apiClient.post<MoveInfo>("/admin/move", { ...form, reauth_token: reauthToken, totp_code: totpCode });
+    return res.data;
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
+  }
+}
+
+export async function cancelMove(reauthToken: string, totpCode: string): Promise<void> {
+  try {
+    await apiClient.post("/admin/move/cancel", { reauth_token: reauthToken, totp_code: totpCode });
+  } catch (error) {
+    throw new Error(axiosErrorMessage(error));
+  }
+}
+
+export async function downloadMoveResponder(): Promise<Blob> {
+  try {
+    const res = await apiClient.get<Blob>("/admin/move/responder", { responseType: "blob" });
+    return res.data;
+  } catch (error) {
+    throw new Error(await blobErrorMessage(error));
+  }
 }

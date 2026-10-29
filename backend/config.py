@@ -96,6 +96,17 @@ class Settings(BaseSettings):
     # Every endpoint still requires auth; disabling hides the endpoint list and version.
     api_docs_enabled: bool = True
     
+    # Two-factor login (backend/api/two_factor.py). Off: TOTP is optional per user.
+    # On: every user must set up and use a TOTP code at login (Nebula Commander Cloud).
+    require_mfa: bool = False
+
+    # Server move (backend/api/move.py): the shortest wait an admin may pick before
+    # devices switch. ncclient enforces its own floor on top of this.
+    move_min_wait_hours: int = 1
+    # Moved-only mode: path to a move-responder.json downloaded from the Move page. When
+    # set, the backend serves only the move statement (no database, no OIDC).
+    moved_only_file: Optional[str] = None
+
     # Redirect security - allowed hosts for OAuth/OIDC redirects
     # Prevents open redirect vulnerabilities by validating redirect URLs
     allowed_redirect_hosts: str | list[str] = []  # Empty = derive from oidc_redirect_uri

@@ -20,6 +20,10 @@ from .db import (
     Invitation,
     AuditLog,
     LegacyDeviceKey,
+    InstanceKey,
+    InstanceMove,
+    UserTotp,
+    UserRecoveryCode,
 )
 
 __all__ = [
@@ -42,4 +46,8 @@ __all__ = [
     "Invitation",
     "AuditLog",
     "LegacyDeviceKey",
+    "InstanceKey",
+    "InstanceMove",
+    "UserTotp",
+    "UserRecoveryCode",
 ]

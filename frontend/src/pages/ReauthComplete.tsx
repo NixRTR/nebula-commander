@@ -8,6 +8,7 @@ import {
   deleteUser,
   exchangeAuthCode,
   revokeNodeCertificate,
+  type StartMoveForm,
 } from "../api/client";
 
 const API_BASE = "/api";
@@ -22,13 +23,27 @@ export type PendingReauthAction =
   // Backup & export: the page itself runs the action after reauth (the passphrase and
   // import file are entered afterwards and never stored), so these only carry options.
   | { kind: "instance-export"; includeDeviceKey: boolean }
-  | { kind: "instance-import" };
+  | { kind: "instance-import" }
+  // These also need a two-factor code, asked for on the page after reauth (codes only
+  // last 30 seconds), so they too are handed to their page.
+  | { kind: "move-start"; form: StartMoveForm }
+  | { kind: "move-cancel" }
+  | { kind: "2fa-disable" }
+  | { kind: "2fa-reset"; userId: number; email: string };
+
+/** Kinds whose page runs the action itself with the reauth token (router state). */
+type HandedOffKind = "instance-export" | "instance-import" | "move-start" | "move-cancel" | "2fa-disable" | "2fa-reset";
+
+/** Router state handed to a page after a successful reauth, for the kinds it runs itself. */
+export interface HandedOffReauthState<K extends HandedOffKind = HandedOffKind> {
+  reauthToken: string;
+  action: Extract<PendingReauthAction, { kind: K }>;
+}
+
+const HANDED_OFF: readonly string[] = ["instance-export", "instance-import", "move-start", "move-cancel", "2fa-disable", "2fa-reset"];
 
 /** Router state handed to /settings/backup after a successful reauth. */
-export interface BackupReauthState {
-  reauthToken: string;
-  action: Extract<PendingReauthAction, { kind: "instance-export" | "instance-import" }>;
-}
+export type BackupReauthState = HandedOffReauthState<"instance-export" | "instance-import">;
 
 function getPendingReauthAction(): PendingReauthAction | null {
   try {
@@ -68,6 +83,13 @@ const destinationFor = (kind: PendingReauthAction["kind"]): string => {
     case "instance-export":
     case "instance-import":
       return "/settings/backup";
+    case "move-start":
+    case "move-cancel":
+      return "/settings/move";
+    case "2fa-disable":
+      return "/settings/security";
+    case "2fa-reset":
+      return "/users";
   }
 };
 
@@ -85,9 +107,8 @@ async function runPendingAction(pending: PendingReauthAction, reauthToken: strin
     case "user-delete":
       await deleteUser(pending.userId, reauthToken, pending.email);
       return;
-    case "instance-export":
-    case "instance-import":
-      return; // handed to the Backup page, see ReauthComplete below
+    default:
+      return; // handed to the page, see ReauthComplete below
   }
 }
 
@@ -105,7 +126,7 @@ export function ReauthComplete() {
   useEffect(() => {
     if (challenge && !code) {
       // Dev mode: backend sent us here with challenge; redirect to backend to get the exchange code
-      window.location.href = `${API_BASE}/auth/reauth/callback?challenge=${encodeURIComponent(challenge)}`;
+      window.location.href = `${API_BASE}/auth/reauth/callback?state=${encodeURIComponent(challenge)}`;
       return;
     }
 
@@ -120,10 +141,10 @@ export function ReauthComplete() {
 
     exchangeAuthCode(code)
       .then(async (reauthToken) => {
-        if (pending.kind === "instance-export" || pending.kind === "instance-import") {
-          // Hand the single-use token to the Backup page in memory (router state, not storage).
+        if (HANDED_OFF.includes(pending.kind)) {
+          // Hand the single-use token to the page in memory (router state, not storage).
           clearPendingReauthAction();
-          const state: BackupReauthState = { reauthToken, action: pending };
+          const state = { reauthToken, action: pending } as HandedOffReauthState;
           navigate(destinationFor(pending.kind), { replace: true, state });
           return;
         }

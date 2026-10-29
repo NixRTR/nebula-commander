@@ -7,6 +7,10 @@ interface User {
   name?: string;
   role: string;
   system_role: string;
+  two_factor_enabled?: boolean;
+  require_mfa?: boolean;
+  // Set while this instance is moving to another server (backend/api/move.py).
+  moving_to?: string | null;
 }
 
 interface AuthContextType {
@@ -16,6 +20,7 @@ interface AuthContextType {
   login: () => void;
   logout: () => void;
   setToken: (token: string) => void;
+  refresh: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -55,6 +60,9 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
           name: response.data.name,
           role: response.data.role,
           system_role: response.data.system_role || response.data.role || 'user',
+          two_factor_enabled: !!response.data.two_factor_enabled,
+          require_mfa: !!response.data.require_mfa,
+          moving_to: response.data.moving_to ?? null,
         });
       } else {
         setUser(null);
@@ -101,6 +109,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     login,
     logout,
     setToken,
+    refresh: checkAuth,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

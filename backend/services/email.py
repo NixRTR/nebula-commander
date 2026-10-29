@@ -127,3 +127,40 @@ Nebula Commander
                 await session.commit()
         
         return False
+
+
+async def send_plain_email(
+    to_emails: list[str],
+    subject: str,
+    text: str,
+    attachments: Optional[list[tuple[str, bytes, str]]] = None,
+) -> bool:
+    """Send a plain-text email with optional (filename, content, mime type) attachments.
+    Returns True if sent; False when SMTP is off or sending failed (logged)."""
+    from email.mime.application import MIMEApplication
+
+    if not settings.smtp_enabled or not to_emails:
+        logger.info("SMTP disabled or no recipients, skipping email %r", subject)
+        return False
+    message = MIMEMultipart()
+    message["Subject"] = subject
+    message["From"] = f"{settings.smtp_from_name} <{settings.smtp_from_email}>"
+    message["To"] = ", ".join(to_emails)
+    message.attach(MIMEText(text, "plain"))
+    for filename, content, mime in attachments or []:
+        part = MIMEApplication(content, _subtype=mime.split("/", 1)[-1])
+        part.add_header("Content-Disposition", "attachment", filename=filename)
+        message.attach(part)
+    try:
+        await aiosmtplib.send(
+            message,
+            hostname=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_username,
+            password=settings.smtp_password,
+            use_tls=settings.smtp_use_tls,
+        )
+        return True
+    except Exception as e:
+        logger.error("Failed to send email %r: %s", subject, e)
+        return False

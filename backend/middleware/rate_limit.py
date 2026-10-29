@@ -46,6 +46,13 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             # Instance backup: each run is heavy (scrypt + full dump) and already reauth-gated
             "/api/admin/export": (5, 3600),
             "/api/admin/import": (5, 3600),
+            # Two-factor codes: six digits, so keep guessing slow (backend/auth/totp.py also
+            # locks a user out after repeated wrong codes)
+            "/api/auth/2fa": (30, 900),
+            # Server move: the Move page polls progress, so not as tight as the 2FA codes
+            "/api/admin/move": (120, 900),
+            # Move proof: once per device per move attempt, per device token
+            "/api/device/move-proof": (30, 3600),
         }
     
     async def dispatch(self, request: Request, call_next):
@@ -75,6 +82,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 "/api/device/certs",
                 "/api/device/dns-client-config",
                 "/api/device/dnsmasq.conf",
+                "/api/device/move-proof",
             ):
                 auth_header = (request.headers.get("authorization") or "").strip()
                 if auth_header:

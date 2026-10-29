@@ -185,6 +185,32 @@ no manual host setup needed there either. See
 sides (gateway and consumer), and what to do on Windows/macOS/Docker or a bare
 `nebula` install where the gateway-side automation doesn't run.
 
+## Server moves
+
+When the Nebula Commander server a network belongs to moves to another address
+(Settings > Move server on the old server - for example leaving a hosted server
+for your own domain or IP), `ncclient` 0.9.0+ follows it without re-enrolling:
+
+- At enrollment (or the first check-in after upgrading) each network pins its
+  server's key. Only a move statement signed with that key is ever followed.
+- When a move is announced, `ncclient networks list` and the desktop apps show
+  "Moving to ..." and the device waits: at least until the time the server set,
+  and never less than **1 hour** within the same domain or **24 hours** to another
+  domain or an IP, whatever the server says - time to notice a move nobody here
+  expected.
+- Before switching it checks that the new server holds the key whose fingerprint
+  the admin pasted, and that it knows this device (same node and network). If
+  anything doesn't check out, the device stays where it is and tries again later.
+- The previous server is kept in `settings.json` as `previous_server`.
+
+To limit this on a device, set `move_policy` in `settings.json` (it can only be
+changed by editing the file; servers and apps can't set it): `"any"` (default),
+`"same-domain"` or `"none"`.
+
+A NixOS module or Docker setup that declares `server` keeps the old address in its
+configuration after a move; that is harmless (the stored per-network server wins),
+but update it when convenient.
+
 ## Troubleshooting
 
 - **No network device (tun) created / can't ping Nebula IP**  

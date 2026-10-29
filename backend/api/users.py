@@ -23,6 +23,8 @@ from ..models import (
 from ..services.audit import get_client_ip, log_audit
 from ..theme_defaults import ALLOWED_TOKEN_KEYS, DEFAULT_THEME
 
+from .two_factor import enabled_user_ids
+
 router = APIRouter(prefix="/api/users", tags=["users"])
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
@@ -198,6 +200,7 @@ class UserResponse(BaseModel):
     system_role: str
     created_at: str
     network_count: int = 0
+    two_factor_enabled: bool = False
 
     class Config:
         from_attributes = True
@@ -217,7 +220,8 @@ async def list_users(
         select(User).where(User.is_placeholder.is_(False)).order_by(User.created_at.desc())
     )
     users = result.scalars().all()
-    
+    two_factor = await enabled_user_ids(session)
+
     responses = []
     for user in users:
         # Count networks (server-side for performance)
@@ -234,6 +238,7 @@ async def list_users(
             system_role=user.system_role,
             created_at=user.created_at.isoformat() if user.created_at else "",
             network_count=network_count,
+            two_factor_enabled=user.id in two_factor,
         ))
     
     return responses

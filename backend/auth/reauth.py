@@ -171,3 +171,15 @@ def decode_reauth_token(token: str) -> Optional[dict]:
         return payload
     except Exception:
         return None
+
+
+async def require_reauth(user_sub: str, reauth_token: Optional[str], session: AsyncSession) -> None:
+    """For critical actions: a fresh step-up reauth by this user, used once. Raises 403."""
+    from fastapi import HTTPException, status
+
+    payload = decode_reauth_token(reauth_token or "")
+    if not payload or payload.get("sub") != user_sub:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid or expired reauthentication")
+    if not await verify_reauth(user_sub, payload.get("challenge"), session):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Reauthentication required")
+    await clear_reauth_challenge(user_sub, session)  # single use

@@ -114,6 +114,12 @@ class Node(Base):
     client_version: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)
     auto_update: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # off/install/notify
     update_available: Mapped[Optional[str]] = mapped_column(String(32), nullable=True)  # newer release the device has verified, if any
+    # Server move (backend/api/move.py), self-reported by ncclient 0.9.0+: move_ready = the
+    # device has pinned this instance's key and would follow a signed move statement.
+    move_ready: Mapped[Optional[bool]] = mapped_column(Boolean, nullable=True)
+    move_state: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)  # pending, failed, switching
+    move_state_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    move_error: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
 
     network: Mapped["Network"] = relationship("Network", back_populates="nodes")
@@ -465,3 +471,68 @@ class ReauthChallenge(Base):
     challenge: Mapped[str] = mapped_column(String(128), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     authenticated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class InstanceKey(Base):
+    """This instance's Ed25519 identity key (backend/services/instance_identity.py).
+    Devices pin its public key and only follow move statements signed with it; on the
+    instance being moved to, the same key answers the devices' move proofs. One row.
+    Never exported: an imported instance gets its own key."""
+
+    __tablename__ = "instance_keys"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # Raw 32-byte private key as encrypt_to_str() output, decrypted explicitly when signing.
+    private_key: Mapped[str] = mapped_column(Text, nullable=False)
+    public_key: Mapped[str] = mapped_column(String(64), nullable=False)  # base64 of the raw 32 bytes
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+
+class InstanceMove(Base):
+    """A move of this instance to another server (backend/api/move.py). While one is
+    active, device responses carry the signed statement and the instance is read-only."""
+
+    __tablename__ = "instance_moves"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    move_id: Mapped[str] = mapped_column(String(32), unique=True, nullable=False)
+    new_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    new_key_fp: Mapped[str] = mapped_column(String(128), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)  # the exact signed statement bytes (JSON)
+    signature: Mapped[str] = mapped_column(String(128), nullable=False)  # base64url Ed25519 signature
+    wait_hours: Mapped[int] = mapped_column(Integer, nullable=False)
+    keep_days: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    switch_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), default="active")  # active, cancelled
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class UserTotp(Base):
+    """A user's TOTP second factor (backend/api/two_factor.py). enabled stays False
+    until the user confirms a first code. Not exported: 2FA is set up again after a move."""
+
+    __tablename__ = "user_totp"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
+    # Base32 secret as encrypt_to_str() output. Not EncryptedText: its bind hook is
+    # misnamed and would store the secret in plaintext.
+    secret: Mapped[str] = mapped_column(Text, nullable=False)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_step: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # newest time step used (replay guard)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    enabled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+
+class UserRecoveryCode(Base):
+    """Single-use 2FA recovery code, stored as its SHA-256."""
+
+    __tablename__ = "user_recovery_codes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

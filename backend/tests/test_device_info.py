@@ -3,6 +3,8 @@ GET /api/device/info: the node and network a device token belongs to. ncclient 0
 uses it to name a network it was enrolled in before the enroll reply carried the
 network's name.
 """
+import base64
+
 import pytest
 import pytest_asyncio
 from fastapi import FastAPI
@@ -47,7 +49,9 @@ async def test_device_info_names_the_network(api):
     api.app.dependency_overrides[require_device_token] = lambda: 2
     r = await api.get("/api/device/info")
     assert r.status_code == 200, r.text
-    assert r.json() == {"node_id": 2, "hostname": "laptop", "network_id": 5, "network_name": "office"}
+    body = r.json()
+    assert len(base64.b64decode(body.pop("instance_key"))) == 32  # Ed25519 public key ncclient pins
+    assert body == {"node_id": 2, "hostname": "laptop", "network_id": 5, "network_name": "office"}
 
 
 @pytest.mark.asyncio
