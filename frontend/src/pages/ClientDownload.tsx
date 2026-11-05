@@ -68,7 +68,7 @@ function getDefaultPlatformTab(): PlatformTab {
 
 const DOCKER_COMPOSE_SNIPPET = `services:
   ncclient:
-    image: ghcr.io/nixrtr/nebula-commander-ncclient:latest
+    image: ghcr.io/nebula-commander/nebula-commander-ncclient:latest
     network_mode: host
     cap_add:
       - NET_ADMIN
@@ -127,7 +127,7 @@ export function ClientDownload() {
           <Card className="mt-4">
             <h2 className="text-xl font-bold mb-4">Run ncclient in Docker</h2>
             <p className="text-gray-700 dark:text-gray-300 mb-2">
-              Use the published image <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ghcr.io/nixrtr/nebula-commander-ncclient:latest</code> to enroll and run a Nebula client inside a container. Replace <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;YOUR_SERVER&gt;</code> with your Nebula Commander URL and <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;ENROLL_CODE&gt;</code> with the code from the Nodes page.
+              Use the published image <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">ghcr.io/nebula-commander/nebula-commander-ncclient:latest</code> to enroll and run a Nebula client inside a container. Replace <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;YOUR_SERVER&gt;</code> with your Nebula Commander URL and <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">&lt;ENROLL_CODE&gt;</code> with the code from the Nodes page.
             </p>
             <p className="text-gray-700 dark:text-gray-300 mb-2">
               Example <code className="bg-gray-200 dark:bg-gray-700 px-1 rounded">docker-compose.yml</code>:

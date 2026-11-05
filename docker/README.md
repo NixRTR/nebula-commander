@@ -40,14 +40,14 @@ docker compose up -d
 ## Images
 
 ### Backend
-- **Image**: `ghcr.io/nixrtr/nebula-commander-backend:latest`
+- **Image**: `ghcr.io/nebula-commander/nebula-commander-backend:latest`
 - **Base**: Python 3.13-slim
 - **Includes**: FastAPI, SQLAlchemy, nebula-cert binary
 - **Port**: 8081
 - **Platforms**: linux/amd64, linux/arm64
 
 ### Frontend
-- **Image**: `ghcr.io/nixrtr/nebula-commander-frontend:latest`
+- **Image**: `ghcr.io/nebula-commander/nebula-commander-frontend:latest`
 - **Base**: nginx:alpine
 - **Includes**: React SPA, nginx reverse proxy
 - **Port**: 80
@@ -561,10 +561,10 @@ docker run --rm \
 Images are automatically built and tagged by GitHub Actions:
 
 ### Version Tags (on release)
-- `v1.2.3` → `ghcr.io/nixrtr/nebula-commander-backend:1.2.3`
-- `v1.2.3` → `ghcr.io/nixrtr/nebula-commander-backend:1.2`
-- `v1.2.3` → `ghcr.io/nixrtr/nebula-commander-backend:1`
-- `v1.2.3` → `ghcr.io/nixrtr/nebula-commander-backend:latest`
+- `v1.2.3` → `ghcr.io/nebula-commander/nebula-commander-backend:1.2.3`
+- `v1.2.3` → `ghcr.io/nebula-commander/nebula-commander-backend:1.2`
+- `v1.2.3` → `ghcr.io/nebula-commander/nebula-commander-backend:1`
+- `v1.2.3` → `ghcr.io/nebula-commander/nebula-commander-backend:latest`
 
 ## Pulling Images
 
@@ -572,12 +572,12 @@ Images are public and can be pulled without authentication:
 
 ```bash
 # Latest version
-docker pull ghcr.io/nixrtr/nebula-commander-backend:latest
-docker pull ghcr.io/nixrtr/nebula-commander-frontend:latest
+docker pull ghcr.io/nebula-commander/nebula-commander-backend:latest
+docker pull ghcr.io/nebula-commander/nebula-commander-frontend:latest
 
 # Specific version
-docker pull ghcr.io/nixrtr/nebula-commander-backend:1.2.3
-docker pull ghcr.io/nixrtr/nebula-commander-frontend:1.2.3
+docker pull ghcr.io/nebula-commander/nebula-commander-backend:1.2.3
+docker pull ghcr.io/nebula-commander/nebula-commander-frontend:1.2.3
 ```
 
 ## Multi-Architecture Support
@@ -606,7 +606,7 @@ Requires Docker Buildx:
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   -f docker/backend/Dockerfile \
-  -t ghcr.io/nixrtr/nebula-commander-backend:latest \
+  -t ghcr.io/nebula-commander/nebula-commander-backend:latest \
   --push \
   .
 
@@ -614,7 +614,7 @@ docker buildx build \
 docker buildx build \
   --platform linux/amd64,linux/arm64 \
   -f docker/frontend/Dockerfile \
-  -t ghcr.io/nixrtr/nebula-commander-frontend:latest \
+  -t ghcr.io/nebula-commander/nebula-commander-frontend:latest \
   --push \
   .
 ```
@@ -641,7 +641,7 @@ Images are automatically built and pushed by GitHub Actions:
 ### Images Not Pulling
 
 If you get permission errors, the images might be private. Make sure they're set to public in GitHub:
-1. Go to https://github.com/orgs/NixRTR/packages
+1. Go to https://github.com/orgs/nebula-commander/packages
 2. Find the package
 3. Click "Package settings"
 4. Change visibility to "Public"
@@ -688,7 +688,7 @@ docker run -it --rm \
   -v $(pwd):/app \
   -p 8081:8081 \
   -e DEBUG=true \
-  ghcr.io/nixrtr/nebula-commander-backend:latest \
+  ghcr.io/nebula-commander/nebula-commander-backend:latest \
   uvicorn backend.main:app --reload --host 0.0.0.0 --port 8081
 ```
 
@@ -755,6 +755,6 @@ curl http://localhost/health
 
 ## Support
 
-- Documentation: https://github.com/NixRTR/nebula-commander
-- Issues: https://github.com/NixRTR/nebula-commander/issues
-- Docker Hub: https://github.com/orgs/NixRTR/packages
+- Documentation: https://github.com/nebula-commander/nebula-commander
+- Issues: https://github.com/nebula-commander/nebula-commander/issues
+- Docker Hub: https://github.com/orgs/nebula-commander/packages

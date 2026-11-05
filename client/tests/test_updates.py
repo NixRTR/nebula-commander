@@ -12,7 +12,7 @@ from client import updates
 from client.updates import UpdateError
 
 SHA = "a" * 64
-URL = "https://github.com/NixRTR/nebula-commander/releases/download/v0.7.1/NebulaCommander-0.7.1.msi"
+URL = "https://github.com/nebula-commander/nebula-commander/releases/download/v0.7.1/NebulaCommander-0.7.1.msi"
 
 
 def _keypair():
@@ -79,9 +79,9 @@ def test_garbage_signature_rejected():
 
 @pytest.mark.parametrize("url", [
     "https://evil.example.com/NebulaCommander.msi",
-    "http://github.com/NixRTR/nebula-commander/releases/download/v0.7.1/x.msi",
-    "https://github.com/NixRTR/nebula-commander-evil/releases/download/v0.7.1/x.msi",
-    "https://github.com/NixRTR/nebula-commander/releases/download/../../other/x.msi",
+    "http://github.com/nebula-commander/nebula-commander/releases/download/v0.7.1/x.msi",
+    "https://github.com/nebula-commander/nebula-commander-evil/releases/download/v0.7.1/x.msi",
+    "https://github.com/nebula-commander/nebula-commander/releases/download/../../other/x.msi",
 ])
 def test_signed_manifest_with_foreign_asset_url_rejected(url):
     priv, pub = _keypair()
@@ -161,7 +161,7 @@ def test_evaluate_nixos_by_commit():
 def test_nixos_instructions_name_the_tag():
     cmds = updates.nixos_update_commands({"tag": "v0.7.1"})
     assert "sudo nixos-rebuild switch" in cmds
-    assert any("github:NixRTR/nebula-commander/v0.7.1" in c for c in cmds)
+    assert any("github:nebula-commander/nebula-commander/v0.7.1" in c for c in cmds)
 
 
 # --- settings / mode -----------------------------------------------------------------

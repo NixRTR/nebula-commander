@@ -1,19 +1,19 @@
 # Nebula Commander
 
-[![Release](https://img.shields.io/github/v/release/NixRTR/nebula-commander?include_prereleases=&sort=semver)](https://github.com/NixRTR/nebula-commander/releases)
+[![Release](https://img.shields.io/github/v/release/nebula-commander/nebula-commander?include_prereleases=&sort=semver)](https://github.com/nebula-commander/nebula-commander/releases)
 [![Static Badge](https://img.shields.io/badge/documentation-nebulacommander.com-blue)](https://nebulacommander.com)
 [![Static Badge](https://img.shields.io/badge/[matrix]-support-blue)](https://matrix.to/#/#nebula-commander-support:matrix.org)
 [![Static Badge](https://img.shields.io/badge/[matrix]-development-blue)](https://matrix.to/#/#nebula-development-support:matrix.org)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Linux%20x86_64)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Linux%20arm64)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows%20App)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=Windows%20Installer)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=MacOS%20Intel)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-ncclient-binaries.yml?label=MacOS%20arm64)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-docker-images.yml?label=Backend)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-docker-images.yml?label=Frontend)
-![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/NixRTR/nebula-commander/build-docker-images.yml?label=Keycloak)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-ncclient-binaries.yml?label=Linux%20x86_64)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-ncclient-binaries.yml?label=Linux%20arm64)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-ncclient-binaries.yml?label=Windows)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-ncclient-binaries.yml?label=Windows%20App)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-ncclient-binaries.yml?label=Windows%20Installer)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-ncclient-binaries.yml?label=MacOS%20Intel)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-ncclient-binaries.yml?label=MacOS%20arm64)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-docker-images.yml?label=Backend)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-docker-images.yml?label=Frontend)
+![GitHub Actions Workflow Status](https://img.shields.io/github/actions/workflow/status/nebula-commander/nebula-commander/build-docker-images.yml?label=Keycloak)
 
 ---
 
@@ -86,7 +86,7 @@
 
 #### Docker Compose (recommended)
 
-Pre-built images are published to [GitHub Container Registry](https://github.com/orgs/NixRTR/packages). Full details: [docker/README.md](docker/README.md).
+Pre-built images are published to [GitHub Container Registry](https://github.com/orgs/nebula-commander/packages). Full details: [docker/README.md](docker/README.md).
 
 ```bash
 cd docker

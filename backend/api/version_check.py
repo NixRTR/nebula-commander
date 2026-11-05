@@ -17,7 +17,7 @@ router = APIRouter(tags=["version"])
 # "dev" outside that build. Mirrors the same env var main.py reads.
 VERSION = os.getenv("VERSION", "dev")
 
-GITHUB_RELEASES_URL = "https://api.github.com/repos/NixRTR/nebula-commander/releases/latest"
+GITHUB_RELEASES_URL = "https://api.github.com/repos/nebula-commander/nebula-commander/releases/latest"
 
 _CACHE_TTL_SUCCESS = 3600  # 1 hour
 _CACHE_TTL_FAILURE = 900  # 15 minutes - retry sooner, but still avoid hammering an

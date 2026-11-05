@@ -27,7 +27,7 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-RELEASES = "https://github.com/NixRTR/nebula-commander/releases/download"
+RELEASES = "https://github.com/nebula-commander/nebula-commander/releases/download"
 # manifest asset key -> release asset name
 ASSETS = {"windows-amd64": "NebulaCommander-windows-amd64.msi"}
 

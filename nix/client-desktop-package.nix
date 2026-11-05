@@ -85,7 +85,7 @@ pkgs.stdenv.mkDerivation {
 
   meta = {
     description = "Nebula Commander desktop app (GTK4/libadwaita)";
-    homepage = "https://github.com/NixRTR/nebula-commander";
+    homepage = "https://github.com/nebula-commander/nebula-commander";
     license = pkgs.lib.licenses.gpl3Plus;
     mainProgram = "nebula-commander-desktop";
   };

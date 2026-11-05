@@ -3,7 +3,7 @@
 # Does not install any software; only checks that Docker and Docker Compose are available.
 set -e
 
-BASE_URL="https://raw.githubusercontent.com/NixRTR/nebula-commander/main/docker"
+BASE_URL="https://raw.githubusercontent.com/nebula-commander/nebula-commander/main/docker"
 
 echo "Checking prerequisites..."
 MISSING=""

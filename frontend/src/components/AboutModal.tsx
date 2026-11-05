@@ -9,9 +9,9 @@ interface AboutModalProps {
 }
 
 const PAYPAL_DONATE_URL = "https://www.paypal.com/donate/?hosted_button_id=CHLZH2ZJXKQFU";
-const GITHUB_NIXRTR = "https://github.com/NixRTR";
-const GITHUB_NEBULA_COMMANDER = "https://github.com/NixRTR/nebula-commander";
-const GITHUB_NEBULACDR = "https://github.com/NixRTR/nebulacdr.com";
+const GITHUB_ORG = "https://github.com/nebula-commander";
+const GITHUB_NEBULA_COMMANDER = "https://github.com/nebula-commander/nebula-commander";
+const GITHUB_NEBULACDR = "https://github.com/nebula-commander/nebulacdr.com";
 const LICENSE_MIT = "https://opensource.org/licenses/MIT";
 const LICENSE_GPL3 = "https://www.gnu.org/licenses/gpl-3.0.html";
 
@@ -73,12 +73,12 @@ export function AboutModal({ show, onClose, versionCheck }: AboutModalProps) {
             <ul className="list-disc list-inside space-y-0.5">
               <li>
                 <a href={GITHUB_NEBULA_COMMANDER} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
-                  NixRTR/nebula-commander
+                  nebula-commander/nebula-commander
                 </a>
               </li>
               <li>
                 <a href={GITHUB_NEBULACDR} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
-                  NixRTR/nebulacdr.com
+                  nebula-commander/nebulacdr.com
                 </a>{" "}
                 (docs)
               </li>
@@ -91,8 +91,8 @@ export function AboutModal({ show, onClose, versionCheck }: AboutModalProps) {
           <section>
             <h4 className="font-semibold text-[var(--nc-bg2-light-contrast)] dark:text-[var(--nc-bg2-dark-contrast)] mb-1">Organization</h4>
             <p>
-              <a href={GITHUB_NIXRTR} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
-                NixRTR
+              <a href={GITHUB_ORG} target="_blank" rel="noopener noreferrer" className="text-blue-600 dark:text-blue-400 hover:underline">
+                nebula-commander
               </a>{" "}
               — Open-source networking and infrastructure projects, including Nebula Commander.
             </p>

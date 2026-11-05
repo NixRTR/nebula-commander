@@ -1,6 +1,6 @@
 services:
   ncclient:
-    image: ghcr.io/nixrtr/nebula-commander-ncclient:latest
+    image: ghcr.io/nebula-commander/nebula-commander-ncclient:latest
     build:
       context: ..
       dockerfile: docker/Dockerfile
