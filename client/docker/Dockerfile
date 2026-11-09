@@ -40,11 +40,25 @@ RUN apt-get update && apt-get install -y \
 
 # Install s6-overlay v3
 ARG S6_OVERLAY_VERSION=v3.2.2.0
+ARG TARGETARCH
 ADD https://github.com/just-containers/s6-overlay/releases/download/${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz /tmp/
-ADD https://github.com/just-containers/s6-overlay/releases/download/${S6_OVERLAY_VERSION}/s6-overlay-x86_64.tar.xz /tmp/
-RUN tar -C / -Jxpf /tmp/s6-overlay-noarch.tar.xz \
-    && tar -C / -Jxpf /tmp/s6-overlay-x86_64.tar.xz \
-    && rm -f /tmp/s6-overlay-noarch.tar.xz /tmp/s6-overlay-x86_64.tar.xz
+
+RUN set -eux; \
+    case "$TARGETARCH" in \
+      amd64) S6_ARCH="x86_64" ;; \
+      arm64) S6_ARCH="aarch64" ;; \
+      *) echo "Unsupported architecture: $TARGETARCH"; exit 1 ;; \
+    esac; \
+    echo "Downloading s6-overlay for ${S6_ARCH}"; \
+    curl -fsSL \
+      "https://github.com/just-containers/s6-overlay/releases/download/${S6_OVERLAY_VERSION}/s6-overlay-noarch.tar.xz" \
+      -o /tmp/s6-noarch.tar.xz; \
+    curl -fsSL \
+      "https://github.com/just-containers/s6-overlay/releases/download/${S6_OVERLAY_VERSION}/s6-overlay-${S6_ARCH}.tar.xz" \
+      -o /tmp/s6-arch.tar.xz; \
+    tar -C / -Jxpf /tmp/s6-noarch.tar.xz; \
+    tar -C / -Jxpf /tmp/s6-arch.tar.xz; \    
+    rm /tmp/s6-*.tar.xz
 
 # Copy ncclient binary from builder
 COPY --from=builder /app/client/binaries/dist/ncclient /usr/local/bin/ncclient
@@ -53,7 +67,7 @@ RUN chmod +x /usr/local/bin/ncclient
 # Download Nebula release (linux/amd64) from GitHub at build time
 ARG NEBULA_VERSION=1.11.1
 RUN curl -sSL -o /tmp/nebula.tar.gz \
-    "https://github.com/slackhq/nebula/releases/download/v${NEBULA_VERSION}/nebula-linux-amd64.tar.gz" \
+    "https://github.com/slackhq/nebula/releases/download/v${NEBULA_VERSION}/nebula-linux-${TARGETARCH}.tar.gz" \
     && tar -xzf /tmp/nebula.tar.gz -C /tmp \
     && NEBULA_BIN=$(find /tmp -maxdepth 2 -type f -name nebula 2>/dev/null | head -1) \
     && install -m 755 "$NEBULA_BIN" /usr/local/bin/nebula \
