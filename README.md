@@ -22,8 +22,9 @@
 ### What it does
 
 - **Networks & nodes** — Create networks, manage nodes, IP allocation, and certificates
-- **Web UI** — React dashboard with OIDC (e.g. Keycloak) or dev token authentication
-- **Device client (ncclient)** — `pip install nebula-commander` for enroll and run; see [client/README.md](client/README.md) and [ncclient documentation](https://nebulacommander.com/docs/usage/ncclient/). Windows gets a native windowed app ([client/windows-app/](client/windows-app/README.md)) alongside the CLI.
+- **Web UI** — React dashboard with OIDC (e.g. Keycloak) or dev token authentication, plus optional two-factor login
+- **Device client (ncclient)** — enroll a device once with a code, then it keeps its Nebula config and certificates up to date. Available as packages for Debian/Ubuntu/Fedora/openSUSE ([pkgs.nebulacommander.com](https://pkgs.nebulacommander.com)), a Windows installer with a native app, a Linux desktop app, a Docker image, a NixOS module, and `pip install nebula-commander`. See [client/README.md](client/README.md) and the [ncclient documentation](https://nebulacommander.com/docs/usage/ncclient/).
+- **Hosted option** — [Nebula Commander Cloud](https://cloud.nebulacdr.net/pricing) if you'd rather not run the server yourself
 
 ### Our Generous Supporters
 
@@ -34,50 +35,72 @@
 - [PayPal and Venmo](https://www.paypal.com/donate/?hosted_button_id=CHLZH2ZJXKQFU)
 - More to come
 
-### Status (as of v0.5.0)
+### Status (as of v0.9.0)
 
 **Implemented**
 
 - Networks, nodes, IP allocation, and certificate management — including automatic
   re-signing when a node's group changes, no re-enrollment needed
 - Nebula v2 certificates, with P256 as an opt-in curve
+- Revocation that actually removes a node: revoking, deleting or re-enrolling a node
+  adds its certificate to every other node's blocklist, and the device shuts itself down
 - Firewall group rules, with a visual group access diagram
 - Magic DNS: split-horizon DNS via dnsmasq (Linux/Docker) and NRPT (Windows), with
   wildcard alias support
 - Client UI via web interface — a full React dashboard for networks, nodes, groups,
   DNS, users, invitations, and the audit log, with a consistent square-card layout
   across the list pages (Networks, Nodes, Groups, Users, Home)
-- Device client (`ncclient`): CLI, a Windows service plus a native windowed app,
-  a Linux desktop app (GTK4, with `.deb`/`.rpm`/Flatpak packaging), a Docker
-  image, and a NixOS module (`services.ncclient`), plus mobile support
-  (iOS/Android via the official Mobile Nebula app)
+- Device client (`ncclient`): CLI, a Windows service plus a native windowed app
+  (MSI installer), a Linux desktop app (GTK4, with `.deb`/`.rpm`/Flatpak packaging and
+  a signed apt/rpm repository for x86_64 and arm64), a Docker image, and NixOS modules
+  (`services.ncclient`), plus mobile support (iOS/Android via the official Mobile
+  Nebula app). Changing a device's settings needs a local administrator.
+- **Several networks per device** — one device can be in several networks, each on its
+  own Nebula Commander server if needed, with its own Nebula, tunnel interface, token
+  and DNS (see [client/README.md § Several networks](client/README.md#several-networks))
+- Opt-in automatic client updates (Windows, and Linux from the package repository),
+  trusted only from a signed release manifest or the signed repository; NixOS gets
+  update notifications. See [docs/update-signing.md](docs/update-signing.md)
+- Nodes keep running from their last known config while the server is unreachable
 - Lighthouse-based peer reachability monitoring and node offline detection
 - OIDC (e.g. Keycloak) or dev-token authentication, with step-up reauth required for
   sensitive actions (deletions, revocations)
+- Two-factor login (TOTP, any authenticator app) with recovery codes, optional or
+  required for everyone (`NEBULA_COMMANDER_REQUIRE_MFA=true`)
 - Audit logging, an invitation system, and multi-user management
 - Encryption at rest for certificates and keys
+- **Backup & export** — download a whole instance as one passphrase-encrypted
+  ([age](https://age-encryption.org)) file and import it into a fresh instance;
+  devices keep working without re-enrolling
+- **Server moves** — move an instance to a new address (subdomain, your own domain,
+  your own server or an IP) and every enrolled device switches over on its own, after
+  verifying a move signed by its own server. This is also the way from Nebula
+  Commander Cloud to self-hosting. See the [move guide](https://nebulacdr.com/docs/web-ui/move/)
 - Subnet routers and exit nodes (Nebula's `unsafe_routes`), opt-in per consumer
   node and enforced at the Nebula firewall level (not just config distribution) —
-  configurable from either side: a gateway's "Used by" picker, or a simple "Use
-  Subnet Router"/"Use Exit Node" dropdown on any other node. A device still has to
-  locally accept a route before it's used (`ncclient routes accept`, or
-  interactively in the Windows app), the same way DNS has its own local
+  configurable from either side: a gateway's "Used by" picker (groups or individual
+  hosts), or a simple "Use Subnet Router"/"Use Exit Node" dropdown on any other node.
+  A device still has to locally accept a route before it's used (`ncclient routes
+  accept`, or interactively in the desktop apps), the same way DNS has its own local
   `--accept-dns` opt-in on top of being enabled for the network. On Linux nodes
   running `ncclient` it also discovers advertisable local subnets
   (ethernet/Wi-Fi/Tailscale/other Nebula interfaces) and automatically configures
-  host-level IP forwarding and NAT. See
+  host-level IP forwarding and NAT (including Docker's `DOCKER-USER` rules). Exit nodes
+  work over the internet on Linux and Windows clients, with a kill switch and an
+  "Allow local network access" toggle. See
   [docs/unsafe-routes.md](docs/unsafe-routes.md) for how it works, including hosts
   that don't run `ncclient`
-- Per-node public endpoint, listen port and additional reachable addresses (port
-  forwards, second uplinks, several nodes behind one NAT) — see
+- Per-node public endpoint (on any node, not just lighthouses), additional endpoints,
+  listen port and additional reachable addresses (port forwards, second uplinks,
+  several nodes behind one NAT) — see
   [docs/reachable-addresses.md](docs/reachable-addresses.md)
 - Per-account color theming — every user can customize button, status, badge, and
   background colors independently for light and dark mode, and save named presets
 
 **Planned**
 
-- Automatic host-level route/NAT configuration for subnet routers and exit nodes on
-  Windows and Docker-deployed nodes
+- Automatic host-level route/NAT configuration for subnet routers and exit gateways on
+  Windows and macOS nodes
 - Continued client hardening as real-world deployments surface edge cases
 
 ---
@@ -104,7 +127,13 @@ entirely, see [docker/README.md § Using External OIDC Provider](docker/README.m
 
 #### NixOS (experimental)
 
-Import the module and enable the service. See [nix/module.nix](nix/module.nix) for options and [Server Installation: NixOS](https://nebulacommander.com/docs/installation/nixos/) for more detail.
+Add the flake as an input, import the module and enable the service. See [nix/module.nix](nix/module.nix) for options and [Server Installation: NixOS](https://nebulacommander.com/docs/installation/nixos/) for more detail.
+
+```nix
+# flake.nix
+inputs.nebula-commander.url = "github:nebula-commander/nebula-commander";
+# ...and add nebula-commander.nixosModules.default to your nixosSystem modules
+```
 
 ```nix
 services.nebula-commander.enable = true;
@@ -112,8 +141,9 @@ services.nebula-commander.enable = true;
 # Optional: services.nebula-commander.debug = false;
 ```
 
-A `services.ncclient` module is also available for running the device client
-([ncclient](client/README.md)) declaratively on NixOS. See
+A `services.ncclient` module (`nebula-commander.nixosModules.client`) is also available
+for running the device client ([ncclient](client/README.md)) declaratively on NixOS, and
+`nixosModules.client-desktop` adds the Linux desktop app. See
 [nix/client-module.nix](nix/client-module.nix) for options.
 
 ```nix
@@ -122,6 +152,11 @@ services.ncclient.server = "https://nebula.example.com";
 # One-time enrollment: a file holding the enrollment code, consumed once and
 # then no longer needed (e.g. managed by sops-nix).
 services.ncclient.enrollCodeFile = "/run/secrets/ncclient-enroll-code";
+# Or several networks:
+# services.ncclient.networks.customer = {
+#   server = "https://nc.customer.example";
+#   enrollCodeFile = "/run/secrets/ncclient-customer-code";
+# };
 ```
 
 ### Reverse proxy
@@ -182,8 +217,8 @@ Open http://localhost:5173 (dev token when backend is in debug mode). See [Devel
 - **HTTPS** — Serve via a reverse proxy with TLS; set `NEBULA_COMMANDER_PUBLIC_URL` to your public URL.
 - **OIDC** — Use Keycloak (or another OIDC provider) instead of dev tokens; configure `OIDC_ISSUER_URL`, `OIDC_CLIENT_ID`, and client secret.
 - **CORS** — Set `NEBULA_COMMANDER_CORS_ORIGINS` to your front-end origin(s).
-- **Backups** — Back up the data volume (SQLite and cert store) regularly. See [docker/README.md § Data Persistence](docker/README.md#data-persistence).
-- **Upgrades** — For encryption-at-rest migration from older deployments, see [notes/SECURITY_UPGRADES.md](notes/SECURITY_UPGRADES.md).
+- **Two-factor login** — Turn it on under **Security**, or require it for everyone with `NEBULA_COMMANDER_REQUIRE_MFA=true`. It is required for server moves.
+- **Backups** — Back up the data volume (SQLite and cert store) regularly (see [docker/README.md § Data Persistence](docker/README.md#data-persistence)), and/or use **Backup & export** for an encrypted, portable copy of the whole instance.
 
 ---
 
@@ -193,11 +228,11 @@ Env prefix: `NEBULA_COMMANDER_`. Key options: `DATABASE_URL`, `CERT_STORE_PATH`,
 
 ### API
 
-Base path `/api`. OpenAPI at `/api/docs` when the backend is running.
+Base path `/api`. Interactive docs at `/api/docs` and `/api/redoc` (schema at `/api/openapi.json`) when the backend is running; set `NEBULA_COMMANDER_API_DOCS_ENABLED=false` to turn them off.
 
 ### Contributing
 
-Contributions welcome; prefer small, focused PRs.
+Contributions welcome at [github.com/nebula-commander/nebula-commander](https://github.com/nebula-commander/nebula-commander); prefer small, focused PRs. Questions and development chat are on Matrix (links at the top).
 
 ### License
 
