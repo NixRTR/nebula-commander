@@ -75,7 +75,7 @@ pkgs.python313.pkgs.buildPythonApplication {
 
   meta = {
     description = "Nebula Commander device client (ncclient)";
-    homepage = "https://github.com/NixRTR/nebula-commander";
+    homepage = "https://github.com/nebula-commander/nebula-commander";
     license = pkgs.lib.licenses.gpl3Plus;
     mainProgram = "ncclient";
   };

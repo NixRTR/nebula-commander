@@ -6,7 +6,7 @@ Architecture: all
 Depends: python3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, python3-jeepney, dbus
 Recommends: nebula-commander-service
 Maintainer: NixRTR <noreply@nixrtr.dev>
-Homepage: https://github.com/NixRTR/nebula-commander
+Homepage: https://github.com/nebula-commander/nebula-commander
 Description: Nebula Commander desktop app (GTK4/libadwaita)
  GTK4 + libadwaita GUI for enrolling this device, viewing connection
  status, and choosing which offered subnet routes/exit node to accept.

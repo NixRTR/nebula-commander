@@ -4,7 +4,7 @@ Section: net
 Priority: optional
 Architecture: @ARCH@
 Maintainer: NixRTR <noreply@nixrtr.dev>
-Homepage: https://github.com/NixRTR/nebula-commander
+Homepage: https://github.com/nebula-commander/nebula-commander
 Description: Nebula Commander device client (ncclient) CLI
  Standalone, self-contained ncclient CLI binary (PyInstaller-frozen, no
  Python runtime dependency): enroll a device with a one-time code, then

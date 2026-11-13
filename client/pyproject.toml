@@ -45,9 +45,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/NixRTR/nebula-commander"
-Documentation = "https://github.com/NixRTR/nebula-commander/blob/main/client/README.md"
-Repository = "https://github.com/NixRTR/nebula-commander"
+Homepage = "https://github.com/nebula-commander/nebula-commander"
+Documentation = "https://github.com/nebula-commander/nebula-commander/blob/main/client/README.md"
+Repository = "https://github.com/nebula-commander/nebula-commander"
 
 [project.scripts]
 ncclient = "client.ncclient:main"

@@ -20,7 +20,7 @@
 -->
 <policyconfig>
   <vendor>NixRTR</vendor>
-  <vendor_url>https://github.com/NixRTR/nebula-commander</vendor_url>
+  <vendor_url>https://github.com/nebula-commander/nebula-commander</vendor_url>
 
   <action id="org.beardedtek.NebulaCommander1.read">
     <description>Read Nebula Commander device status</description>

@@ -18,7 +18,7 @@ Version: %{_version}
 Release: 1%{?dist}
 Summary: Nebula Commander device client (ncclient) CLI
 License: GPL-3.0-or-later
-URL: https://github.com/NixRTR/nebula-commander
+URL: https://github.com/nebula-commander/nebula-commander
 
 %description
 Standalone, self-contained ncclient CLI binary (PyInstaller-frozen, no
@@ -37,4 +37,4 @@ cp -a %{_stage_dir}/. %{buildroot}/
 
 %changelog
 * Mon Jan 01 2024 NixRTR <noreply@nixrtr.dev> - 0.0.0-1
-- See https://github.com/NixRTR/nebula-commander/releases for release notes.
+- See https://github.com/nebula-commander/nebula-commander/releases for release notes.

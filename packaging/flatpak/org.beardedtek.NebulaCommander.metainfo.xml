@@ -25,8 +25,8 @@
       <image>https://js.beardedtek.org/nebula-commander/status.png</image>
     </screenshot>
   </screenshots>
-  <url type="homepage">https://github.com/NixRTR/nebula-commander</url>
-  <url type="bugtracker">https://github.com/NixRTR/nebula-commander/issues</url>
+  <url type="homepage">https://github.com/nebula-commander/nebula-commander</url>
+  <url type="bugtracker">https://github.com/nebula-commander/nebula-commander/issues</url>
   <content_rating type="oars-1.1" />
   <releases>
     <release version="0.5.2" date="2026-09-22" />

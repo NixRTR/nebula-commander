@@ -13,9 +13,9 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  BACKEND_IMAGE_NAME: nixrtr/nebula-commander-backend
-  FRONTEND_IMAGE_NAME: nixrtr/nebula-commander-frontend
-  NCCLIENT_IMAGE_NAME: nixrtr/nebula-commander-ncclient
+  BACKEND_IMAGE_NAME: nebula-commander/nebula-commander-backend
+  FRONTEND_IMAGE_NAME: nebula-commander/nebula-commander-frontend
+  NCCLIENT_IMAGE_NAME: nebula-commander/nebula-commander-ncclient
 
 jobs:
   get-version:
@@ -209,6 +209,6 @@ jobs:
           echo "Version: ${{ needs.get-version.outputs.version }}"
           echo ""
           echo "Available at:"
-          echo "  - ghcr.io/nixrtr/nebula-commander-backend:${{ needs.get-version.outputs.version }}"
-          echo "  - ghcr.io/nixrtr/nebula-commander-frontend:${{ needs.get-version.outputs.version }}"
-          echo "  - ghcr.io/nixrtr/nebula-commander-ncclient:${{ needs.get-version.outputs.version }}"
+          echo "  - ghcr.io/nebula-commander/nebula-commander-backend:${{ needs.get-version.outputs.version }}"
+          echo "  - ghcr.io/nebula-commander/nebula-commander-frontend:${{ needs.get-version.outputs.version }}"
+          echo "  - ghcr.io/nebula-commander/nebula-commander-ncclient:${{ needs.get-version.outputs.version }}"

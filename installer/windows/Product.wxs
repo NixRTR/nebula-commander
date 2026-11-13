@@ -17,7 +17,7 @@
     <SummaryInformation Codepage="1252" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of Nebula Commander is already installed." />
     <Media Id="1" Cabinet="NebulaCommander.cab" EmbedCab="yes" />
-    <Property Id="ARPHELPLINK" Value="https://github.com/NixRTR/nebula-commander" />
+    <Property Id="ARPHELPLINK" Value="https://github.com/nebula-commander/nebula-commander" />
     <Property Id="ARPPRODUCTICON" Value="NcclientExe" />
     <Icon Id="NcclientExe" SourceFile="redist\ncclient.exe" />
 

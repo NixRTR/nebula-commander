@@ -5,7 +5,7 @@ Priority: optional
 Architecture: all
 Depends: nebula-commander-client (= @VERSION@), nebula, polkitd | policykit-1, dbus
 Maintainer: NixRTR <noreply@nixrtr.dev>
-Homepage: https://github.com/NixRTR/nebula-commander
+Homepage: https://github.com/nebula-commander/nebula-commander
 Description: Nebula Commander device client systemd service
  Runs ncclient as a systemd service (ncclient.service) as root, polling the
  Nebula Commander server for config/certs and driving the Nebula binary.

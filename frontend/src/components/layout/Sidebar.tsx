@@ -235,7 +235,7 @@ export function Sidebar({ onLogout, isOpen, onClose }: SidebarProps) {
                 Matrix Space
               </FlowbiteSidebar.Item>
               <FlowbiteSidebar.Item
-                href="https://github.com/NixRTR/nebula-commander"
+                href="https://github.com/nebula-commander/nebula-commander"
                 target="_blank"
                 rel="noopener noreferrer"
                 icon={FaGithub}

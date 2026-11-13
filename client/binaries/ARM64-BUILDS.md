@@ -226,16 +226,16 @@ ARM64 binaries are similar in size to x86_64:
 ```markdown
 ## ARM64 Binaries
 
-- [Linux ARM64](https://github.com/NixRTR/nebula-commander/releases/latest/download/ncclient-linux-arm64)
-- [Windows ARM64](https://github.com/NixRTR/nebula-commander/releases/latest/download/ncclient-windows-arm64.exe)
-- [macOS ARM64](https://github.com/NixRTR/nebula-commander/releases/latest/download/ncclient-macos-arm64)
+- [Linux ARM64](https://github.com/nebula-commander/nebula-commander/releases/latest/download/ncclient-linux-arm64)
+- [Windows ARM64](https://github.com/nebula-commander/nebula-commander/releases/latest/download/ncclient-windows-arm64.exe)
+- [macOS ARM64](https://github.com/nebula-commander/nebula-commander/releases/latest/download/ncclient-macos-arm64)
 ```
 
 ### Installation Instructions
 
 **Linux ARM64:**
 ```bash
-wget https://github.com/NixRTR/nebula-commander/releases/latest/download/ncclient-linux-arm64
+wget https://github.com/nebula-commander/nebula-commander/releases/latest/download/ncclient-linux-arm64
 chmod +x ncclient-linux-arm64
 sudo mv ncclient-linux-arm64 /usr/local/bin/ncclient
 ```
@@ -249,7 +249,7 @@ sudo mv ncclient-linux-arm64 /usr/local/bin/ncclient
 
 **macOS ARM64:**
 ```bash
-curl -L -o ncclient https://github.com/NixRTR/nebula-commander/releases/latest/download/ncclient-macos-arm64
+curl -L -o ncclient https://github.com/nebula-commander/nebula-commander/releases/latest/download/ncclient-macos-arm64
 chmod +x ncclient
 sudo mv ncclient /usr/local/bin/
 ```

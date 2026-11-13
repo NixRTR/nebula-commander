@@ -63,7 +63,7 @@ __all__ = [
 MANIFEST_URL = "https://pkgs.nebulacommander.com/updates/latest.json"
 # Every asset URL in the manifest must start with this - even a validly signed
 # manifest can't point the updater anywhere else.
-ALLOWED_ASSET_PREFIX = "https://github.com/NixRTR/nebula-commander/releases/download/"
+ALLOWED_ASSET_PREFIX = "https://github.com/nebula-commander/nebula-commander/releases/download/"
 SETTINGS_KEY = "auto_update"
 DEFAULT_SETTINGS = {"enabled": False, "window_start": "02:00", "window_end": "05:00"}
 SUPPORTED_KINDS = ("windows", "package", "nixos")
@@ -288,7 +288,7 @@ def nixos_update_commands(manifest_or_tag: "dict | str") -> "list[str]":
     tag = manifest_or_tag.get("tag") if isinstance(manifest_or_tag, dict) else manifest_or_tag
     return [
         "nix flake update nebula-commander",
-        f"# or, if your flake pins a release: github:NixRTR/nebula-commander/{tag}",
+        f"# or, if your flake pins a release: github:nebula-commander/nebula-commander/{tag}",
         "sudo nixos-rebuild switch",
     ]
 

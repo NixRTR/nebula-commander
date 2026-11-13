@@ -1,14 +1,19 @@
 name: Publish Package Repository
 
-# Rebuilds the signed apt + rpm repository at https://pkgs.nebulacommander.com
-# (GitHub Pages) from the .deb/.rpm assets of the newest stable GitHub Releases,
-# after each successful tagged release build. The repo has no state of its own:
-# every run regenerates it from the Releases (packaging/repo/build_repo.py), so
+# Rebuilds the signed apt + rpm repository served at https://pkgs.nebulacommander.com
+# from the .deb/.rpm assets of the newest stable GitHub Releases, after each
+# successful tagged release build. The repo has no state of its own: every run
+# regenerates it from the Releases (packaging/repo/build_repo.py), so
 # workflow_dispatch can rebuild or re-sign it at any time.
 #
+# The site is published as an nginx image (packaging/repo/nginx/), tagged with the
+# newest release's version and `latest`:
+#   ghcr.io/nebula-commander/pkgs
+# The Cloud server behind pkgs.nebulacommander.com runs `latest` and Watchtower
+# picks up each new image (nebula-commander-cloud: deploy/pkgs/).
+#
 # Needs repository secrets PACKAGE_SIGNING_KEY (armored private key) and
-# PACKAGE_SIGNING_KEY_PASSPHRASE, and Pages set to "GitHub Actions" with the
-# custom domain pkgs.nebulacommander.com.
+# PACKAGE_SIGNING_KEY_PASSPHRASE.
 #
 # Also publishes the signed client auto-update manifest (updates/latest.json +
 # .sig, see client/updates.py) for the newest stable release, signed with the
@@ -24,12 +29,14 @@ permissions:
   contents: read
 
 concurrency:
-  group: pages
+  group: package-repo
   cancel-in-progress: false
 
 env:
   # How many releases (that ship Linux packages) to keep in the repo.
   KEEP_RELEASES: 5
+  REGISTRY: ghcr.io
+  PKGS_IMAGE_NAME: nebula-commander/pkgs
 
 jobs:
   gate:
@@ -67,6 +74,9 @@ jobs:
     needs: gate
     if: needs.gate.outputs.publish == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -136,25 +146,54 @@ jobs:
           python3 packaging/repo/build_update_manifest.py --tag "$TAG" --sums sums/SHA256SUMS.txt             --released "$RELEASED" --output site/updates
           cat site/updates/latest.json
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
+      - name: Stage image context
+        id: image
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir image
+          cp packaging/repo/nginx/Dockerfile packaging/repo/nginx/default.conf image/
+          mv site image/site
+          TAG=$(gh release list --exclude-pre-releases --exclude-drafts --limit 1 --json tagName --jq '.[0].tagName')
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Smoke-test the image
+        run: |
+          docker build -t pkgs-test image
+          docker run -d --name pkgs-test -p 8080:80 pkgs-test
+          for i in $(seq 1 20); do curl -fs http://127.0.0.1:8080/healthz >/dev/null && break; sleep 1; done
+          for path in / /gpg.key /deb/dists/stable/InRelease /rpm/repodata/repomd.xml.asc; do
+            curl -fsS -o /dev/null "http://127.0.0.1:8080$path" || { echo "::error::$path not served"; docker logs pkgs-test; exit 1; }
+          done
+          if [ -f image/site/updates/latest.json ]; then
+            curl -fsS http://127.0.0.1:8080/updates/latest.json
+          fi
+          docker rm -f pkgs-test
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
         with:
-          path: site
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - name: Deploy
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Extract metadata (tags, labels)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.PKGS_IMAGE_NAME }}
+          tags: |
+            type=raw,value=${{ steps.image.outputs.version }}
+            type=raw,value=latest
+
+      - name: Build and push package repository image
+        uses: docker/build-push-action@v5
+        with:
+          context: image
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64,linux/arm64

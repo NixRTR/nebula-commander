@@ -41,5 +41,5 @@ immediately: clients that haven't updated yet still trust it until they do.
 The manifest names the version, release tag, commit, and each installer's URL and
 SHA-256. The client refuses a manifest with a bad signature, a version that isn't
 newer, or an installer URL outside
-`https://github.com/NixRTR/nebula-commander/releases/download/`, and refuses an
+`https://github.com/nebula-commander/nebula-commander/releases/download/`, and refuses an
 installer whose SHA-256 doesn't match. The Windows MSI itself isn't code-signed yet.

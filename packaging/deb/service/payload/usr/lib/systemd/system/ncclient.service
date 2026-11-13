@@ -1,6 +1,6 @@
 [Unit]
 Description=Nebula Commander device client (ncclient)
-Documentation=https://github.com/NixRTR/nebula-commander
+Documentation=https://github.com/nebula-commander/nebula-commander
 After=network-online.target
 Wants=network-online.target
 
